@@ -70,6 +70,25 @@ struct GeneralSettingsView: View {
                             }
                         }
                     }
+                    
+                    Divider()
+                    
+                    // Device override toggles
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Device Detection Override")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                        
+                        Toggle("Assume external mouse is connected", isOn: $settings.assumeExternalMouse)
+                            .font(.callout)
+                        
+                        Toggle("Assume external keyboard is connected", isOn: $settings.assumeExternalKeyboard)
+                            .font(.callout)
+                        
+                        Text("Enable these if your Bluetooth mouse or keyboard isn't being detected automatically.")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.vertical, 4)

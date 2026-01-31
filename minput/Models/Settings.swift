@@ -50,6 +50,18 @@ class Settings {
         set { UserDefaults.standard.set(newValue, forKey: "dragThreshold") }
     }
     
+    /// Override device detection - assume external mouse is always connected
+    var assumeExternalMouse: Bool {
+        get { UserDefaults.standard.bool(forKey: "assumeExternalMouse") }
+        set { UserDefaults.standard.set(newValue, forKey: "assumeExternalMouse") }
+    }
+    
+    /// Override device detection - assume external keyboard is always connected
+    var assumeExternalKeyboard: Bool {
+        get { UserDefaults.standard.bool(forKey: "assumeExternalKeyboard") }
+        set { UserDefaults.standard.set(newValue, forKey: "assumeExternalKeyboard") }
+    }
+    
     // MARK: - Initialization
     
     private init() {

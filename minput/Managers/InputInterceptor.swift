@@ -144,18 +144,24 @@ class InputInterceptor {
     private func handleScrollEvent(_ event: CGEvent) -> CGEvent? {
         guard let settings = settings else { return event }
         
-        // Check if external mouse is connected and scroll reversal is enabled
+        // Check if scroll reversal is enabled and external mouse is connected (or assumed)
         let shouldReverse = onMain {
-            settings.reverseScrollEnabled && (deviceManager?.externalMouseConnected ?? false)
+            settings.reverseScrollEnabled && (settings.assumeExternalMouse || (deviceManager?.externalMouseConnected ?? false))
         }
         
         guard shouldReverse else { return event }
         
         // Check if this is a continuous (trackpad) or discrete (mouse wheel) scroll
+        // Note: Many modern mice (especially Logitech) report as continuous scroll
+        // We use momentumPhase to distinguish trackpad momentum from mouse scroll
         let isContinuous = event.getIntegerValueField(.scrollWheelEventIsContinuous) != 0
+        let momentumPhase = event.getIntegerValueField(.scrollWheelEventMomentumPhase)
         
-        // Only reverse discrete scrolling (mouse wheel), not trackpad
-        guard !isContinuous else { return event }
+        // Only skip if this is trackpad momentum scrolling (momentumPhase != 0)
+        // Regular mouse scroll (even continuous) has momentumPhase == 0
+        if isContinuous && momentumPhase != 0 {
+            return event
+        }
         
         // Reverse both axes
         let deltaY = event.getIntegerValueField(.scrollWheelEventDeltaAxis1)
@@ -170,6 +176,13 @@ class InputInterceptor {
         
         event.setDoubleValueField(.scrollWheelEventFixedPtDeltaAxis1, value: -pixelDeltaY)
         event.setDoubleValueField(.scrollWheelEventFixedPtDeltaAxis2, value: -pixelDeltaX)
+        
+        // Reverse point deltas too (used by some apps)
+        let pointDeltaY = event.getDoubleValueField(.scrollWheelEventPointDeltaAxis1)
+        let pointDeltaX = event.getDoubleValueField(.scrollWheelEventPointDeltaAxis2)
+        
+        event.setDoubleValueField(.scrollWheelEventPointDeltaAxis1, value: -pointDeltaY)
+        event.setDoubleValueField(.scrollWheelEventPointDeltaAxis2, value: -pointDeltaX)
         
         return event
     }
@@ -329,9 +342,9 @@ class InputInterceptor {
     private func handleKeyEvent(_ event: CGEvent, isDown: Bool) -> CGEvent? {
         let keyCode = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
         
-        // Check if external keyboard is connected
+        // Check if external keyboard is connected (or assumed)
         let (hasExternalKeyboard, isExcludedApp, action): (Bool, Bool, KeyboardAction?) = onMain {
-            let hasKeyboard = deviceManager?.externalKeyboardConnected ?? false
+            let hasKeyboard = settings?.assumeExternalKeyboard ?? false || (deviceManager?.externalKeyboardConnected ?? false)
             
             // Check if frontmost app is excluded
             var excluded = false

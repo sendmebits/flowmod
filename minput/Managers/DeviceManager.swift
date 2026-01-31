@@ -56,10 +56,15 @@ class DeviceManager {
             return
         }
         
-        // Match mice and keyboards
+        // Match mice, keyboards, and pointer devices
         let mouseMatch: [String: Any] = [
             kIOHIDDeviceUsagePageKey: kHIDPage_GenericDesktop,
             kIOHIDDeviceUsageKey: kHIDUsage_GD_Mouse
+        ]
+        
+        let pointerMatch: [String: Any] = [
+            kIOHIDDeviceUsagePageKey: kHIDPage_GenericDesktop,
+            kIOHIDDeviceUsageKey: kHIDUsage_GD_Pointer
         ]
         
         let keyboardMatch: [String: Any] = [
@@ -67,7 +72,7 @@ class DeviceManager {
             kIOHIDDeviceUsageKey: kHIDUsage_GD_Keyboard
         ]
         
-        let matchingArray = [mouseMatch, keyboardMatch] as CFArray
+        let matchingArray = [mouseMatch, pointerMatch, keyboardMatch] as CFArray
         IOHIDManagerSetDeviceMatchingMultiple(manager, matchingArray)
         
         IOHIDManagerScheduleWithRunLoop(manager, CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue)
@@ -106,7 +111,8 @@ class DeviceManager {
         let usagePage = IOHIDDeviceGetProperty(device, kIOHIDPrimaryUsagePageKey as CFString) as? Int ?? 0
         let usage = IOHIDDeviceGetProperty(device, kIOHIDPrimaryUsageKey as CFString) as? Int ?? 0
         
-        let isMouse = usagePage == kHIDPage_GenericDesktop && usage == kHIDUsage_GD_Mouse
+        // Mice can report as Mouse or Pointer usage
+        let isMouse = usagePage == kHIDPage_GenericDesktop && (usage == kHIDUsage_GD_Mouse || usage == kHIDUsage_GD_Pointer)
         let isKeyboard = usagePage == kHIDPage_GenericDesktop && usage == kHIDUsage_GD_Keyboard
         let isAppleDevice = vendorID == appleVendorID
         
