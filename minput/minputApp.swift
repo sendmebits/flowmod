@@ -6,27 +6,126 @@
 //
 
 import SwiftUI
-import SwiftData
+import AppKit
 
 @main
 struct minputApp: App {
-    var sharedModelContainer: ModelContainer = {
-        let schema = Schema([
-            Item.self,
-        ])
-        let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
-
-        do {
-            return try ModelContainer(for: schema, configurations: [modelConfiguration])
-        } catch {
-            fatalError("Could not create ModelContainer: \(error)")
-        }
-    }()
-
+    @State private var settings = Settings.shared
+    @State private var deviceManager = DeviceManager.shared
+    @State private var permissionManager = PermissionManager.shared
+    @State private var inputInterceptor = InputInterceptor.shared
+    
+    @State private var showOnboarding = false
+    
+    @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
+    
     var body: some Scene {
-        WindowGroup {
-            ContentView()
+        // Menu bar item
+        MenuBarExtra {
+            menuContent
+        } label: {
+            Image(systemName: "computermouse.fill")
         }
-        .modelContainer(sharedModelContainer)
+        .menuBarExtraStyle(.menu)
+        
+        // Settings scene
+        SwiftUI.Settings {
+            SettingsView(
+                settings: settings,
+                deviceManager: deviceManager,
+                permissionManager: permissionManager
+            )
+        }
+    }
+    
+    @ViewBuilder
+    private var menuContent: some View {
+        // Status section
+        VStack(alignment: .leading, spacing: 4) {
+            if inputInterceptor.isRunning {
+                Label("Active", systemImage: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+            } else {
+                Label("Inactive", systemImage: "xmark.circle")
+                    .foregroundStyle(.secondary)
+            }
+        }
+        
+        Divider()
+        
+        // Quick toggles
+        Toggle("Reverse Scroll", isOn: $settings.reverseScrollEnabled)
+        
+        Divider()
+        
+        // Device status
+        Menu("Devices") {
+            if deviceManager.externalMouseConnected {
+                Label("External Mouse Connected", systemImage: "computermouse")
+            } else {
+                Label("No External Mouse", systemImage: "computermouse")
+                    .foregroundStyle(.secondary)
+            }
+            
+            if deviceManager.externalKeyboardConnected {
+                Label("External Keyboard Connected", systemImage: "keyboard")
+            } else {
+                Label("No External Keyboard", systemImage: "keyboard")
+                    .foregroundStyle(.secondary)
+            }
+        }
+        
+        Divider()
+        
+        // Settings
+        SettingsLink {
+            Text("Settings...")
+        }
+        .keyboardShortcut(",", modifiers: .command)
+        
+        Divider()
+        
+        // Start/Stop
+        if inputInterceptor.isRunning {
+            Button("Pause minput") {
+                inputInterceptor.stop()
+            }
+        } else {
+            Button("Start minput") {
+                startInterceptor()
+            }
+        }
+        
+        Divider()
+        
+        Button("Quit minput") {
+            NSApplication.shared.terminate(nil)
+        }
+        .keyboardShortcut("q", modifiers: .command)
+    }
+    
+    private func startInterceptor() {
+        guard permissionManager.hasAccessibilityPermission else {
+            permissionManager.requestPermission()
+            return
+        }
+        
+        Task { @MainActor in
+            inputInterceptor.start(settings: settings, deviceManager: deviceManager)
+        }
+    }
+    
+    init() {
+        // Start the input interceptor on launch if we have permission
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            Task { @MainActor in
+                if PermissionManager.shared.hasAccessibilityPermission {
+                    InputInterceptor.shared.start(
+                        settings: Settings.shared,
+                        deviceManager: DeviceManager.shared
+                    )
+                }
+            }
+        }
     }
 }
