@@ -253,16 +253,9 @@ class InputInterceptor {
             return nil
         }
         
-        // Suppress up events for remapped buttons
+        // Always suppress up events for back/forward buttons since we handle them on mouse down
         if buttonNumber == 3 || buttonNumber == 4 {
-            let button: MouseButton = buttonNumber == 3 ? .back : .forward
-            let action: MouseAction = onMain {
-                settings?.getAction(for: button) ?? .none
-            }
-            
-            if action != .back && action != .forward {
-                return nil
-            }
+            return nil
         }
         
         return event
@@ -316,17 +309,15 @@ class InputInterceptor {
             settings?.getAction(for: button) ?? .none
         }
         
-        switch action {
-        case .back where button == .back:
-            return originalEvent  // Pass through native back
-        case .forward where button == .forward:
-            return originalEvent  // Pass through native forward
-        case .none:
-            return nil  // Suppress the event
-        default:
-            executeAction(action)
+        // For .none, suppress the event entirely
+        if action == .none {
             return nil
         }
+        
+        // Execute the action - even for .back/.forward we need to send the keyboard shortcut
+        // because macOS apps don't respond to raw mouse button 3/4 events for navigation
+        executeAction(action)
+        return nil  // Always suppress the original mouse button event
     }
     
     // MARK: - Keyboard Handling

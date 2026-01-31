@@ -22,7 +22,12 @@ struct minputApp: App {
     var body: some Scene {
         // Menu bar item
         MenuBarExtra {
-            menuContent
+            MenuBarContent(
+                settings: settings,
+                deviceManager: deviceManager,
+                permissionManager: permissionManager,
+                inputInterceptor: inputInterceptor
+            )
         } label: {
             Image(systemName: "computermouse.fill")
         }
@@ -38,8 +43,32 @@ struct minputApp: App {
         }
     }
     
-    @ViewBuilder
-    private var menuContent: some View {
+    init() {
+        // Start the input interceptor on launch if we have permission
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            Task { @MainActor in
+                if PermissionManager.shared.hasAccessibilityPermission {
+                    InputInterceptor.shared.start(
+                        settings: Settings.shared,
+                        deviceManager: DeviceManager.shared
+                    )
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Menu Bar Content View
+
+struct MenuBarContent: View {
+    @Bindable var settings: Settings
+    var deviceManager: DeviceManager
+    var permissionManager: PermissionManager
+    var inputInterceptor: InputInterceptor
+    
+    @Environment(\.openSettings) private var openSettings
+    
+    var body: some View {
         // Status section
         VStack(alignment: .leading, spacing: 4) {
             if inputInterceptor.isRunning {
@@ -78,8 +107,9 @@ struct minputApp: App {
         Divider()
         
         // Settings
-        SettingsLink {
-            Text("Settings...")
+        Button("Settings...") {
+            openSettings()
+            NSApp.activate(ignoringOtherApps: true)
         }
         .keyboardShortcut(",", modifiers: .command)
         
@@ -112,20 +142,6 @@ struct minputApp: App {
         
         Task { @MainActor in
             inputInterceptor.start(settings: settings, deviceManager: deviceManager)
-        }
-    }
-    
-    init() {
-        // Start the input interceptor on launch if we have permission
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            Task { @MainActor in
-                if PermissionManager.shared.hasAccessibilityPermission {
-                    InputInterceptor.shared.start(
-                        settings: Settings.shared,
-                        deviceManager: DeviceManager.shared
-                    )
-                }
-            }
         }
     }
 }

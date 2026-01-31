@@ -9,9 +9,8 @@ class Settings {
     static let shared = Settings()
     
     // MARK: - Scroll Settings
-    var reverseScrollEnabled: Bool {
-        get { UserDefaults.standard.bool(forKey: "reverseScrollEnabled") }
-        set { UserDefaults.standard.set(newValue, forKey: "reverseScrollEnabled") }
+    var reverseScrollEnabled: Bool = true {
+        didSet { UserDefaults.standard.set(reverseScrollEnabled, forKey: "reverseScrollEnabled") }
     }
     
     // MARK: - Mouse Button Mappings
@@ -65,9 +64,11 @@ class Settings {
     // MARK: - Initialization
     
     private init() {
-        // Initialize reverseScrollEnabled default if not set
+        // Load reverseScrollEnabled from UserDefaults (default to true if not set)
         if UserDefaults.standard.object(forKey: "reverseScrollEnabled") == nil {
-            UserDefaults.standard.set(true, forKey: "reverseScrollEnabled")
+            reverseScrollEnabled = true
+        } else {
+            reverseScrollEnabled = UserDefaults.standard.bool(forKey: "reverseScrollEnabled")
         }
         
         loadMouseButtonMappings()
