@@ -25,6 +25,17 @@ class InputInterceptor {
     
     private init() {}
     
+    // MARK: - Thread-safe Settings Access
+    
+    /// Safely execute a closure on the main thread, avoiding deadlock if already on main
+    private func onMain<T>(_ block: () -> T) -> T {
+        if Thread.isMainThread {
+            return block()
+        } else {
+            return DispatchQueue.main.sync { block() }
+        }
+    }
+    
     @MainActor
     func start(settings: Settings, deviceManager: DeviceManager) {
         guard !isRunning else { return }
@@ -134,11 +145,8 @@ class InputInterceptor {
         guard let settings = settings else { return event }
         
         // Check if external mouse is connected and scroll reversal is enabled
-        var shouldReverse = false
-        
-        // Access settings on main thread safely
-        DispatchQueue.main.sync {
-            shouldReverse = settings.reverseScrollEnabled && (deviceManager?.externalMouseConnected ?? false)
+        let shouldReverse = onMain {
+            settings.reverseScrollEnabled && (deviceManager?.externalMouseConnected ?? false)
         }
         
         guard shouldReverse else { return event }
@@ -178,9 +186,8 @@ class InputInterceptor {
             middleDragTriggered = false
             
             // Check if middle click has a mapping
-            var action: MouseAction = .middleClick
-            DispatchQueue.main.sync {
-                action = settings?.getAction(for: .middleClick) ?? .middleClick
+            let action: MouseAction = onMain {
+                settings?.getAction(for: .middleClick) ?? .middleClick
             }
             
             // If action is just middle click, pass through
@@ -220,9 +227,8 @@ class InputInterceptor {
             }
             
             // Otherwise, check middle click action
-            var action: MouseAction = .middleClick
-            DispatchQueue.main.sync {
-                action = settings?.getAction(for: .middleClick) ?? .middleClick
+            let action: MouseAction = onMain {
+                settings?.getAction(for: .middleClick) ?? .middleClick
             }
             
             if action == .middleClick {
@@ -236,10 +242,9 @@ class InputInterceptor {
         
         // Suppress up events for remapped buttons
         if buttonNumber == 3 || buttonNumber == 4 {
-            var action: MouseAction = .none
             let button: MouseButton = buttonNumber == 3 ? .back : .forward
-            DispatchQueue.main.sync {
-                action = settings?.getAction(for: button) ?? .none
+            let action: MouseAction = onMain {
+                settings?.getAction(for: button) ?? .none
             }
             
             if action != .back && action != .forward {
@@ -257,9 +262,8 @@ class InputInterceptor {
         let deltaX = currentPoint.x - middleButtonStartPoint.x
         let deltaY = currentPoint.y - middleButtonStartPoint.y
         
-        var threshold: Double = 40
-        DispatchQueue.main.sync {
-            threshold = settings?.dragThreshold ?? 40
+        let threshold: Double = onMain {
+            settings?.dragThreshold ?? 40
         }
         
         var direction: DragDirection?
@@ -282,9 +286,8 @@ class InputInterceptor {
         if let dir = direction {
             middleDragTriggered = true
             
-            var action: MouseAction = .none
-            DispatchQueue.main.sync {
-                action = settings?.getAction(for: dir) ?? .none
+            let action: MouseAction = onMain {
+                settings?.getAction(for: dir) ?? .none
             }
             
             if action != .none {
@@ -296,10 +299,8 @@ class InputInterceptor {
     }
     
     private func handleMouseButtonAction(for button: MouseButton, originalEvent: CGEvent) -> CGEvent? {
-        var action: MouseAction = .none
-        
-        DispatchQueue.main.sync {
-            action = settings?.getAction(for: button) ?? .none
+        let action: MouseAction = onMain {
+            settings?.getAction(for: button) ?? .none
         }
         
         switch action {
@@ -329,20 +330,18 @@ class InputInterceptor {
         let keyCode = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
         
         // Check if external keyboard is connected
-        var hasExternalKeyboard = false
-        var isExcludedApp = false
-        var action: KeyboardAction?
-        
-        DispatchQueue.main.sync {
-            hasExternalKeyboard = deviceManager?.externalKeyboardConnected ?? false
+        let (hasExternalKeyboard, isExcludedApp, action): (Bool, Bool, KeyboardAction?) = onMain {
+            let hasKeyboard = deviceManager?.externalKeyboardConnected ?? false
             
             // Check if frontmost app is excluded
+            var excluded = false
             if let frontApp = NSWorkspace.shared.frontmostApplication,
                let bundleID = frontApp.bundleIdentifier {
-                isExcludedApp = settings?.isAppExcluded(bundleID) ?? false
+                excluded = settings?.isAppExcluded(bundleID) ?? false
             }
             
-            action = settings?.getKeyboardAction(for: keyCode)
+            let keyAction = settings?.getKeyboardAction(for: keyCode)
+            return (hasKeyboard, excluded, keyAction)
         }
         
         // Pass through if no external keyboard or app is excluded
