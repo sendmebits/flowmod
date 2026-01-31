@@ -23,6 +23,9 @@ class InputInterceptor {
     private var settings: Settings?
     private var deviceManager: DeviceManager?
     
+    // Marker for synthetic events we post ourselves (to avoid re-processing)
+    private static let syntheticEventMarker: Int64 = 0x4D494E505554  // "MINPUT" in hex
+    
     private init() {}
     
     // MARK: - Thread-safe Settings Access
@@ -121,6 +124,11 @@ class InputInterceptor {
     // MARK: - Event Handling
     
     func handleEvent(_ event: CGEvent, type: CGEventType) -> CGEvent? {
+        // Pass through synthetic events we posted ourselves
+        if event.getIntegerValueField(.eventSourceUserData) == InputInterceptor.syntheticEventMarker {
+            return event
+        }
+        
         switch type {
         case .scrollWheel:
             return handleScrollEvent(event)
@@ -153,34 +161,57 @@ class InputInterceptor {
         
         // Check if this is a continuous (trackpad) or discrete (mouse wheel) scroll
         // Note: Many modern mice (especially Logitech) report as continuous scroll
-        // We use momentumPhase to distinguish trackpad momentum from mouse scroll
         let isContinuous = event.getIntegerValueField(.scrollWheelEventIsContinuous) != 0
+        
+        // Momentum phase: non-zero means trackpad momentum scrolling (fingers lifted)
         let momentumPhase = event.getIntegerValueField(.scrollWheelEventMomentumPhase)
         
-        // Only skip if this is trackpad momentum scrolling (momentumPhase != 0)
-        // Regular mouse scroll (even continuous) has momentumPhase == 0
-        if isContinuous && momentumPhase != 0 {
-            return event
+        // Scroll phase: indicates active trackpad gesture phases
+        // 0 = none (mouse), 1 = began, 2 = changed, 4 = ended, 8 = cancelled, 128 = may begin
+        let scrollPhase = event.getIntegerValueField(.scrollWheelEventScrollPhase)
+        
+        // Skip reversal for:
+        // 1. Momentum scrolling (fingers lifted from trackpad, coasting)
+        // 2. Active trackpad gestures (scrollPhase indicates trackpad touch activity)
+        // 
+        // Mouse scrolling characteristics:
+        // - isContinuous may be 0 (discrete wheel) OR 1 (smooth scroll mice like Logitech MX)
+        // - momentumPhase is always 0 (mice don't have momentum)
+        // - scrollPhase is always 0 (mice don't have gesture phases)
+        //
+        // Trackpad scrolling characteristics:
+        // - isContinuous is always 1
+        // - scrollPhase cycles: 128 (may begin) -> 1 (began) -> 2 (changed) -> 4 (ended)
+        // - momentumPhase: 0 during gesture, then 1/2/3 during momentum
+        
+        if isContinuous {
+            // For continuous scrolling, only reverse if both phases are 0 (mouse-like behavior)
+            if momentumPhase != 0 || scrollPhase != 0 {
+                return event
+            }
         }
         
-        // Reverse both axes
+        // Get all the delta values BEFORE modification
         let deltaY = event.getIntegerValueField(.scrollWheelEventDeltaAxis1)
         let deltaX = event.getIntegerValueField(.scrollWheelEventDeltaAxis2)
-        
-        event.setIntegerValueField(.scrollWheelEventDeltaAxis1, value: -deltaY)
-        event.setIntegerValueField(.scrollWheelEventDeltaAxis2, value: -deltaX)
-        
-        // Also reverse the pixel deltas for smooth scrolling
         let pixelDeltaY = event.getDoubleValueField(.scrollWheelEventFixedPtDeltaAxis1)
         let pixelDeltaX = event.getDoubleValueField(.scrollWheelEventFixedPtDeltaAxis2)
-        
-        event.setDoubleValueField(.scrollWheelEventFixedPtDeltaAxis1, value: -pixelDeltaY)
-        event.setDoubleValueField(.scrollWheelEventFixedPtDeltaAxis2, value: -pixelDeltaX)
-        
-        // Reverse point deltas too (used by some apps)
         let pointDeltaY = event.getDoubleValueField(.scrollWheelEventPointDeltaAxis1)
         let pointDeltaX = event.getDoubleValueField(.scrollWheelEventPointDeltaAxis2)
         
+        // IMPORTANT: Order matters! Setting the integer delta fields causes macOS to
+        // internally recalculate the point/fixed-pt fields. So we must either:
+        // 1. Set integer delta LAST, or
+        // 2. Set integer delta first, then set the others to override
+        // We use approach #2 (same as Scroll Reverser)
+        
+        // First, set the integer deltas (this may reset the other fields)
+        event.setIntegerValueField(.scrollWheelEventDeltaAxis1, value: -deltaY)
+        event.setIntegerValueField(.scrollWheelEventDeltaAxis2, value: -deltaX)
+        
+        // Then override with the correct reversed values for smooth scrolling
+        event.setDoubleValueField(.scrollWheelEventFixedPtDeltaAxis1, value: -pixelDeltaY)
+        event.setDoubleValueField(.scrollWheelEventFixedPtDeltaAxis2, value: -pixelDeltaX)
         event.setDoubleValueField(.scrollWheelEventPointDeltaAxis1, value: -pointDeltaY)
         event.setDoubleValueField(.scrollWheelEventPointDeltaAxis2, value: -pointDeltaX)
         
@@ -389,18 +420,6 @@ class InputInterceptor {
         case .forward:
             sendKeyCombo(KeyCombo(keyCode: 0x1E, modifiers: CGEventFlags.maskCommand.rawValue)) // ⌘]
             
-        case .copy:
-            sendKeyCombo(KeyCombo(keyCode: 0x08, modifiers: CGEventFlags.maskCommand.rawValue)) // ⌘C
-            
-        case .paste:
-            sendKeyCombo(KeyCombo(keyCode: 0x09, modifiers: CGEventFlags.maskCommand.rawValue)) // ⌘V
-            
-        case .spacesLeft:
-            sendKeyCombo(KeyCombo(keyCode: 0x7B, modifiers: CGEventFlags.maskControl.rawValue)) // ⌃←
-            
-        case .spacesRight:
-            sendKeyCombo(KeyCombo(keyCode: 0x7C, modifiers: CGEventFlags.maskControl.rawValue)) // ⌃→
-            
         case .middleClick:
             // Shouldn't reach here normally
             break
@@ -417,12 +436,14 @@ class InputInterceptor {
         // Key down
         if let keyDown = CGEvent(keyboardEventSource: source, virtualKey: combo.keyCode, keyDown: true) {
             keyDown.flags = flags
+            keyDown.setIntegerValueField(.eventSourceUserData, value: InputInterceptor.syntheticEventMarker)
             keyDown.post(tap: .cghidEventTap)
         }
         
         // Key up
         if let keyUp = CGEvent(keyboardEventSource: source, virtualKey: combo.keyCode, keyDown: false) {
             keyUp.flags = flags
+            keyUp.setIntegerValueField(.eventSourceUserData, value: InputInterceptor.syntheticEventMarker)
             keyUp.post(tap: .cghidEventTap)
         }
     }
@@ -443,13 +464,18 @@ class InputInterceptor {
     }
     
     private func triggerShowDesktop() {
-        // F11 or the Show Desktop key
+        // Use Fn+F11 (F11 = 0x67) as Show Desktop trigger
+        // On most Macs, F11 is the default Show Desktop key
         let source = CGEventSource(stateID: .hidSystemState)
         
-        if let keyDown = CGEvent(keyboardEventSource: source, virtualKey: 0xA1, keyDown: true) {
+        // Send F11 key with Fn modifier (secondary function)
+        // Key code 0x67 = F11
+        if let keyDown = CGEvent(keyboardEventSource: source, virtualKey: 0x67, keyDown: true) {
+            keyDown.flags = .maskSecondaryFn
             keyDown.post(tap: .cghidEventTap)
         }
-        if let keyUp = CGEvent(keyboardEventSource: source, virtualKey: 0xA1, keyDown: false) {
+        if let keyUp = CGEvent(keyboardEventSource: source, virtualKey: 0x67, keyDown: false) {
+            keyUp.flags = .maskSecondaryFn
             keyUp.post(tap: .cghidEventTap)
         }
     }
@@ -467,7 +493,39 @@ class InputInterceptor {
     }
     
     private func triggerAppExpose() {
-        // Control + Down Arrow triggers App Exposé
-        sendKeyCombo(KeyCombo(keyCode: 0x7D, modifiers: CGEventFlags.maskControl.rawValue))
+        // App Exposé: Control + Down Arrow
+        // We need to simulate the full key sequence: Control down, Arrow down, Arrow up, Control up
+        // kVK_Control = 0x3B, kVK_DownArrow = 0x7D
+        
+        let controlKeyCode: CGKeyCode = 0x3B  // Left Control
+        let downArrowKeyCode: CGKeyCode = 0x7D
+        
+        // Control key down
+        if let ctrlDown = CGEvent(keyboardEventSource: nil, virtualKey: controlKeyCode, keyDown: true) {
+            ctrlDown.flags = .maskControl
+            ctrlDown.setIntegerValueField(.eventSourceUserData, value: InputInterceptor.syntheticEventMarker)
+            ctrlDown.post(tap: .cghidEventTap)
+        }
+        
+        // Down arrow key down (with Control held)
+        if let arrowDown = CGEvent(keyboardEventSource: nil, virtualKey: downArrowKeyCode, keyDown: true) {
+            arrowDown.flags = .maskControl
+            arrowDown.setIntegerValueField(.eventSourceUserData, value: InputInterceptor.syntheticEventMarker)
+            arrowDown.post(tap: .cghidEventTap)
+        }
+        
+        // Down arrow key up
+        if let arrowUp = CGEvent(keyboardEventSource: nil, virtualKey: downArrowKeyCode, keyDown: false) {
+            arrowUp.flags = .maskControl
+            arrowUp.setIntegerValueField(.eventSourceUserData, value: InputInterceptor.syntheticEventMarker)
+            arrowUp.post(tap: .cghidEventTap)
+        }
+        
+        // Control key up
+        if let ctrlUp = CGEvent(keyboardEventSource: nil, virtualKey: controlKeyCode, keyDown: false) {
+            ctrlUp.flags = []
+            ctrlUp.setIntegerValueField(.eventSourceUserData, value: InputInterceptor.syntheticEventMarker)
+            ctrlUp.post(tap: .cghidEventTap)
+        }
     }
 }

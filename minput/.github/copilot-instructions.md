@@ -34,7 +34,7 @@ let shouldReverse = onMain {
     settings.reverseScrollEnabled && deviceManager.externalMouseConnected
 }
 ```
-
+  
 ## Key Models
 
 | Model | Purpose |

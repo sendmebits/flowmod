@@ -9,10 +9,6 @@ enum MouseAction: Codable, Equatable, Hashable, Identifiable, CaseIterable {
     case appExpose
     case back
     case forward
-    case copy
-    case paste
-    case spacesLeft
-    case spacesRight
     case middleClick
     case customShortcut(KeyCombo)
     
@@ -25,10 +21,6 @@ enum MouseAction: Codable, Equatable, Hashable, Identifiable, CaseIterable {
         case .appExpose: return "appExpose"
         case .back: return "back"
         case .forward: return "forward"
-        case .copy: return "copy"
-        case .paste: return "paste"
-        case .spacesLeft: return "spacesLeft"
-        case .spacesRight: return "spacesRight"
         case .middleClick: return "middleClick"
         case .customShortcut(let combo): return "custom_\(combo.keyCode)_\(combo.modifiers)"
         }
@@ -43,10 +35,6 @@ enum MouseAction: Codable, Equatable, Hashable, Identifiable, CaseIterable {
         case .appExpose: return "App Exposé"
         case .back: return "Back (⌘[)"
         case .forward: return "Forward (⌘])"
-        case .copy: return "Copy (⌘C)"
-        case .paste: return "Paste (⌘V)"
-        case .spacesLeft: return "Move Space Left (⌃←)"
-        case .spacesRight: return "Move Space Right (⌃→)"
         case .middleClick: return "Middle Click"
         case .customShortcut(let combo): return "Custom: \(combo.displayName)"
         }
@@ -61,10 +49,6 @@ enum MouseAction: Codable, Equatable, Hashable, Identifiable, CaseIterable {
         case .appExpose: return "rectangle.stack"
         case .back: return "chevron.left"
         case .forward: return "chevron.right"
-        case .copy: return "doc.on.doc"
-        case .paste: return "doc.on.clipboard"
-        case .spacesLeft: return "arrow.left.square"
-        case .spacesRight: return "arrow.right.square"
         case .middleClick: return "computermouse"
         case .customShortcut: return "keyboard"
         }
@@ -73,7 +57,7 @@ enum MouseAction: Codable, Equatable, Hashable, Identifiable, CaseIterable {
     // For CaseIterable conformance without associated values
     static var allCases: [MouseAction] {
         [.none, .missionControl, .showDesktop, .launchpad, .appExpose,
-         .back, .forward, .copy, .paste, .spacesLeft, .spacesRight, .middleClick]
+         .back, .forward, .middleClick]
     }
 }
 
