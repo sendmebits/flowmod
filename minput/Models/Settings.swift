@@ -2,6 +2,15 @@ import Foundation
 import SwiftUI
 import Observation
 
+/// Smooth scrolling intensity options
+enum SmoothScrolling: String, CaseIterable, Identifiable {
+    case off = "Off"
+    case smooth = "Smooth"
+    case verySmooth = "Very Smooth"
+    
+    var id: String { rawValue }
+}
+
 /// Main settings store for the app
 @MainActor
 @Observable
@@ -11,6 +20,17 @@ class Settings {
     // MARK: - Scroll Settings
     var reverseScrollEnabled: Bool = true {
         didSet { UserDefaults.standard.set(reverseScrollEnabled, forKey: "reverseScrollEnabled") }
+    }
+    
+    var smoothScrolling: SmoothScrolling {
+        get {
+            if let rawValue = UserDefaults.standard.string(forKey: "smoothScrolling"),
+               let value = SmoothScrolling(rawValue: rawValue) {
+                return value
+            }
+            return .off
+        }
+        set { UserDefaults.standard.set(newValue.rawValue, forKey: "smoothScrolling") }
     }
     
     // MARK: - Mouse Button Mappings

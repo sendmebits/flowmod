@@ -19,6 +19,19 @@ class InputInterceptor {
     private var middleButtonStartPoint: CGPoint = .zero
     private var middleDragTriggered = false
     
+    // Smooth scrolling state
+    private var smoothScrollVelocityY: Double = 0
+    private var smoothScrollVelocityX: Double = 0
+    private var smoothScrollTimer: Timer?
+    private var smoothScrollPhase: SmoothScrollPhase = .idle
+    private let smoothScrollLock = NSLock()
+    
+    private enum SmoothScrollPhase {
+        case idle
+        case scrolling   // Active scrolling (wheel being moved)
+        case momentum    // Coasting after wheel stopped
+    }
+    
     // Settings reference (accessed on callback thread, needs care)
     private var settings: Settings?
     private var deviceManager: DeviceManager?
@@ -152,12 +165,11 @@ class InputInterceptor {
     private func handleScrollEvent(_ event: CGEvent) -> CGEvent? {
         guard let settings = settings else { return event }
         
-        // Check if scroll reversal is enabled and external mouse is connected (or assumed)
-        let shouldReverse = onMain {
-            settings.reverseScrollEnabled && (settings.assumeExternalMouse || (deviceManager?.externalMouseConnected ?? false))
+        // Get settings on main thread
+        let (shouldReverse, smoothScrolling) = onMain {
+            let reverse = settings.reverseScrollEnabled && (settings.assumeExternalMouse || (deviceManager?.externalMouseConnected ?? false))
+            return (reverse, settings.smoothScrolling)
         }
-        
-        guard shouldReverse else { return event }
         
         // Check if this is a continuous (trackpad) or discrete (mouse wheel) scroll
         // Note: Many modern mice (especially Logitech) report as continuous scroll
@@ -170,10 +182,7 @@ class InputInterceptor {
         // 0 = none (mouse), 1 = began, 2 = changed, 4 = ended, 8 = cancelled, 128 = may begin
         let scrollPhase = event.getIntegerValueField(.scrollWheelEventScrollPhase)
         
-        // Skip reversal for:
-        // 1. Momentum scrolling (fingers lifted from trackpad, coasting)
-        // 2. Active trackpad gestures (scrollPhase indicates trackpad touch activity)
-        // 
+        // Determine if this is a mouse event (not trackpad)
         // Mouse scrolling characteristics:
         // - isContinuous may be 0 (discrete wheel) OR 1 (smooth scroll mice like Logitech MX)
         // - momentumPhase is always 0 (mice don't have momentum)
@@ -184,20 +193,57 @@ class InputInterceptor {
         // - scrollPhase cycles: 128 (may begin) -> 1 (began) -> 2 (changed) -> 4 (ended)
         // - momentumPhase: 0 during gesture, then 1/2/3 during momentum
         
-        if isContinuous {
-            // For continuous scrolling, only reverse if both phases are 0 (mouse-like behavior)
-            if momentumPhase != 0 || scrollPhase != 0 {
-                return event
-            }
+        let isMouseScroll = momentumPhase == 0 && scrollPhase == 0
+        
+        // Skip processing for trackpad events
+        if isContinuous && !isMouseScroll {
+            return event
         }
         
         // Get all the delta values BEFORE modification
         let deltaY = event.getIntegerValueField(.scrollWheelEventDeltaAxis1)
         let deltaX = event.getIntegerValueField(.scrollWheelEventDeltaAxis2)
-        let pixelDeltaY = event.getDoubleValueField(.scrollWheelEventFixedPtDeltaAxis1)
-        let pixelDeltaX = event.getDoubleValueField(.scrollWheelEventFixedPtDeltaAxis2)
-        let pointDeltaY = event.getDoubleValueField(.scrollWheelEventPointDeltaAxis1)
-        let pointDeltaX = event.getDoubleValueField(.scrollWheelEventPointDeltaAxis2)
+        var pixelDeltaY = event.getDoubleValueField(.scrollWheelEventFixedPtDeltaAxis1)
+        var pixelDeltaX = event.getDoubleValueField(.scrollWheelEventFixedPtDeltaAxis2)
+        var pointDeltaY = event.getDoubleValueField(.scrollWheelEventPointDeltaAxis1)
+        var pointDeltaX = event.getDoubleValueField(.scrollWheelEventPointDeltaAxis2)
+        
+        // Apply reversal if enabled
+        let reverseMultiplier: Double = shouldReverse ? -1.0 : 1.0
+        let reversedDeltaY = -deltaY
+        let reversedDeltaX = -deltaX
+        pixelDeltaY *= reverseMultiplier
+        pixelDeltaX *= reverseMultiplier
+        pointDeltaY *= reverseMultiplier
+        pointDeltaX *= reverseMultiplier
+        
+        // If smooth scrolling is enabled for mouse events, use the smooth scroll system
+        if smoothScrolling != .off && isMouseScroll {
+            smoothScrollLock.lock()
+            
+            // Get the actual scroll delta - use point delta if available, otherwise convert from line delta
+            // Mouse wheels typically report 1-3 lines per tick, we need to convert to pixels
+            let pixelsPerLine: Double = 10.0  // Standard line height approximation
+            let inputDeltaY = pointDeltaY != 0 ? pointDeltaY : Double(reversedDeltaY) * pixelsPerLine
+            let inputDeltaX = pointDeltaX != 0 ? pointDeltaX : Double(reversedDeltaX) * pixelsPerLine
+            
+            // Add to velocity - this accumulates scroll input
+            // We DON'T multiply here - the speed stays the same, smoothness comes from interpolation
+            smoothScrollVelocityY += inputDeltaY
+            smoothScrollVelocityX += inputDeltaX
+            smoothScrollPhase = .scrolling
+            
+            smoothScrollLock.unlock()
+            
+            // Start timer if not running
+            startSmoothScrollTimer(smoothLevel: smoothScrolling)
+            
+            // Suppress original event - we'll post smooth events instead
+            return nil
+        }
+        
+        // No smooth scrolling - just apply reversal if needed
+        guard shouldReverse else { return event }
         
         // IMPORTANT: Order matters! Setting the integer delta fields causes macOS to
         // internally recalculate the point/fixed-pt fields. So we must either:
@@ -206,16 +252,155 @@ class InputInterceptor {
         // We use approach #2 (same as Scroll Reverser)
         
         // First, set the integer deltas (this may reset the other fields)
-        event.setIntegerValueField(.scrollWheelEventDeltaAxis1, value: -deltaY)
-        event.setIntegerValueField(.scrollWheelEventDeltaAxis2, value: -deltaX)
+        event.setIntegerValueField(.scrollWheelEventDeltaAxis1, value: reversedDeltaY)
+        event.setIntegerValueField(.scrollWheelEventDeltaAxis2, value: reversedDeltaX)
         
         // Then override with the correct reversed values for smooth scrolling
-        event.setDoubleValueField(.scrollWheelEventFixedPtDeltaAxis1, value: -pixelDeltaY)
-        event.setDoubleValueField(.scrollWheelEventFixedPtDeltaAxis2, value: -pixelDeltaX)
-        event.setDoubleValueField(.scrollWheelEventPointDeltaAxis1, value: -pointDeltaY)
-        event.setDoubleValueField(.scrollWheelEventPointDeltaAxis2, value: -pointDeltaX)
+        event.setDoubleValueField(.scrollWheelEventFixedPtDeltaAxis1, value: pixelDeltaY)
+        event.setDoubleValueField(.scrollWheelEventFixedPtDeltaAxis2, value: pixelDeltaX)
+        event.setDoubleValueField(.scrollWheelEventPointDeltaAxis1, value: pointDeltaY)
+        event.setDoubleValueField(.scrollWheelEventPointDeltaAxis2, value: pointDeltaX)
         
         return event
+    }
+    
+    // MARK: - Smooth Scrolling
+    
+    private var currentSmoothLevel: SmoothScrolling = .smooth
+    
+    private func startSmoothScrollTimer(smoothLevel: SmoothScrolling) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            
+            self.currentSmoothLevel = smoothLevel
+            
+            // If timer already running, don't restart
+            if self.smoothScrollTimer?.isValid == true {
+                return
+            }
+            
+            // Post initial "began" phase
+            self.postSmoothScrollEvent(deltaY: 0, deltaX: 0, phase: .began, momentumPhase: 0)
+            
+            // 120 FPS for smooth animation
+            self.smoothScrollTimer = Timer.scheduledTimer(withTimeInterval: 1.0/120.0, repeats: true) { [weak self] timer in
+                self?.processSmoothScroll(timer: timer)
+            }
+        }
+    }
+    
+    private func processSmoothScroll(timer: Timer) {
+        smoothScrollLock.lock()
+        
+        // Trackpad-like physics:
+        // - During active scrolling: emit velocity directly, apply light smoothing
+        // - During momentum: apply friction for gradual slowdown
+        //
+        // macOS trackpad uses roughly 0.95-0.98 friction at 60fps
+        // At 120fps, we need sqrt of that: ~0.975-0.99
+        let isActivelyScrolling = smoothScrollPhase == .scrolling
+        
+        // Friction values tuned to feel like trackpad
+        // Higher = more momentum (coasts longer)
+        let frictionFactor: Double
+        if isActivelyScrolling {
+            // Light smoothing during active scroll - keeps responsiveness
+            frictionFactor = currentSmoothLevel == .verySmooth ? 0.7 : 0.5
+        } else {
+            // Momentum phase - gradual slowdown like trackpad
+            frictionFactor = currentSmoothLevel == .verySmooth ? 0.985 : 0.975
+        }
+        
+        let velocityThreshold: Double = 0.5
+        
+        // Get current velocity
+        var velocityY = smoothScrollVelocityY
+        var velocityX = smoothScrollVelocityX
+        
+        // Calculate delta to emit this frame
+        // During active scrolling: emit a portion of accumulated velocity
+        // During momentum: emit current velocity and apply friction
+        let emitFraction: Double = isActivelyScrolling ? (1.0 - frictionFactor) : 1.0
+        let deltaY = velocityY * emitFraction
+        let deltaX = velocityX * emitFraction
+        
+        // Apply friction/consumption
+        if isActivelyScrolling {
+            // Consume the emitted portion
+            smoothScrollVelocityY *= frictionFactor
+            smoothScrollVelocityX *= frictionFactor
+        } else {
+            // Momentum: apply friction
+            smoothScrollVelocityY *= frictionFactor
+            smoothScrollVelocityX *= frictionFactor
+        }
+        
+        // Check for phase transition
+        // If velocity is low and we were scrolling, transition to momentum
+        if isActivelyScrolling && abs(smoothScrollVelocityY) < 2.0 && abs(smoothScrollVelocityX) < 2.0 {
+            smoothScrollPhase = .momentum
+        }
+        
+        velocityY = smoothScrollVelocityY
+        velocityX = smoothScrollVelocityX
+        
+        smoothScrollLock.unlock()
+        
+        // Stop if velocity is negligible
+        if abs(velocityY) < velocityThreshold && abs(velocityX) < velocityThreshold {
+            // Post "ended" phase to trigger elastic bounce if at boundary
+            postSmoothScrollEvent(deltaY: 0, deltaX: 0, phase: .ended, momentumPhase: 0)
+            
+            smoothScrollLock.lock()
+            smoothScrollVelocityY = 0
+            smoothScrollVelocityX = 0
+            smoothScrollPhase = .idle
+            smoothScrollLock.unlock()
+            
+            timer.invalidate()
+            smoothScrollTimer = nil
+            return
+        }
+        
+        // Determine momentum phase for the event
+        let momentumPhase: Int64 = smoothScrollPhase == .momentum ? 1 : 0
+        
+        // Post a smooth scroll event with the calculated delta
+        postSmoothScrollEvent(deltaY: deltaY, deltaX: deltaX, phase: .changed, momentumPhase: momentumPhase)
+    }
+    
+    // Scroll phases matching CGScrollPhase
+    private enum ScrollEventPhase: Int64 {
+        case began = 1
+        case changed = 2
+        case ended = 4
+    }
+    
+    private func postSmoothScrollEvent(deltaY: Double, deltaX: Double, phase: ScrollEventPhase, momentumPhase: Int64) {
+        guard let scrollEvent = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2, wheel1: 0, wheel2: 0, wheel3: 0) else {
+            return
+        }
+        
+        // Mark as synthetic so we don't re-process
+        scrollEvent.setIntegerValueField(.eventSourceUserData, value: InputInterceptor.syntheticEventMarker)
+        
+        // Set as continuous scroll (like trackpad) - required for smooth scrolling and elastic bounce
+        scrollEvent.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
+        
+        // Set scroll phase - this triggers proper handling in apps (including elastic bounce)
+        scrollEvent.setIntegerValueField(.scrollWheelEventScrollPhase, value: phase.rawValue)
+        
+        // Set momentum phase if in momentum
+        scrollEvent.setIntegerValueField(.scrollWheelEventMomentumPhase, value: momentumPhase)
+        
+        // Set the delta values
+        scrollEvent.setDoubleValueField(.scrollWheelEventPointDeltaAxis1, value: deltaY)
+        scrollEvent.setDoubleValueField(.scrollWheelEventPointDeltaAxis2, value: deltaX)
+        scrollEvent.setDoubleValueField(.scrollWheelEventFixedPtDeltaAxis1, value: deltaY)
+        scrollEvent.setDoubleValueField(.scrollWheelEventFixedPtDeltaAxis2, value: deltaX)
+        
+        // Post the event
+        scrollEvent.post(tap: .cghidEventTap)
     }
     
     // MARK: - Mouse Button Handling

@@ -76,3 +76,7 @@ open build/Debug/minput.app
 When the task requires multiple steps, present a plan using #planReview before executing.
 Always use #askUser before completing any task to confirm the result.
 
+When the task requires multiple steps or non-trivial changes, present a detailed plan using #planReview and wait for approval before executing.
+If the plan is rejected, incorporate the comments and submit an updated plan with #planReview.
+When the user asks for a step-by-step guide or walkthrough, present it using #walkthroughReview.
+Always use #askUser before completing any task to confirm the result matches what the user asked for.

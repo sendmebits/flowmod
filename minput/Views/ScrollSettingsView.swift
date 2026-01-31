@@ -9,60 +9,55 @@ struct ScrollSettingsView: View {
         VStack(alignment: .leading, spacing: 20) {
             // Main toggle
             GroupBox {
-                Toggle(isOn: $settings.reverseScrollEnabled) {
-                    HStack {
-                        Image(systemName: "arrow.up.arrow.down")
-                            .font(.title2)
-                            .foregroundStyle(Color.accentColor)
-                            .frame(width: 32)
-                        
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Reverse Scroll Direction")
-                                .font(.headline)
-                            Text("For external mice only (excludes Apple devices)")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
+                HStack {
+                    Image(systemName: "arrow.up.arrow.down")
+                        .font(.title2)
+                        .foregroundStyle(Color.accentColor)
+                        .frame(width: 32)
+                    
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Reverse Scroll Direction")
+                            .font(.headline)
+                        Text("For external mice only (excludes Apple devices)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
+                    
+                    Spacer()
+                    
+                    Toggle("", isOn: $settings.reverseScrollEnabled)
+                        .toggleStyle(.switch)
+                        .labelsHidden()
                 }
-                .toggleStyle(.switch)
                 .padding(.vertical, 4)
             }
             
-            // Status info
+            // Smooth Scrolling
             GroupBox {
-                VStack(alignment: .leading, spacing: 12) {
-                    Label("External Mouse Status", systemImage: "info.circle")
-                        .font(.headline)
+                HStack {
+                    Image(systemName: "water.waves")
+                        .font(.title2)
+                        .foregroundStyle(Color.accentColor)
+                        .frame(width: 32)
                     
-                    if deviceManager.externalMouseConnected {
-                        let mice = deviceManager.connectedDevices.filter { $0.isMouse && !$0.isAppleDevice }
-                        ForEach(mice) { mouse in
-                            HStack {
-                                Image(systemName: "checkmark.circle.fill")
-                                    .foregroundStyle(.green)
-                                Text(mouse.displayName)
-                                    .foregroundStyle(.secondary)
-                            }
-                            .font(.callout)
-                        }
-                        
-                        if settings.reverseScrollEnabled {
-                            Label("Scroll reversal is active", systemImage: "arrow.triangle.2.circlepath")
-                                .font(.callout)
-                                .foregroundStyle(.green)
-                        }
-                    } else {
-                        HStack {
-                            Image(systemName: "minus.circle")
-                                .foregroundStyle(.secondary)
-                            Text("No external mouse detected")
-                                .foregroundStyle(.secondary)
-                        }
-                        .font(.callout)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Smooth Scrolling")
+                            .font(.headline)
+                        Text("Adds smoothing to mouse wheel scrolling")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
+                    
+                    Spacer()
+                    
+                    Picker("", selection: $settings.smoothScrolling) {
+                        ForEach(SmoothScrolling.allCases) { option in
+                            Text(option.rawValue).tag(option)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .frame(width: 120)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.vertical, 4)
             }
             

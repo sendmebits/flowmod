@@ -8,44 +8,44 @@ struct ExcludedAppsView: View {
     @State private var showingAppPicker = false
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack {
-                Text("Excluded Apps")
-                    .font(.headline)
-                
-                Spacer()
-                
-                Button {
-                    showingAppPicker = true
-                } label: {
-                    Label("Add App", systemImage: "plus")
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                HStack {
+                    Text("Excluded Apps")
+                        .font(.headline)
+                    
+                    Spacer()
+                    
+                    Button {
+                        showingAppPicker = true
+                    } label: {
+                        Label("Add App", systemImage: "plus")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-            }
-            
-            Text("Keyboard mappings will be disabled in these apps")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            
-            if settings.excludedApps.isEmpty {
-                emptyState
-            } else {
-                GroupBox {
-                    VStack(spacing: 0) {
-                        ForEach(settings.excludedApps) { app in
-                            appRow(for: app)
-                            
-                            if app.id != settings.excludedApps.last?.id {
-                                Divider()
+                
+                Text("Keyboard mappings will be disabled in these apps")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                
+                if settings.excludedApps.isEmpty {
+                    emptyState
+                } else {
+                    GroupBox {
+                        VStack(spacing: 0) {
+                            ForEach(settings.excludedApps) { app in
+                                appRow(for: app)
+                                
+                                if app.id != settings.excludedApps.last?.id {
+                                    Divider()
+                                }
                             }
                         }
+                        .padding(.vertical, 4)
                     }
-                    .padding(.vertical, 4)
                 }
             }
-            
-            Spacer()
         }
         .sheet(isPresented: $showingAppPicker) {
             AppPickerView(settings: settings, isPresented: $showingAppPicker)

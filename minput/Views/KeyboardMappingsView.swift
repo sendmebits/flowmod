@@ -7,54 +7,28 @@ struct KeyboardMappingsView: View {
     @State private var showingTargetRecorder: UUID?
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack {
-                Text("Keyboard Mappings")
-                    .font(.headline)
-                
-                Spacer()
-                
-                Button {
-                    addMapping()
-                } label: {
-                    Label("Add Mapping", systemImage: "plus")
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                HStack {
+                    Text("Keyboard Mappings")
+                        .font(.headline)
+                    
+                    Spacer()
+                    
+                    Button {
+                        addMapping()
+                    } label: {
+                        Label("Add Mapping", systemImage: "plus")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-            }
-            
-            Text("Remap Windows keyboard keys to Mac equivalents")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            
-            if settings.keyboardMappings.isEmpty {
-                emptyState
-            } else {
-                GroupBox {
+                
+                if settings.keyboardMappings.isEmpty {
+                    emptyState
+                } else {
+                    // Mappings table
                     VStack(spacing: 0) {
-                        // Header
-                        HStack {
-                            Text("Source Key")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                            
-                            Image(systemName: "arrow.right")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            
-                            Text("Target Action")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                            
-                            // Spacer for delete button
-                            Color.clear.frame(width: 30)
-                        }
-                        .padding(.bottom, 8)
-                        
-                        Divider()
-                        
                         // Mappings list
                         ForEach(settings.keyboardMappings) { mapping in
                             mappingRow(for: mapping)
@@ -64,11 +38,15 @@ struct KeyboardMappingsView: View {
                             }
                         }
                     }
-                    .padding(.vertical, 4)
+                    .padding(12)
+                    .background(Color(nsColor: .controlBackgroundColor))
+                    .cornerRadius(8)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
+                    )
                 }
             }
-            
-            Spacer()
         }
         .sheet(item: $showingSourceRecorder) { id in
             KeyRecorderSheet(title: "Press a Key to Map") { combo in
@@ -111,27 +89,30 @@ struct KeyboardMappingsView: View {
     }
     
     private func mappingRow(for mapping: KeyboardMapping) -> some View {
-        HStack {
+        HStack(spacing: 12) {
             // Source key picker
             sourceKeyPicker(for: mapping)
+                .frame(maxWidth: .infinity)
             
             Image(systemName: "arrow.right")
-                .foregroundStyle(.secondary)
+                .foregroundStyle(.tertiary)
+                .font(.caption)
             
             // Target action picker
             targetActionPicker(for: mapping)
+                .frame(maxWidth: .infinity)
             
             // Delete button
             Button {
                 deleteMapping(mapping)
             } label: {
-                Image(systemName: "trash")
-                    .foregroundStyle(.red)
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundStyle(.secondary)
             }
             .buttonStyle(.plain)
-            .frame(width: 30)
+            .frame(width: 24)
         }
-        .padding(.vertical, 8)
+        .padding(.vertical, 6)
     }
     
     private func sourceKeyPicker(for mapping: KeyboardMapping) -> some View {
@@ -205,8 +186,8 @@ struct KeyboardMappingsView: View {
     
     private func addMapping() {
         let newMapping = KeyboardMapping(
-            sourceKey: .home,
-            targetAction: .lineStart
+            sourceKey: .none,
+            targetAction: .none
         )
         settings.keyboardMappings.append(newMapping)
     }

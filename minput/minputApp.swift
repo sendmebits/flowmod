@@ -40,7 +40,20 @@ struct minputApp: App {
                 deviceManager: deviceManager,
                 permissionManager: permissionManager
             )
+            .onAppear {
+                // Make settings window float on top and bring to front
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    for window in NSApp.windows {
+                        if window.title == "Settings" || window.identifier?.rawValue == "com_apple_SwiftUI_Settings_window" {
+                            window.level = .floating
+                            window.orderFrontRegardless()
+                        }
+                    }
+                }
+                NSApp.activate(ignoringOtherApps: true)
+            }
         }
+        .windowResizability(.contentSize)
     }
     
     init() {
@@ -87,31 +100,11 @@ struct MenuBarContent: View {
         
         Divider()
         
-        // Device status
-        Menu("Devices") {
-            if deviceManager.externalMouseConnected {
-                Label("External Mouse Connected", systemImage: "computermouse")
-            } else {
-                Label("No External Mouse", systemImage: "computermouse")
-                    .foregroundStyle(.secondary)
-            }
-            
-            if deviceManager.externalKeyboardConnected {
-                Label("External Keyboard Connected", systemImage: "keyboard")
-            } else {
-                Label("No External Keyboard", systemImage: "keyboard")
-                    .foregroundStyle(.secondary)
-            }
-        }
-        
-        Divider()
-        
         // Settings
         Button("Settings...") {
             openSettings()
             NSApp.activate(ignoringOtherApps: true)
         }
-        .keyboardShortcut(",", modifiers: .command)
         
         Divider()
         

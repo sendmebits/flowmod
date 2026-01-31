@@ -35,60 +35,21 @@ struct GeneralSettingsView: View {
                 }
             }
             
-            // Connected Devices
+            // Device Detection Override
             GroupBox {
                 VStack(alignment: .leading, spacing: 12) {
-                    Label("Connected Devices", systemImage: "cable.connector")
+                    Label("Device Detection", systemImage: "cable.connector")
                         .font(.headline)
                     
-                    if deviceManager.connectedDevices.isEmpty {
-                        Text("No external devices detected")
-                            .foregroundStyle(.secondary)
-                            .font(.callout)
-                    } else {
-                        ForEach(deviceManager.connectedDevices) { device in
-                            HStack {
-                                Image(systemName: device.isMouse ? "computermouse" : "keyboard")
-                                    .foregroundStyle(device.isAppleDevice ? Color.secondary : Color.accentColor)
-                                
-                                VStack(alignment: .leading, spacing: 1) {
-                                    Text(device.displayName)
-                                        .font(.callout)
-                                    
-                                    Text(device.isAppleDevice ? "Apple Device (ignored)" : "External Device")
-                                        .font(.caption2)
-                                        .foregroundStyle(.secondary)
-                                }
-                                
-                                Spacer()
-                                
-                                if !device.isAppleDevice {
-                                    Image(systemName: "checkmark.circle.fill")
-                                        .foregroundStyle(.green)
-                                        .font(.caption)
-                                }
-                            }
-                        }
-                    }
+                    Toggle("Assume external mouse is connected", isOn: $settings.assumeExternalMouse)
+                        .font(.callout)
                     
-                    Divider()
+                    Toggle("Assume external keyboard is connected", isOn: $settings.assumeExternalKeyboard)
+                        .font(.callout)
                     
-                    // Device override toggles
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Device Detection Override")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                        
-                        Toggle("Assume external mouse is connected", isOn: $settings.assumeExternalMouse)
-                            .font(.callout)
-                        
-                        Toggle("Assume external keyboard is connected", isOn: $settings.assumeExternalKeyboard)
-                            .font(.callout)
-                        
-                        Text("Enable these if your Bluetooth mouse or keyboard isn't being detected automatically.")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
+                    Text("Enable these if your Bluetooth mouse or keyboard isn't being detected automatically.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.vertical, 4)

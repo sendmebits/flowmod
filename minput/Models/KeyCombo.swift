@@ -110,6 +110,7 @@ struct KeyCombo: Codable, Equatable, Hashable {
 
 /// Common source keys for Windows keyboards
 enum SourceKey: String, CaseIterable, Codable, Identifiable {
+    case none = "None"
     case home = "Home"
     case end = "End"
     case insert = "Insert"
@@ -123,6 +124,7 @@ enum SourceKey: String, CaseIterable, Codable, Identifiable {
     
     var keyCode: UInt16? {
         switch self {
+        case .none: return nil
         case .home: return 0x73
         case .end: return 0x77
         case .insert: return 0x72
