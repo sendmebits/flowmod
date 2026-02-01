@@ -31,20 +31,30 @@ class InputInterceptor {
     private var lastFrameTime: CFTimeInterval = 0
     private var lastInputTime: CFTimeInterval = 0
     
-    // Physics parameters (tuned for trackpad-like feel, inspired by Mac Mouse Fix)
-    // Key insight: each wheel tick should scroll a meaningful minimum distance
-    private let pxPerTick: Double = 60.0           // Minimum pixels per wheel tick (like Mac Mouse Fix)
-    private let scrollFriction: Double = 23.0     // Friction coefficient (higher = stops faster)
-    private let scrollFrictionExp: Double = 1.0   // Friction exponent
-    private let maxVelocity: Double = 3000.0      // Clamp to avoid absurd speeds
-    private let stopSpeed: Double = 10.0          // Stop when velocity drops below this (low to allow precision scroll)
-    private let msPerStep: Double = 140.0         // Base animation duration per tick (ms)
-    private let inputTimeoutForMomentum: Double = 0.1 // Seconds after last input before switching to momentum
+    // Physics parameters (from Mac Mouse Fix)
+    // Uses a hybrid approach: base animation for initial scroll + drag physics for momentum
+    private let pxPerTick: Double = 60.0           // Pixels per wheel tick
+    private let baseMsPerStep: Double = 140.0      // Base animation duration per tick (ms) - lowInertia
+    private let baseMsPerStepSmooth: Double = 220.0 // For verySmooth mode - highInertia
+    private let dragCoefficient: Double = 23.0     // Drag for lowInertia (exp=1.0)
+    private let dragCoefficientSmooth: Double = 40.0 // Drag for highInertia (exp=0.7)
+    private let dragExponent: Double = 1.0         // For lowInertia
+    private let dragExponentSmooth: Double = 0.7   // For highInertia - slower decel at end
+    private let maxVelocity: Double = 3000.0       // Clamp to avoid absurd speeds
+    private let stopSpeed: Double = 30.0           // Stop when velocity drops below this (from MMF)
+    private let inputTimeoutForMomentum: Double = 0.08 // Seconds after last input before momentum
+    
+    // Animation state for base curve
+    private var animationProgress: Double = 0      // 0 to 1 progress through base animation
+    private var animationDuration: Double = 0      // Duration of current animation
+    private var animationStartTime: CFTimeInterval = 0
+    private var targetScrollDistance: Double = 0   // Total distance to scroll this animation
+    private var alreadyScrolledDistance: Double = 0 // How much we've scrolled so far
     
     private enum SmoothScrollPhase {
         case idle
-        case scrolling   // Active scrolling (wheel being moved)
-        case momentum    // Coasting after wheel stopped
+        case animating   // Base curve animation (wheel being moved)
+        case momentum    // Drag physics after wheel stopped
     }
     
     // Settings reference (accessed on callback thread, needs care)
@@ -265,29 +275,33 @@ class InputInterceptor {
             smoothScrollLock.lock()
             
             // Calculate pixels to scroll for this tick
-            // Each wheel tick (line delta of ±1) should scroll a meaningful distance
-            // Use the sign from the line delta to get direction, then apply pxPerTick
-            // reversedTicks is already a Double with precision scale applied
             let pxMultiplier = smoothScrolling == .verySmooth ? 1.3 : 1.0
-            let ticksY = reversedTicksY  // Already includes reversal and precision scale
-            
-            // Add pixels to scroll buffer (vertical only, horizontal uses non-smooth path)
+            let ticksY = reversedTicksY
             let pxToAddY = ticksY * pxPerTick * pxMultiplier
             
-            // Convert to velocity: we want to scroll pxToAdd over msPerStep milliseconds
-            // Initial velocity needed: v = 2 * distance / time (for linear deceleration to 0)
-            // For exponential decay: v ≈ distance * friction (to scroll distance before stopping)
-            let friction = smoothScrolling == .verySmooth ? scrollFriction * 0.7 : scrollFriction
-            let velocityBoostY = pxToAddY * friction
+            // Get animation duration based on smoothness level
+            let duration = (smoothScrolling == .verySmooth ? baseMsPerStepSmooth : baseMsPerStep) / 1000.0
             
-            // Add to existing velocity for accumulation during rapid scrolling
-            smoothScrollVelocityY += velocityBoostY
+            let currentTime = CACurrentMediaTime()
             
-            // Clamp velocity to prevent absurd speeds
-            smoothScrollVelocityY = max(min(smoothScrollVelocityY, maxVelocity), -maxVelocity)
+            if smoothScrollPhase == .idle || smoothScrollPhase == .momentum {
+                // Start fresh animation
+                targetScrollDistance = pxToAddY
+                alreadyScrolledDistance = 0
+                animationStartTime = currentTime
+                animationDuration = duration
+                smoothScrollVelocityY = 0
+            } else {
+                // Accumulate: add remaining distance + new distance
+                let remaining = targetScrollDistance - alreadyScrolledDistance
+                targetScrollDistance = remaining + pxToAddY
+                alreadyScrolledDistance = 0
+                animationStartTime = currentTime
+                animationDuration = duration
+            }
             
-            smoothScrollPhase = .scrolling
-            lastInputTime = CACurrentMediaTime()
+            smoothScrollPhase = .animating
+            lastInputTime = currentTime
             
             smoothScrollLock.unlock()
             
@@ -377,39 +391,72 @@ class InputInterceptor {
         
         smoothScrollLock.lock()
         
-        // Check if we should transition from scrolling to momentum
-        // This happens when no new input has been received for a short time
+        var deltaY: Double = 0
+        var deltaX: Double = 0
+        
+        // Check if we should transition from animating to momentum
         let timeSinceInput = currentTime - lastInputTime
-        if smoothScrollPhase == .scrolling && timeSinceInput > inputTimeoutForMomentum {
+        if smoothScrollPhase == .animating && timeSinceInput > inputTimeoutForMomentum {
+            // Transition to momentum phase - calculate exit velocity
+            // Exit velocity = remaining distance / remaining time (approximation)
+            let remainingDistance = targetScrollDistance - alreadyScrolledDistance
+            if abs(remainingDistance) > 1 {
+                // Set velocity based on current scroll rate
+                smoothScrollVelocityY = remainingDistance / max(dt * 3, 0.016)
+                smoothScrollVelocityY = max(min(smoothScrollVelocityY, maxVelocity), -maxVelocity)
+            }
             smoothScrollPhase = .momentum
         }
         
-        // Get current friction based on smooth level
-        let friction = currentSmoothLevel == .verySmooth ? scrollFriction * 0.7 : scrollFriction
+        // Get physics params based on smooth level
+        let isVerySmooth = currentSmoothLevel == .verySmooth
+        let dragCoeff = isVerySmooth ? dragCoefficientSmooth : dragCoefficient
+        let dragExp = isVerySmooth ? dragExponentSmooth : dragExponent
         
-        // Calculate position delta for this frame: position += velocity * dt
-        let deltaY = smoothScrollVelocityY * dt
-        let deltaX = smoothScrollVelocityX * dt
-        
-        // Accumulate sub-pixel position for precision
-        smoothScrollPositionY += deltaY
-        smoothScrollPositionX += deltaX
-        
-        // Apply drag physics (like Mac Mouse Fix): velocity -= |velocity|^exp * coeff * dt * sign(velocity)
-        // For exp=1.0, this simplifies to: velocity -= velocity * coeff * dt (exponential decay)
-        let dragY = pow(abs(smoothScrollVelocityY), scrollFrictionExp) * friction * dt
-        let dragX = pow(abs(smoothScrollVelocityX), scrollFrictionExp) * friction * dt
-        
-        if smoothScrollVelocityY > 0 {
-            smoothScrollVelocityY = max(0, smoothScrollVelocityY - dragY)
-        } else {
-            smoothScrollVelocityY = min(0, smoothScrollVelocityY + dragY)
+        if smoothScrollPhase == .animating {
+            // Base animation phase - use ease-out curve
+            let elapsed = currentTime - animationStartTime
+            let duration = animationDuration
+            
+            if elapsed >= duration {
+                // Animation complete, transition to momentum
+                deltaY = targetScrollDistance - alreadyScrolledDistance
+                alreadyScrolledDistance = targetScrollDistance
+                
+                // Calculate exit velocity for momentum
+                smoothScrollVelocityY = deltaY / dt
+                smoothScrollVelocityY = max(min(smoothScrollVelocityY, maxVelocity), -maxVelocity)
+                smoothScrollPhase = .momentum
+            } else {
+                // Ease-out curve: 1 - (1 - t)^2
+                let t = elapsed / duration
+                let easedT = 1.0 - pow(1.0 - t, 2.0)
+                let targetScrolled = targetScrollDistance * easedT
+                deltaY = targetScrolled - alreadyScrolledDistance
+                alreadyScrolledDistance = targetScrolled
+            }
+        } else if smoothScrollPhase == .momentum {
+            // Momentum phase - apply drag physics
+            // Mac Mouse Fix formula: velocity -= |velocity|^exp * coeff * dt * sign(velocity)
+            deltaY = smoothScrollVelocityY * dt
+            
+            let dragY = pow(abs(smoothScrollVelocityY), dragExp) * dragCoeff * dt
+            if smoothScrollVelocityY > 0 {
+                smoothScrollVelocityY = max(0, smoothScrollVelocityY - dragY)
+            } else {
+                smoothScrollVelocityY = min(0, smoothScrollVelocityY + dragY)
+            }
         }
         
-        if smoothScrollVelocityX > 0 {
-            smoothScrollVelocityX = max(0, smoothScrollVelocityX - dragX)
-        } else {
-            smoothScrollVelocityX = min(0, smoothScrollVelocityX + dragX)
+        // Handle X velocity similarly (for any residual horizontal momentum)
+        if abs(smoothScrollVelocityX) > 0.1 {
+            deltaX = smoothScrollVelocityX * dt
+            let dragX = pow(abs(smoothScrollVelocityX), dragExp) * dragCoeff * dt
+            if smoothScrollVelocityX > 0 {
+                smoothScrollVelocityX = max(0, smoothScrollVelocityX - dragX)
+            } else {
+                smoothScrollVelocityX = min(0, smoothScrollVelocityX + dragX)
+            }
         }
         
         let velocityY = smoothScrollVelocityY
@@ -418,8 +465,8 @@ class InputInterceptor {
         
         smoothScrollLock.unlock()
         
-        // Stop if velocity is below stop speed
-        if abs(velocityY) < stopSpeed && abs(velocityX) < stopSpeed {
+        // Stop if velocity is below stop speed (only in momentum phase)
+        if phase == .momentum && abs(velocityY) < stopSpeed && abs(velocityX) < stopSpeed {
             // Post "ended" phase to trigger elastic bounce if at boundary
             postSmoothScrollEvent(deltaY: 0, deltaX: 0, phase: .ended, momentumPhase: 0)
             
@@ -428,6 +475,8 @@ class InputInterceptor {
             smoothScrollVelocityX = 0
             smoothScrollPositionY = 0
             smoothScrollPositionX = 0
+            targetScrollDistance = 0
+            alreadyScrolledDistance = 0
             smoothScrollPhase = .idle
             smoothScrollLock.unlock()
             
