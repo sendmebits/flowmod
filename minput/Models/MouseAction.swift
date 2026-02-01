@@ -105,6 +105,36 @@ enum MouseButton: String, Codable, CaseIterable, Identifiable {
         case .middleClick: return 2
         }
     }
+    
+    /// Check if a button number is a primary button (left/right click)
+    static func isPrimaryButton(_ buttonNumber: Int64) -> Bool {
+        return buttonNumber == 0 || buttonNumber == 1  // Left click = 0, Right click = 1
+    }
+    
+    /// Check if a button number is already a built-in button
+    static func isBuiltInButton(_ buttonNumber: Int64) -> Bool {
+        return allCases.contains { $0.buttonNumber == buttonNumber }
+    }
+    
+    /// Get built-in button for a button number, if any
+    static func builtInButton(for buttonNumber: Int64) -> MouseButton? {
+        return allCases.first { $0.buttonNumber == buttonNumber }
+    }
+}
+
+/// A custom mouse button mapping for buttons beyond the built-in ones
+struct CustomMouseButtonMapping: Codable, Identifiable, Equatable {
+    var id = UUID()
+    var buttonNumber: Int64
+    var action: MouseAction
+    
+    var displayName: String {
+        "Mouse Button \(buttonNumber + 1)"
+    }
+    
+    var icon: String {
+        "circle.circle"
+    }
 }
 
 /// Directions for middle-drag gestures

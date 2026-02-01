@@ -46,6 +46,11 @@ class Settings {
         didSet { saveMouseButtonMappings() }
     }
     
+    // MARK: - Custom Mouse Button Mappings
+    var customMouseButtonMappings: [CustomMouseButtonMapping] = [] {
+        didSet { saveCustomMouseButtonMappings() }
+    }
+    
     // MARK: - Middle Drag Gesture Mappings
     var middleDragMappings: [DragDirection: MouseAction] = [:] {
         didSet { saveMiddleDragMappings() }
@@ -122,6 +127,7 @@ class Settings {
         }
         
         loadMouseButtonMappings()
+        loadCustomMouseButtonMappings()
         loadMiddleDragMappings()
         loadKeyboardMappings()
         loadExcludedApps()
@@ -155,6 +161,7 @@ class Settings {
     // MARK: - Persistence
     
     private let mouseButtonMappingsKey = "mouseButtonMappings"
+    private let customMouseButtonMappingsKey = "customMouseButtonMappings"
     private let middleDragMappingsKey = "middleDragMappings"
     private let keyboardMappingsKey = "keyboardMappings"
     private let excludedAppsKey = "excludedApps"
@@ -169,6 +176,19 @@ class Settings {
         if let data = UserDefaults.standard.data(forKey: mouseButtonMappingsKey),
            let mappings = try? JSONDecoder().decode([MouseButton: MouseAction].self, from: data) {
             mouseButtonMappings = mappings
+        }
+    }
+    
+    private func saveCustomMouseButtonMappings() {
+        if let data = try? JSONEncoder().encode(customMouseButtonMappings) {
+            UserDefaults.standard.set(data, forKey: customMouseButtonMappingsKey)
+        }
+    }
+    
+    private func loadCustomMouseButtonMappings() {
+        if let data = UserDefaults.standard.data(forKey: customMouseButtonMappingsKey),
+           let mappings = try? JSONDecoder().decode([CustomMouseButtonMapping].self, from: data) {
+            customMouseButtonMappings = mappings
         }
     }
     
@@ -223,6 +243,24 @@ class Settings {
     
     func getAction(for direction: DragDirection) -> MouseAction {
         middleDragMappings[direction] ?? .none
+    }
+    
+    /// Get action for a custom button number (checks both built-in and custom mappings)
+    func getAction(forButtonNumber buttonNumber: Int64) -> MouseAction? {
+        // First check built-in buttons
+        if let builtIn = MouseButton.builtInButton(for: buttonNumber) {
+            return mouseButtonMappings[builtIn]
+        }
+        // Then check custom buttons
+        if let customMapping = customMouseButtonMappings.first(where: { $0.buttonNumber == buttonNumber }) {
+            return customMapping.action
+        }
+        return nil
+    }
+    
+    /// Get all custom button numbers that are already mapped
+    var customMappedButtonNumbers: Set<Int64> {
+        Set(customMouseButtonMappings.map { $0.buttonNumber })
     }
     
     func getKeyboardAction(for keyCode: UInt16, modifiers: UInt64) -> KeyboardAction? {

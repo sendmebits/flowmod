@@ -4,11 +4,25 @@ import SwiftUI
 struct MouseButtonsView: View {
     @Bindable var settings: Settings
     @State private var showingCustomShortcut: MouseButton?
+    @State private var showingCustomShortcutForCustomButton: UUID?
+    @State private var showingButtonRecorder = false
     
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Mouse Button Mappings")
-                .font(.headline)
+            HStack {
+                Text("Mouse Button Mappings")
+                    .font(.headline)
+                
+                Spacer()
+                
+                Button {
+                    showingButtonRecorder = true
+                } label: {
+                    Label("Add Button", systemImage: "plus")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
             
             Text("Configure what each mouse button does")
                 .font(.caption)
@@ -16,10 +30,21 @@ struct MouseButtonsView: View {
             
             GroupBox {
                 VStack(spacing: 0) {
+                    // Built-in buttons
                     ForEach(MouseButton.allCases) { button in
                         buttonRow(for: button)
                         
-                        if button != MouseButton.allCases.last {
+                        if button != MouseButton.allCases.last || !settings.customMouseButtonMappings.isEmpty {
+                            Divider()
+                                .padding(.vertical, 8)
+                        }
+                    }
+                    
+                    // Custom buttons
+                    ForEach(settings.customMouseButtonMappings) { mapping in
+                        customButtonRow(for: mapping)
+                        
+                        if mapping.id != settings.customMouseButtonMappings.last?.id {
                             Divider()
                                 .padding(.vertical, 8)
                         }
@@ -38,6 +63,30 @@ struct MouseButtonsView: View {
                 showingCustomShortcut = nil
             }
         }
+        .sheet(item: $showingCustomShortcutForCustomButton) { mappingId in
+            KeyRecorderSheet(title: "Record Shortcut") { combo in
+                if let combo = combo,
+                   let index = settings.customMouseButtonMappings.firstIndex(where: { $0.id == mappingId }) {
+                    settings.customMouseButtonMappings[index].action = .customShortcut(combo)
+                }
+                showingCustomShortcutForCustomButton = nil
+            }
+        }
+        .sheet(isPresented: $showingButtonRecorder) {
+            MouseButtonRecorderSheet(
+                title: "Record Mouse Button",
+                existingButtonNumbers: settings.customMappedButtonNumbers
+            ) { result in
+                showingButtonRecorder = false
+                if case .success(let buttonNumber) = result {
+                    let newMapping = CustomMouseButtonMapping(
+                        buttonNumber: buttonNumber,
+                        action: .none
+                    )
+                    settings.customMouseButtonMappings.append(newMapping)
+                }
+            }
+        }
     }
     
     private func buttonRow(for button: MouseButton) -> some View {
@@ -53,6 +102,30 @@ struct MouseButtonsView: View {
             Spacer()
             
             actionPicker(for: button)
+        }
+    }
+    
+    private func customButtonRow(for mapping: CustomMouseButtonMapping) -> some View {
+        HStack {
+            Image(systemName: mapping.icon)
+                .font(.title3)
+                .foregroundStyle(Color.accentColor)
+                .frame(width: 24)
+            
+            Text(mapping.displayName)
+                .frame(minWidth: 150, alignment: .leading)
+            
+            Spacer()
+            
+            customActionPicker(for: mapping)
+            
+            Button {
+                deleteCustomMapping(mapping)
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
         }
     }
     
@@ -101,10 +174,54 @@ struct MouseButtonsView: View {
         }
         .menuStyle(.borderlessButton)
     }
+    
+    private func customActionPicker(for mapping: CustomMouseButtonMapping) -> some View {
+        Menu {
+            ForEach(MouseAction.allCases) { action in
+                Button {
+                    updateCustomAction(for: mapping, to: action)
+                } label: {
+                    Label(action.displayName, systemImage: action.icon)
+                }
+            }
+            
+            Divider()
+            
+            Button {
+                showingCustomShortcutForCustomButton = mapping.id
+            } label: {
+                Label("Custom Shortcut...", systemImage: "keyboard")
+            }
+        } label: {
+            HStack {
+                Image(systemName: mapping.action.icon)
+                Text(mapping.action.displayName)
+                    .lineLimit(1)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(.quaternary)
+            .cornerRadius(6)
+        }
+        .menuStyle(.borderlessButton)
+    }
+    
+    private func updateCustomAction(for mapping: CustomMouseButtonMapping, to action: MouseAction) {
+        if let index = settings.customMouseButtonMappings.firstIndex(where: { $0.id == mapping.id }) {
+            settings.customMouseButtonMappings[index].action = action
+        }
+    }
+    
+    private func deleteCustomMapping(_ mapping: CustomMouseButtonMapping) {
+        settings.customMouseButtonMappings.removeAll { $0.id == mapping.id }
+    }
 }
 
 #Preview {
     MouseButtonsView(settings: Settings.shared)
         .padding()
-        .frame(width: 460, height: 350)
+        .frame(width: 460, height: 400)
 }

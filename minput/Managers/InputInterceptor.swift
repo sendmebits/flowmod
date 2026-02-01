@@ -571,6 +571,11 @@ class InputInterceptor {
             return handleMouseButtonAction(for: .forward, originalEvent: event)
         }
         
+        // Check for custom button mappings (buttons 5+)
+        if buttonNumber >= 5 {
+            return handleCustomMouseButtonAction(buttonNumber: buttonNumber, originalEvent: event)
+        }
+        
         return event
     }
     
@@ -602,9 +607,19 @@ class InputInterceptor {
             return nil
         }
         
-        // Always suppress up events for back/forward buttons since we handle them on mouse down
+        // Suppress up events for back/forward buttons since we handle them on mouse down
         if buttonNumber == 3 || buttonNumber == 4 {
             return nil
+        }
+        
+        // Suppress up events for custom buttons that have mappings
+        if buttonNumber >= 5 {
+            let hasMapping: Bool = onMain {
+                settings?.getAction(forButtonNumber: buttonNumber) != nil
+            }
+            if hasMapping {
+                return nil
+            }
         }
         
         return event
@@ -667,6 +682,26 @@ class InputInterceptor {
         // because macOS apps don't respond to raw mouse button 3/4 events for navigation
         executeAction(action)
         return nil  // Always suppress the original mouse button event
+    }
+    
+    private func handleCustomMouseButtonAction(buttonNumber: Int64, originalEvent: CGEvent) -> CGEvent? {
+        let action: MouseAction? = onMain {
+            settings?.getAction(forButtonNumber: buttonNumber)
+        }
+        
+        // If no mapping, pass through the event
+        guard let action = action else {
+            return originalEvent
+        }
+        
+        // For .none, suppress the event entirely
+        if action == .none {
+            return nil
+        }
+        
+        // Execute the action
+        executeAction(action)
+        return nil  // Suppress the original mouse button event
     }
     
     // MARK: - Keyboard Handling
