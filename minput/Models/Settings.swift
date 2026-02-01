@@ -67,11 +67,6 @@ class Settings {
         set { UserDefaults.standard.set(newValue, forKey: "launchAtLogin") }
     }
     
-    var showMenuBarIcon: Bool {
-        get { UserDefaults.standard.object(forKey: "showMenuBarIcon") as? Bool ?? true }
-        set { UserDefaults.standard.set(newValue, forKey: "showMenuBarIcon") }
-    }
-    
     var dragThreshold: Double {
         get { UserDefaults.standard.object(forKey: "dragThreshold") as? Double ?? 40.0 }
         set { UserDefaults.standard.set(newValue, forKey: "dragThreshold") }

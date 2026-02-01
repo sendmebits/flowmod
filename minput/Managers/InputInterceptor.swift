@@ -23,8 +23,6 @@ class InputInterceptor {
     // Smooth scrolling state - physics engine for trackpad-like feel
     private var smoothScrollVelocityY: Double = 0
     private var smoothScrollVelocityX: Double = 0
-    private var smoothScrollPositionY: Double = 0  // Accumulated position (for sub-pixel precision)
-    private var smoothScrollPositionX: Double = 0
     private var displayLink: CADisplayLink?
     private var smoothScrollPhase: SmoothScrollPhase = .idle
     private let smoothScrollLock = NSLock()
@@ -473,8 +471,6 @@ class InputInterceptor {
             smoothScrollLock.lock()
             smoothScrollVelocityY = 0
             smoothScrollVelocityX = 0
-            smoothScrollPositionY = 0
-            smoothScrollPositionX = 0
             targetScrollDistance = 0
             alreadyScrolledDistance = 0
             smoothScrollPhase = .idle

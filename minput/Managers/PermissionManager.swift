@@ -48,10 +48,4 @@ class PermissionManager {
             }
         }
     }
-    
-    /// Stop polling
-    func stopPermissionMonitoring() {
-        checkTimer?.invalidate()
-        checkTimer = nil
-    }
 }

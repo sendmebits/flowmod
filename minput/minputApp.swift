@@ -15,10 +15,6 @@ struct minputApp: App {
     @State private var permissionManager = PermissionManager.shared
     @State private var inputInterceptor = InputInterceptor.shared
     
-    @State private var showOnboarding = false
-    
-    @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
-    
     var body: some Scene {
         // Menu bar item
         MenuBarExtra {

@@ -129,35 +129,6 @@ struct KeyRecorderSheet: View {
     }
 }
 
-/// A button that shows a key recorder inline
-struct KeyRecorderButton: View {
-    let currentCombo: KeyCombo?
-    let onRecord: () -> Void
-    
-    var body: some View {
-        Button {
-            onRecord()
-        } label: {
-            HStack {
-                if let combo = currentCombo {
-                    Text(combo.displayName)
-                } else {
-                    Text("Record...")
-                        .foregroundStyle(.secondary)
-                }
-                
-                Image(systemName: "record.circle")
-                    .foregroundStyle(.red)
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(.quaternary)
-            .cornerRadius(6)
-        }
-        .buttonStyle(.plain)
-    }
-}
-
 #Preview {
     KeyRecorderSheet(title: "Record Shortcut") { combo in
         print("Recorded: \(combo?.displayName ?? "nil")")
