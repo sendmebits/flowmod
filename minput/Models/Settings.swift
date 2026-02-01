@@ -26,6 +26,21 @@ class Settings {
         didSet { UserDefaults.standard.set(smoothScrolling.rawValue, forKey: "smoothScrolling") }
     }
     
+    /// Shift key modifier: scroll horizontally instead of vertically
+    var shiftHorizontalScroll: Bool = true {
+        didSet { UserDefaults.standard.set(shiftHorizontalScroll, forKey: "shiftHorizontalScroll") }
+    }
+    
+    /// Option key modifier: slow down scroll speed for precision
+    var optionPrecisionScroll: Bool = true {
+        didSet { UserDefaults.standard.set(optionPrecisionScroll, forKey: "optionPrecisionScroll") }
+    }
+    
+    /// Precision scroll speed multiplier (0.0 to 1.0)
+    var precisionScrollMultiplier: Double = 0.33 {
+        didSet { UserDefaults.standard.set(precisionScrollMultiplier, forKey: "precisionScrollMultiplier") }
+    }
+    
     // MARK: - Mouse Button Mappings
     var mouseButtonMappings: [MouseButton: MouseAction] = [:] {
         didSet { saveMouseButtonMappings() }
@@ -90,6 +105,25 @@ class Settings {
             smoothScrolling = value
         } else {
             smoothScrolling = .off
+        }
+        
+        // Load scroll modifier settings (default to true if not set)
+        if UserDefaults.standard.object(forKey: "shiftHorizontalScroll") == nil {
+            shiftHorizontalScroll = true
+        } else {
+            shiftHorizontalScroll = UserDefaults.standard.bool(forKey: "shiftHorizontalScroll")
+        }
+        
+        if UserDefaults.standard.object(forKey: "optionPrecisionScroll") == nil {
+            optionPrecisionScroll = true
+        } else {
+            optionPrecisionScroll = UserDefaults.standard.bool(forKey: "optionPrecisionScroll")
+        }
+        
+        if UserDefaults.standard.object(forKey: "precisionScrollMultiplier") != nil {
+            precisionScrollMultiplier = UserDefaults.standard.double(forKey: "precisionScrollMultiplier")
+        } else {
+            precisionScrollMultiplier = 0.33
         }
         
         loadMouseButtonMappings()

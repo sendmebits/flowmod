@@ -6,7 +6,7 @@ struct ScrollSettingsView: View {
     var deviceManager: DeviceManager
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
+        VStack(alignment: .leading, spacing: 16) {
             // Main toggle
             GroupBox {
                 HStack {
@@ -61,6 +61,61 @@ struct ScrollSettingsView: View {
                 .padding(.vertical, 4)
             }
             
+            // Scroll Modifiers Section
+            GroupBox {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Scroll Modifiers")
+                        .font(.headline)
+                    
+                    // Shift for horizontal scroll
+                    HStack {
+                        Image(systemName: "arrow.left.arrow.right")
+                            .font(.body)
+                            .foregroundStyle(Color.accentColor)
+                            .frame(width: 24)
+                        
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Shift + Scroll = Horizontal")
+                                .font(.subheadline)
+                            Text("Hold Shift to scroll side-to-side")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        
+                        Spacer()
+                        
+                        Toggle("", isOn: $settings.shiftHorizontalScroll)
+                            .toggleStyle(.switch)
+                            .labelsHidden()
+                    }
+                    
+                    Divider()
+                    
+                    // Option for precision scroll
+                    HStack {
+                        Image(systemName: "scope")
+                            .font(.body)
+                            .foregroundStyle(Color.accentColor)
+                            .frame(width: 24)
+                        
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Option + Scroll = Precision")
+                                .font(.subheadline)
+                            Text("Hold Option for slower, more precise scrolling")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        
+                        Spacer()
+                        
+                        Toggle("", isOn: $settings.optionPrecisionScroll)
+                            .toggleStyle(.switch)
+                            .labelsHidden()
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+            
             // Help text
             Text("Apple trackpads and Magic Mouse will continue to scroll naturally. Only external/Windows mice will have their scroll direction reversed.")
                 .font(.caption)
@@ -74,5 +129,5 @@ struct ScrollSettingsView: View {
 #Preview {
     ScrollSettingsView(settings: Settings.shared, deviceManager: DeviceManager.shared)
         .padding()
-        .frame(width: 460, height: 350)
+        .frame(width: 460, height: 400)
 }

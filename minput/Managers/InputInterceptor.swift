@@ -184,10 +184,15 @@ class InputInterceptor {
         guard let settings = settings else { return event }
         
         // Get settings on main thread
-        let (shouldReverse, smoothScrolling) = onMain {
+        let (shouldReverse, smoothScrolling, shiftHorizontal, optionPrecision, precisionMultiplier) = onMain {
             let reverse = settings.reverseScrollEnabled && (settings.assumeExternalMouse || (deviceManager?.externalMouseConnected ?? false))
-            return (reverse, settings.smoothScrolling)
+            return (reverse, settings.smoothScrolling, settings.shiftHorizontalScroll, settings.optionPrecisionScroll, settings.precisionScrollMultiplier)
         }
+        
+        // Check modifier keys
+        let flags = event.flags
+        let shiftHeld = flags.contains(.maskShift)
+        let optionHeld = flags.contains(.maskAlternate)
         
         // Check if this is a continuous (trackpad) or discrete (mouse wheel) scroll
         // Note: Many modern mice (especially Logitech) report as continuous scroll
@@ -219,21 +224,35 @@ class InputInterceptor {
         }
         
         // Get all the delta values BEFORE modification
-        let deltaY = event.getIntegerValueField(.scrollWheelEventDeltaAxis1)
-        let deltaX = event.getIntegerValueField(.scrollWheelEventDeltaAxis2)
+        var deltaY = event.getIntegerValueField(.scrollWheelEventDeltaAxis1)
+        var deltaX = event.getIntegerValueField(.scrollWheelEventDeltaAxis2)
         var pixelDeltaY = event.getDoubleValueField(.scrollWheelEventFixedPtDeltaAxis1)
         var pixelDeltaX = event.getDoubleValueField(.scrollWheelEventFixedPtDeltaAxis2)
         var pointDeltaY = event.getDoubleValueField(.scrollWheelEventPointDeltaAxis1)
         var pointDeltaX = event.getDoubleValueField(.scrollWheelEventPointDeltaAxis2)
         
+        // Apply Shift modifier: convert vertical scroll to horizontal
+        if shiftHeld && shiftHorizontal && isMouseScroll {
+            // Swap Y values to X
+            deltaX = deltaY
+            deltaY = 0
+            pixelDeltaX = pixelDeltaY
+            pixelDeltaY = 0
+            pointDeltaX = pointDeltaY
+            pointDeltaY = 0
+        }
+        
+        // Apply Option modifier: slow down scroll for precision
+        let precisionScale: Double = (optionHeld && optionPrecision && isMouseScroll) ? precisionMultiplier : 1.0
+        
         // Apply reversal if enabled
         let reverseMultiplier: Double = shouldReverse ? -1.0 : 1.0
         let reversedDeltaY = -deltaY
         let reversedDeltaX = -deltaX
-        pixelDeltaY *= reverseMultiplier
-        pixelDeltaX *= reverseMultiplier
-        pointDeltaY *= reverseMultiplier
-        pointDeltaX *= reverseMultiplier
+        pixelDeltaY *= reverseMultiplier * precisionScale
+        pixelDeltaX *= reverseMultiplier * precisionScale
+        pointDeltaY *= reverseMultiplier * precisionScale
+        pointDeltaX *= reverseMultiplier * precisionScale
         
         // If smooth scrolling is enabled for mouse events, use the smooth scroll system
         if smoothScrolling != .off && isMouseScroll {
@@ -242,7 +261,7 @@ class InputInterceptor {
             // Calculate pixels to scroll for this tick
             // Each wheel tick (line delta of ±1) should scroll a meaningful distance
             // Use the sign from the line delta to get direction, then apply pxPerTick
-            let pxMultiplier = smoothScrolling == .verySmooth ? 1.3 : 1.0
+            let pxMultiplier = (smoothScrolling == .verySmooth ? 1.3 : 1.0) * precisionScale
             let ticksY = Double(reversedDeltaY)  // Usually ±1, sometimes ±2-3 for fast scrolling
             let ticksX = Double(reversedDeltaX)
             
@@ -277,8 +296,11 @@ class InputInterceptor {
             return nil
         }
         
-        // No smooth scrolling - just apply reversal if needed
-        guard shouldReverse else { return event }
+        // Non-smooth scroll path - apply modifiers and/or reversal
+        // Check if we need to modify the event at all
+        let needsModification = shouldReverse || (shiftHeld && shiftHorizontal && isMouseScroll) || (optionHeld && optionPrecision && isMouseScroll)
+        
+        guard needsModification else { return event }
         
         // IMPORTANT: Order matters! Setting the integer delta fields causes macOS to
         // internally recalculate the point/fixed-pt fields. So we must either:
@@ -286,11 +308,15 @@ class InputInterceptor {
         // 2. Set integer delta first, then set the others to override
         // We use approach #2 (same as Scroll Reverser)
         
+        // For precision scroll, we need to reduce the integer delta too
+        // Since integer deltas are typically ±1, we can't reduce them directly,
+        // but the pixel/point deltas will be reduced
+        
         // First, set the integer deltas (this may reset the other fields)
         event.setIntegerValueField(.scrollWheelEventDeltaAxis1, value: reversedDeltaY)
         event.setIntegerValueField(.scrollWheelEventDeltaAxis2, value: reversedDeltaX)
         
-        // Then override with the correct reversed values for smooth scrolling
+        // Then override with the correct modified values
         event.setDoubleValueField(.scrollWheelEventFixedPtDeltaAxis1, value: pixelDeltaY)
         event.setDoubleValueField(.scrollWheelEventFixedPtDeltaAxis2, value: pixelDeltaX)
         event.setDoubleValueField(.scrollWheelEventPointDeltaAxis1, value: pointDeltaY)
