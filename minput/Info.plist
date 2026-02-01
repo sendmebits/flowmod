@@ -4,5 +4,15 @@
 <dict>
 	<key>LSUIElement</key>
 	<true/>
+	<key>CFBundleShortVersionString</key>
+	<string>1.0.0</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>NSHumanReadableCopyright</key>
+	<string>Copyright © 2026 Sendmebits. All rights reserved.</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>14.0</string>
+	<key>NSAccessibilityUsageDescription</key>
+	<string>minput needs accessibility permission to intercept and remap mouse and keyboard input from external devices.</string>
 </dict>
 </plist>
