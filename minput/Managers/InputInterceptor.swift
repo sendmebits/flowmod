@@ -31,12 +31,15 @@ class InputInterceptor {
     private var lastFrameTime: CFTimeInterval = 0
     private var lastInputTime: CFTimeInterval = 0
     
-    // Physics parameters (tuned for trackpad-like feel)
-    private let scrollFriction: Double = 12.0          // Higher = stops faster
-    private let scrollResponsiveness: Double = 0.25   // How much each wheel delta changes velocity
-    private let maxVelocity: Double = 4000.0          // Clamp to avoid absurd speeds
-    private let velocityThreshold: Double = 0.1       // Stop when velocity drops below this
-    private let inputTimeoutForMomentum: Double = 0.08 // Seconds after last input before switching to momentum
+    // Physics parameters (tuned for trackpad-like feel, inspired by Mac Mouse Fix)
+    // Key insight: each wheel tick should scroll a meaningful minimum distance
+    private let pxPerTick: Double = 60.0           // Minimum pixels per wheel tick (like Mac Mouse Fix)
+    private let scrollFriction: Double = 23.0     // Friction coefficient (higher = stops faster)
+    private let scrollFrictionExp: Double = 1.0   // Friction exponent
+    private let maxVelocity: Double = 3000.0      // Clamp to avoid absurd speeds
+    private let stopSpeed: Double = 50.0          // Stop when velocity drops below this (in px/s)
+    private let msPerStep: Double = 140.0         // Base animation duration per tick (ms)
+    private let inputTimeoutForMomentum: Double = 0.1 // Seconds after last input before switching to momentum
     
     private enum SmoothScrollPhase {
         case idle
@@ -236,17 +239,27 @@ class InputInterceptor {
         if smoothScrolling != .off && isMouseScroll {
             smoothScrollLock.lock()
             
-            // Get the actual scroll delta - use point delta if available, otherwise convert from line delta
-            // Mouse wheels typically report 1-3 lines per tick, we need to convert to pixels
-            let pixelsPerLine: Double = 10.0  // Standard line height approximation
-            let inputDeltaY = pointDeltaY != 0 ? pointDeltaY : Double(reversedDeltaY) * pixelsPerLine
-            let inputDeltaX = pointDeltaX != 0 ? pointDeltaX : Double(reversedDeltaX) * pixelsPerLine
+            // Calculate pixels to scroll for this tick
+            // Each wheel tick (line delta of ±1) should scroll a meaningful distance
+            // Use the sign from the line delta to get direction, then apply pxPerTick
+            let pxMultiplier = smoothScrolling == .verySmooth ? 1.3 : 1.0
+            let ticksY = Double(reversedDeltaY)  // Usually ±1, sometimes ±2-3 for fast scrolling
+            let ticksX = Double(reversedDeltaX)
             
-            // Physics model: add to velocity (accumulates scroll input)
-            // This creates the "throw" effect - faster scrolling = more momentum
-            let responsiveness = smoothScrolling == .verySmooth ? scrollResponsiveness * 1.5 : scrollResponsiveness
-            smoothScrollVelocityY += inputDeltaY * responsiveness * 60.0  // Scale for velocity units
-            smoothScrollVelocityX += inputDeltaX * responsiveness * 60.0
+            // Add pixels to scroll buffer
+            let pxToAddY = ticksY * pxPerTick * pxMultiplier
+            let pxToAddX = ticksX * pxPerTick * pxMultiplier
+            
+            // Convert to velocity: we want to scroll pxToAdd over msPerStep milliseconds
+            // Initial velocity needed: v = 2 * distance / time (for linear deceleration to 0)
+            // For exponential decay: v ≈ distance * friction (to scroll distance before stopping)
+            let friction = smoothScrolling == .verySmooth ? scrollFriction * 0.7 : scrollFriction
+            let velocityBoostY = pxToAddY * friction
+            let velocityBoostX = pxToAddX * friction
+            
+            // Add to existing velocity for accumulation during rapid scrolling
+            smoothScrollVelocityY += velocityBoostY
+            smoothScrollVelocityX += velocityBoostX
             
             // Clamp velocity to prevent absurd speeds
             smoothScrollVelocityY = max(min(smoothScrollVelocityY, maxVelocity), -maxVelocity)
@@ -342,10 +355,7 @@ class InputInterceptor {
             smoothScrollPhase = .momentum
         }
         
-        // Physics model: exponential friction decay
-        // velocity -= velocity * friction * dt
-        // This creates natural trackpad-like deceleration
-        
+        // Get current friction based on smooth level
         let friction = currentSmoothLevel == .verySmooth ? scrollFriction * 0.7 : scrollFriction
         
         // Calculate position delta for this frame: position += velocity * dt
@@ -356,9 +366,22 @@ class InputInterceptor {
         smoothScrollPositionY += deltaY
         smoothScrollPositionX += deltaX
         
-        // Apply exponential friction: velocity -= velocity * friction * dt
-        smoothScrollVelocityY -= smoothScrollVelocityY * friction * dt
-        smoothScrollVelocityX -= smoothScrollVelocityX * friction * dt
+        // Apply drag physics (like Mac Mouse Fix): velocity -= |velocity|^exp * coeff * dt * sign(velocity)
+        // For exp=1.0, this simplifies to: velocity -= velocity * coeff * dt (exponential decay)
+        let dragY = pow(abs(smoothScrollVelocityY), scrollFrictionExp) * friction * dt
+        let dragX = pow(abs(smoothScrollVelocityX), scrollFrictionExp) * friction * dt
+        
+        if smoothScrollVelocityY > 0 {
+            smoothScrollVelocityY = max(0, smoothScrollVelocityY - dragY)
+        } else {
+            smoothScrollVelocityY = min(0, smoothScrollVelocityY + dragY)
+        }
+        
+        if smoothScrollVelocityX > 0 {
+            smoothScrollVelocityX = max(0, smoothScrollVelocityX - dragX)
+        } else {
+            smoothScrollVelocityX = min(0, smoothScrollVelocityX + dragX)
+        }
         
         let velocityY = smoothScrollVelocityY
         let velocityX = smoothScrollVelocityX
@@ -366,8 +389,8 @@ class InputInterceptor {
         
         smoothScrollLock.unlock()
         
-        // Stop if velocity is negligible
-        if abs(velocityY) < velocityThreshold && abs(velocityX) < velocityThreshold {
+        // Stop if velocity is below stop speed
+        if abs(velocityY) < stopSpeed && abs(velocityX) < stopSpeed {
             // Post "ended" phase to trigger elastic bounce if at boundary
             postSmoothScrollEvent(deltaY: 0, deltaX: 0, phase: .ended, momentumPhase: 0)
             
