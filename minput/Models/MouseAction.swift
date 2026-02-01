@@ -9,6 +9,12 @@ enum MouseAction: Codable, Equatable, Hashable, Identifiable, CaseIterable {
     case back
     case forward
     case middleClick
+    case copy
+    case cut
+    case paste
+    case undo
+    case redo
+    case selectAll
     case customShortcut(KeyCombo)
     
     var id: String {
@@ -20,6 +26,12 @@ enum MouseAction: Codable, Equatable, Hashable, Identifiable, CaseIterable {
         case .back: return "back"
         case .forward: return "forward"
         case .middleClick: return "middleClick"
+        case .copy: return "copy"
+        case .cut: return "cut"
+        case .paste: return "paste"
+        case .undo: return "undo"
+        case .redo: return "redo"
+        case .selectAll: return "selectAll"
         case .customShortcut(let combo): return "custom_\(combo.keyCode)_\(combo.modifiers)"
         }
     }
@@ -33,6 +45,12 @@ enum MouseAction: Codable, Equatable, Hashable, Identifiable, CaseIterable {
         case .back: return "Back (⌘[)"
         case .forward: return "Forward (⌘])"
         case .middleClick: return "Middle Click"
+        case .copy: return "Copy (⌘C)"
+        case .cut: return "Cut (⌘X)"
+        case .paste: return "Paste (⌘V)"
+        case .undo: return "Undo (⌘Z)"
+        case .redo: return "Redo (⇧⌘Z)"
+        case .selectAll: return "Select All (⌘A)"
         case .customShortcut(let combo): return "Custom: \(combo.displayName)"
         }
     }
@@ -46,6 +64,12 @@ enum MouseAction: Codable, Equatable, Hashable, Identifiable, CaseIterable {
         case .back: return "chevron.left"
         case .forward: return "chevron.right"
         case .middleClick: return "computermouse"
+        case .copy: return "doc.on.doc"
+        case .cut: return "scissors"
+        case .paste: return "doc.on.clipboard"
+        case .undo: return "arrow.uturn.backward"
+        case .redo: return "arrow.uturn.forward"
+        case .selectAll: return "selection.pin.in.out"
         case .customShortcut: return "keyboard"
         }
     }
@@ -53,7 +77,8 @@ enum MouseAction: Codable, Equatable, Hashable, Identifiable, CaseIterable {
     // For CaseIterable conformance without associated values
     static var allCases: [MouseAction] {
         [.none, .missionControl, .showDesktop, .launchpad,
-         .back, .forward, .middleClick]
+         .back, .forward, .middleClick,
+         .copy, .cut, .paste, .undo, .redo, .selectAll]
     }
 }
 

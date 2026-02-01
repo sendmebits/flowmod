@@ -681,6 +681,7 @@ class InputInterceptor {
     
     private func handleKeyEvent(_ event: CGEvent, isDown: Bool) -> CGEvent? {
         let keyCode = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
+        let modifiers = event.flags.rawValue
         
         // Check if external keyboard is connected (or assumed)
         let (hasExternalKeyboard, isExcludedApp, action): (Bool, Bool, KeyboardAction?) = onMain {
@@ -693,7 +694,7 @@ class InputInterceptor {
                 excluded = settings?.isAppExcluded(bundleID) ?? false
             }
             
-            let keyAction = settings?.getKeyboardAction(for: keyCode)
+            let keyAction = settings?.getKeyboardAction(for: keyCode, modifiers: modifiers)
             return (hasKeyboard, excluded, keyAction)
         }
         
@@ -738,6 +739,24 @@ class InputInterceptor {
         case .middleClick:
             // Shouldn't reach here normally
             break
+            
+        case .copy:
+            sendKeyCombo(KeyCombo(keyCode: 0x08, modifiers: CGEventFlags.maskCommand.rawValue)) // ⌘C
+            
+        case .cut:
+            sendKeyCombo(KeyCombo(keyCode: 0x07, modifiers: CGEventFlags.maskCommand.rawValue)) // ⌘X
+            
+        case .paste:
+            sendKeyCombo(KeyCombo(keyCode: 0x09, modifiers: CGEventFlags.maskCommand.rawValue)) // ⌘V
+            
+        case .undo:
+            sendKeyCombo(KeyCombo(keyCode: 0x06, modifiers: CGEventFlags.maskCommand.rawValue)) // ⌘Z
+            
+        case .redo:
+            sendKeyCombo(KeyCombo(keyCode: 0x06, modifiers: CGEventFlags.maskCommand.rawValue | CGEventFlags.maskShift.rawValue)) // ⇧⌘Z
+            
+        case .selectAll:
+            sendKeyCombo(KeyCombo(keyCode: 0x00, modifiers: CGEventFlags.maskCommand.rawValue)) // ⌘A
             
         case .customShortcut(let combo):
             sendKeyCombo(combo)

@@ -225,10 +225,21 @@ class Settings {
         middleDragMappings[direction] ?? .none
     }
     
-    func getKeyboardAction(for keyCode: UInt16) -> KeyboardAction? {
+    func getKeyboardAction(for keyCode: UInt16, modifiers: UInt64) -> KeyboardAction? {
+        // Mask to only check relevant modifier keys (Control, Option, Shift, Command)
+        let relevantModifierMask: UInt64 = CGEventFlags.maskControl.rawValue |
+                                           CGEventFlags.maskAlternate.rawValue |
+                                           CGEventFlags.maskShift.rawValue |
+                                           CGEventFlags.maskCommand.rawValue
+        
+        let maskedInputModifiers = modifiers & relevantModifierMask
+        
         for mapping in keyboardMappings {
             if mapping.effectiveKeyCode == keyCode {
-                return mapping.targetAction
+                let mappingModifiers = mapping.effectiveModifiers & relevantModifierMask
+                if mappingModifiers == maskedInputModifiers {
+                    return mapping.targetAction
+                }
             }
         }
         return nil

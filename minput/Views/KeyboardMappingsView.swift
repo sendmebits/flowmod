@@ -67,6 +67,7 @@ struct KeyboardMappingsView: View {
                 if let combo = combo, let index = settings.keyboardMappings.firstIndex(where: { $0.id == id }) {
                     settings.keyboardMappings[index].sourceKey = .custom
                     settings.keyboardMappings[index].customSourceKeyCode = combo.keyCode
+                    settings.keyboardMappings[index].customSourceModifiers = combo.modifiers
                 }
                 showingSourceRecorder = nil
             }
@@ -200,6 +201,7 @@ struct KeyboardMappingsView: View {
         if let index = settings.keyboardMappings.firstIndex(where: { $0.id == mapping.id }) {
             settings.keyboardMappings[index].sourceKey = key
             settings.keyboardMappings[index].customSourceKeyCode = nil
+            settings.keyboardMappings[index].customSourceModifiers = nil
         }
     }
     

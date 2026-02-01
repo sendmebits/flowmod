@@ -8,7 +8,8 @@ struct KeyRecorderSheet: View {
     
     @State private var recordedCombo: KeyCombo?
     @State private var isRecording = true
-    @State private var eventMonitor: Any?
+    @State private var keyDownMonitor: Any?
+    @State private var flagsChangedMonitor: Any?
     
     var body: some View {
         VStack(spacing: 20) {
@@ -83,48 +84,71 @@ struct KeyRecorderSheet: View {
     }
     
     private func startRecording() {
-        // Use local event monitor to capture key presses
-        eventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown]) { event in
-            let keyCode = UInt16(event.keyCode)
-            
-            // Ignore escape (used for cancel)
-            if keyCode == 0x35 && event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty {
-                return event
-            }
-            
-            // Ignore return/enter without modifiers (used for save)
-            if (keyCode == 0x24 || keyCode == 0x4C) && event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty {
-                return event
-            }
-            
-            // Build modifier flags
-            var modifiers: UInt64 = 0
-            let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-            
-            if flags.contains(.control) {
-                modifiers |= CGEventFlags.maskControl.rawValue
-            }
-            if flags.contains(.option) {
-                modifiers |= CGEventFlags.maskAlternate.rawValue
-            }
-            if flags.contains(.shift) {
-                modifiers |= CGEventFlags.maskShift.rawValue
-            }
-            if flags.contains(.command) {
-                modifiers |= CGEventFlags.maskCommand.rawValue
-            }
-            
-            recordedCombo = KeyCombo(keyCode: keyCode, modifiers: modifiers)
-            isRecording = false
-            
-            return nil  // Consume the event
+        // Clean up any existing monitors first
+        cleanup()
+        
+        // Use both local and global monitors to capture all key events
+        // Local monitor for regular app events
+        keyDownMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown]) { event in
+            return handleKeyEvent(event)
+        }
+        
+        // Also add a global monitor to catch events that might be intercepted
+        // Note: This requires accessibility permissions which the app already has
+        flagsChangedMonitor = NSEvent.addLocalMonitorForEvents(matching: [.flagsChanged]) { event in
+            // We don't record modifier-only keys, but we need to track them
+            // Just pass through - the actual recording happens on keyDown
+            return event
         }
     }
     
+    private func handleKeyEvent(_ event: NSEvent) -> NSEvent? {
+        let keyCode = UInt16(event.keyCode)
+        
+        // Ignore escape without modifiers (used for cancel)
+        if keyCode == 0x35 && event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty {
+            return event
+        }
+        
+        // Ignore return/enter without modifiers (used for save)
+        if (keyCode == 0x24 || keyCode == 0x4C) && event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty {
+            return event
+        }
+        
+        // Build modifier flags
+        var modifiers: UInt64 = 0
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        
+        if flags.contains(.control) {
+            modifiers |= CGEventFlags.maskControl.rawValue
+        }
+        if flags.contains(.option) {
+            modifiers |= CGEventFlags.maskAlternate.rawValue
+        }
+        if flags.contains(.shift) {
+            modifiers |= CGEventFlags.maskShift.rawValue
+        }
+        if flags.contains(.command) {
+            modifiers |= CGEventFlags.maskCommand.rawValue
+        }
+        
+        recordedCombo = KeyCombo(keyCode: keyCode, modifiers: modifiers)
+        isRecording = false
+        
+        // Stop monitoring after successful recording
+        cleanup()
+        
+        return nil  // Consume the event
+    }
+    
     private func cleanup() {
-        if let monitor = eventMonitor {
+        if let monitor = keyDownMonitor {
             NSEvent.removeMonitor(monitor)
-            eventMonitor = nil
+            keyDownMonitor = nil
+        }
+        if let monitor = flagsChangedMonitor {
+            NSEvent.removeMonitor(monitor)
+            flagsChangedMonitor = nil
         }
     }
 }

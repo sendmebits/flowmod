@@ -15,6 +15,12 @@ enum KeyboardAction: Codable, Equatable, Hashable, Identifiable, CaseIterable {
     case selectToLineEnd      // ⇧⌘→
     case selectToDocStart     // ⇧⌘↑
     case selectToDocEnd       // ⇧⌘↓
+    case copy           // ⌘C
+    case cut            // ⌘X
+    case paste          // ⌘V
+    case undo           // ⌘Z
+    case redo           // ⇧⌘Z
+    case selectAll      // ⌘A
     case customShortcut(KeyCombo)
     
     var id: String {
@@ -31,6 +37,12 @@ enum KeyboardAction: Codable, Equatable, Hashable, Identifiable, CaseIterable {
         case .selectToLineEnd: return "selectToLineEnd"
         case .selectToDocStart: return "selectToDocStart"
         case .selectToDocEnd: return "selectToDocEnd"
+        case .copy: return "copy"
+        case .cut: return "cut"
+        case .paste: return "paste"
+        case .undo: return "undo"
+        case .redo: return "redo"
+        case .selectAll: return "selectAll"
         case .customShortcut(let combo): return "custom_\(combo.keyCode)_\(combo.modifiers)"
         }
     }
@@ -49,6 +61,12 @@ enum KeyboardAction: Codable, Equatable, Hashable, Identifiable, CaseIterable {
         case .selectToLineEnd: return "Select to Line End (⇧⌘→)"
         case .selectToDocStart: return "Select to Doc Start (⇧⌘↑)"
         case .selectToDocEnd: return "Select to Doc End (⇧⌘↓)"
+        case .copy: return "Copy (⌘C)"
+        case .cut: return "Cut (⌘X)"
+        case .paste: return "Paste (⌘V)"
+        case .undo: return "Undo (⌘Z)"
+        case .redo: return "Redo (⇧⌘Z)"
+        case .selectAll: return "Select All (⌘A)"
         case .customShortcut(let combo): return "Custom: \(combo.displayName)"
         }
     }
@@ -67,6 +85,12 @@ enum KeyboardAction: Codable, Equatable, Hashable, Identifiable, CaseIterable {
         case .selectToLineEnd: return "arrow.right.to.line.compact"
         case .selectToDocStart: return "arrow.up.to.line.compact"
         case .selectToDocEnd: return "arrow.down.to.line.compact"
+        case .copy: return "doc.on.doc"
+        case .cut: return "scissors"
+        case .paste: return "doc.on.clipboard"
+        case .undo: return "arrow.uturn.backward"
+        case .redo: return "arrow.uturn.forward"
+        case .selectAll: return "selection.pin.in.out"
         case .customShortcut: return "keyboard"
         }
     }
@@ -98,6 +122,18 @@ enum KeyboardAction: Codable, Equatable, Hashable, Identifiable, CaseIterable {
             return KeyCombo(keyCode: 0x7E, modifiers: CGEventFlags.maskCommand.rawValue | CGEventFlags.maskShift.rawValue)
         case .selectToDocEnd:
             return KeyCombo(keyCode: 0x7D, modifiers: CGEventFlags.maskCommand.rawValue | CGEventFlags.maskShift.rawValue)
+        case .copy:
+            return KeyCombo(keyCode: 0x08, modifiers: CGEventFlags.maskCommand.rawValue) // ⌘C
+        case .cut:
+            return KeyCombo(keyCode: 0x07, modifiers: CGEventFlags.maskCommand.rawValue) // ⌘X
+        case .paste:
+            return KeyCombo(keyCode: 0x09, modifiers: CGEventFlags.maskCommand.rawValue) // ⌘V
+        case .undo:
+            return KeyCombo(keyCode: 0x06, modifiers: CGEventFlags.maskCommand.rawValue) // ⌘Z
+        case .redo:
+            return KeyCombo(keyCode: 0x06, modifiers: CGEventFlags.maskCommand.rawValue | CGEventFlags.maskShift.rawValue) // ⇧⌘Z
+        case .selectAll:
+            return KeyCombo(keyCode: 0x00, modifiers: CGEventFlags.maskCommand.rawValue) // ⌘A
         case .customShortcut(let combo):
             return combo
         }
@@ -107,6 +143,7 @@ enum KeyboardAction: Codable, Equatable, Hashable, Identifiable, CaseIterable {
     static var allCases: [KeyboardAction] {
         [.none, .lineStart, .lineEnd, .documentStart, .documentEnd,
          .pageUp, .pageDown, .deleteForward,
-         .selectToLineStart, .selectToLineEnd, .selectToDocStart, .selectToDocEnd]
+         .selectToLineStart, .selectToLineEnd, .selectToDocStart, .selectToDocEnd,
+         .copy, .cut, .paste, .undo, .redo, .selectAll]
     }
 }
