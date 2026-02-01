@@ -37,7 +37,7 @@ class InputInterceptor {
     private let scrollFriction: Double = 23.0     // Friction coefficient (higher = stops faster)
     private let scrollFrictionExp: Double = 1.0   // Friction exponent
     private let maxVelocity: Double = 3000.0      // Clamp to avoid absurd speeds
-    private let stopSpeed: Double = 50.0          // Stop when velocity drops below this (in px/s)
+    private let stopSpeed: Double = 10.0          // Stop when velocity drops below this (low to allow precision scroll)
     private let msPerStep: Double = 140.0         // Base animation duration per tick (ms)
     private let inputTimeoutForMomentum: Double = 0.1 // Seconds after last input before switching to momentum
     
@@ -270,7 +270,8 @@ class InputInterceptor {
             
             // Horizontal scroll uses smaller multiplier and respects smoothness settings
             // verySmooth mode makes horizontal scroll even smoother/slower
-            let horizontalScale = smoothScrolling == .verySmooth ? 0.12 : 0.15
+            // Scale is higher than before to ensure precision+horizontal combo works
+            let horizontalScale = smoothScrolling == .verySmooth ? 0.25 : 0.3
             
             // Add pixels to scroll buffer
             let pxToAddY = ticksY * pxPerTick * pxMultiplier
