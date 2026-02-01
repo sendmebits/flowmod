@@ -23,7 +23,7 @@ struct KeyboardMappingsView: View {
                 .controlSize(.small)
             }
             
-            Text("Remap Windows keyboard keys to macOS equivalents")
+            Text("Create custom key mappings for built-in and external keyboards")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             

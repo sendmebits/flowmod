@@ -108,7 +108,7 @@ struct KeyCombo: Codable, Equatable, Hashable {
     }
 }
 
-/// Common source keys for Windows keyboards
+/// Common source keys for generic keyboards
 enum SourceKey: String, CaseIterable, Codable, Identifiable {
     case none = "None"
     case home = "Home"
