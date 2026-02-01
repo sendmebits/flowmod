@@ -114,7 +114,11 @@ class DeviceManager {
         // Mice can report as Mouse or Pointer usage
         let isMouse = usagePage == kHIDPage_GenericDesktop && (usage == kHIDUsage_GD_Mouse || usage == kHIDUsage_GD_Pointer)
         let isKeyboard = usagePage == kHIDPage_GenericDesktop && usage == kHIDUsage_GD_Keyboard
-        let isAppleDevice = vendorID == appleVendorID
+        
+        // Check if Apple device by vendor ID or by name containing "Apple"
+        let isAppleDevice = vendorID == appleVendorID || 
+            productName.lowercased().contains("apple") ||
+            vendorName.lowercased().contains("apple")
         
         // Skip if neither mouse nor keyboard
         guard isMouse || isKeyboard else { return nil }
