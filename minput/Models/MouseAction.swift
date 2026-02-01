@@ -6,7 +6,6 @@ enum MouseAction: Codable, Equatable, Hashable, Identifiable, CaseIterable {
     case missionControl
     case showDesktop
     case launchpad
-    case appExpose
     case back
     case forward
     case middleClick
@@ -18,7 +17,6 @@ enum MouseAction: Codable, Equatable, Hashable, Identifiable, CaseIterable {
         case .missionControl: return "missionControl"
         case .showDesktop: return "showDesktop"
         case .launchpad: return "launchpad"
-        case .appExpose: return "appExpose"
         case .back: return "back"
         case .forward: return "forward"
         case .middleClick: return "middleClick"
@@ -32,7 +30,6 @@ enum MouseAction: Codable, Equatable, Hashable, Identifiable, CaseIterable {
         case .missionControl: return "Mission Control"
         case .showDesktop: return "Show Desktop"
         case .launchpad: return "Launchpad"
-        case .appExpose: return "App Exposé"
         case .back: return "Back (⌘[)"
         case .forward: return "Forward (⌘])"
         case .middleClick: return "Middle Click"
@@ -46,7 +43,6 @@ enum MouseAction: Codable, Equatable, Hashable, Identifiable, CaseIterable {
         case .missionControl: return "rectangle.3.group"
         case .showDesktop: return "menubar.dock.rectangle"
         case .launchpad: return "square.grid.3x3"
-        case .appExpose: return "rectangle.stack"
         case .back: return "chevron.left"
         case .forward: return "chevron.right"
         case .middleClick: return "computermouse"
@@ -56,7 +52,7 @@ enum MouseAction: Codable, Equatable, Hashable, Identifiable, CaseIterable {
     
     // For CaseIterable conformance without associated values
     static var allCases: [MouseAction] {
-        [.none, .missionControl, .showDesktop, .launchpad, .appExpose,
+        [.none, .missionControl, .showDesktop, .launchpad,
          .back, .forward, .middleClick]
     }
 }

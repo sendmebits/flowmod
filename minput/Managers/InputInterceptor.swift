@@ -633,9 +633,6 @@ class InputInterceptor {
         case .launchpad:
             triggerLaunchpad()
             
-        case .appExpose:
-            triggerAppExpose()
-            
         case .back:
             sendKeyCombo(KeyCombo(keyCode: 0x21, modifiers: CGEventFlags.maskCommand.rawValue)) // ⌘[
             
@@ -711,43 +708,6 @@ class InputInterceptor {
         }
         if let keyUp = CGEvent(keyboardEventSource: source, virtualKey: 0x83, keyDown: false) {
             keyUp.post(tap: .cghidEventTap)
-        }
-    }
-    
-    private func triggerAppExpose() {
-        // App Exposé: Control + Down Arrow
-        // We need to simulate the full key sequence: Control down, Arrow down, Arrow up, Control up
-        // kVK_Control = 0x3B, kVK_DownArrow = 0x7D
-        
-        let controlKeyCode: CGKeyCode = 0x3B  // Left Control
-        let downArrowKeyCode: CGKeyCode = 0x7D
-        
-        // Control key down
-        if let ctrlDown = CGEvent(keyboardEventSource: nil, virtualKey: controlKeyCode, keyDown: true) {
-            ctrlDown.flags = .maskControl
-            ctrlDown.setIntegerValueField(.eventSourceUserData, value: InputInterceptor.syntheticEventMarker)
-            ctrlDown.post(tap: .cghidEventTap)
-        }
-        
-        // Down arrow key down (with Control held)
-        if let arrowDown = CGEvent(keyboardEventSource: nil, virtualKey: downArrowKeyCode, keyDown: true) {
-            arrowDown.flags = .maskControl
-            arrowDown.setIntegerValueField(.eventSourceUserData, value: InputInterceptor.syntheticEventMarker)
-            arrowDown.post(tap: .cghidEventTap)
-        }
-        
-        // Down arrow key up
-        if let arrowUp = CGEvent(keyboardEventSource: nil, virtualKey: downArrowKeyCode, keyDown: false) {
-            arrowUp.flags = .maskControl
-            arrowUp.setIntegerValueField(.eventSourceUserData, value: InputInterceptor.syntheticEventMarker)
-            arrowUp.post(tap: .cghidEventTap)
-        }
-        
-        // Control key up
-        if let ctrlUp = CGEvent(keyboardEventSource: nil, virtualKey: controlKeyCode, keyDown: false) {
-            ctrlUp.flags = []
-            ctrlUp.setIntegerValueField(.eventSourceUserData, value: InputInterceptor.syntheticEventMarker)
-            ctrlUp.post(tap: .cghidEventTap)
         }
     }
 }
