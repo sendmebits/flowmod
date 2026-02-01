@@ -84,18 +84,25 @@ struct KeyboardMappingsView: View {
 
     
     private func mappingRow(for mapping: KeyboardMapping) -> some View {
-        HStack(spacing: 12) {
-            // Source key picker
+        HStack {
+            // Icon for the source key
+            Image(systemName: "command.square")
+                .font(.title3)
+                .foregroundStyle(Color.accentColor)
+                .frame(width: 24)
+            
+            // Source key picker (styled as text, clickable)
             sourceKeyPicker(for: mapping)
-                .frame(maxWidth: .infinity)
+                .frame(minWidth: 100, alignment: .leading)
             
             Image(systemName: "arrow.right")
                 .foregroundStyle(.tertiary)
                 .font(.caption)
             
+            Spacer()
+            
             // Target action picker
             targetActionPicker(for: mapping)
-                .frame(maxWidth: .infinity)
             
             // Delete button
             Button {
@@ -105,9 +112,7 @@ struct KeyboardMappingsView: View {
                     .foregroundStyle(.secondary)
             }
             .buttonStyle(.plain)
-            .frame(width: 24)
         }
-        .padding(.vertical, 6)
     }
     
     private func sourceKeyPicker(for mapping: KeyboardMapping) -> some View {
