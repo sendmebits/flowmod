@@ -7,46 +7,60 @@ struct KeyboardMappingsView: View {
     @State private var showingTargetRecorder: UUID?
     
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                HStack {
-                    Text("Keyboard Mappings")
-                        .font(.headline)
-                    
-                    Spacer()
-                    
-                    Button {
-                        addMapping()
-                    } label: {
-                        Label("Add Mapping", systemImage: "plus")
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                }
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                Text("Keyboard Mappings")
+                    .font(.headline)
                 
+                Spacer()
+                
+                Button {
+                    addMapping()
+                } label: {
+                    Label("Add Mapping", systemImage: "plus")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
+            
+            Text("Remap Windows keyboard keys to macOS equivalents")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            
+            GroupBox {
                 if settings.keyboardMappings.isEmpty {
-                    emptyState
+                    VStack(spacing: 12) {
+                        Image(systemName: "keyboard")
+                            .font(.largeTitle)
+                            .foregroundStyle(.secondary)
+                        
+                        Text("No keyboard mappings")
+                            .font(.headline)
+                            .foregroundStyle(.secondary)
+                        
+                        Text("Click \"Add Mapping\" to remap Windows keyboard keys")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 20)
                 } else {
-                    // Mappings table
                     VStack(spacing: 0) {
-                        // Mappings list
                         ForEach(settings.keyboardMappings) { mapping in
                             mappingRow(for: mapping)
                             
                             if mapping.id != settings.keyboardMappings.last?.id {
                                 Divider()
+                                    .padding(.vertical, 8)
                             }
                         }
                     }
-                    .padding(12)
-                    .background(Color(nsColor: .controlBackgroundColor))
-                    .cornerRadius(8)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
-                    )
+                    .padding(.vertical, 4)
                 }
             }
+            
+            Spacer()
         }
         .sheet(item: $showingSourceRecorder) { id in
             KeyRecorderSheet(title: "Press a Key to Map") { combo in
@@ -67,26 +81,7 @@ struct KeyboardMappingsView: View {
         }
     }
     
-    private var emptyState: some View {
-        GroupBox {
-            VStack(spacing: 12) {
-                Image(systemName: "keyboard")
-                    .font(.largeTitle)
-                    .foregroundStyle(.secondary)
-                
-                Text("No keyboard mappings")
-                    .font(.headline)
-                    .foregroundStyle(.secondary)
-                
-                Text("Click \"Add Mapping\" to remap Windows keyboard keys")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 20)
-        }
-    }
+
     
     private func mappingRow(for mapping: KeyboardMapping) -> some View {
         HStack(spacing: 12) {

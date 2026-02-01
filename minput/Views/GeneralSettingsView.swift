@@ -12,27 +12,30 @@ struct GeneralSettingsView: View {
         VStack(alignment: .leading, spacing: 20) {
             // Launch at Login
             GroupBox {
-                Toggle(isOn: $launchAtLoginEnabled) {
-                    HStack {
-                        Image(systemName: "power")
-                            .font(.title2)
-                            .foregroundStyle(Color.accentColor)
-                            .frame(width: 32)
-                        
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Launch at Login")
-                                .font(.headline)
-                            Text("Start minput automatically when you log in")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
+                HStack {
+                    Image(systemName: "power")
+                        .font(.title2)
+                        .foregroundStyle(Color.accentColor)
+                        .frame(width: 32)
+                    
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Launch at Login")
+                            .font(.headline)
+                        Text("Start minput automatically when you log in")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
+                    
+                    Spacer()
+                    
+                    Toggle("", isOn: $launchAtLoginEnabled)
+                        .toggleStyle(.switch)
+                        .labelsHidden()
+                        .onChange(of: launchAtLoginEnabled) { _, newValue in
+                            setLaunchAtLogin(newValue)
+                        }
                 }
-                .toggleStyle(.switch)
                 .padding(.vertical, 4)
-                .onChange(of: launchAtLoginEnabled) { _, newValue in
-                    setLaunchAtLogin(newValue)
-                }
             }
             
             // Device Detection Override
