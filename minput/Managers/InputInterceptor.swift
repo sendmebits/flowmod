@@ -242,13 +242,15 @@ class InputInterceptor {
             pointDeltaY = 0
         }
         
-        // Apply Option modifier: slow down scroll for precision
+        // Apply Option modifier: slow down scroll for precision (applies to both X and Y)
         let precisionScale: Double = (optionHeld && optionPrecision && isMouseScroll) ? precisionMultiplier : 1.0
         
-        // Apply reversal if enabled
+        // Apply reversal if enabled - compute AFTER the swap so values are correct
+        // Keep as Double for smooth scroll to preserve fractional precision
+        // Note: reverseMultiplier flips direction when reverse scrolling is enabled
         let reverseMultiplier: Double = shouldReverse ? -1.0 : 1.0
-        let reversedDeltaY = -deltaY
-        let reversedDeltaX = -deltaX
+        let reversedTicksY = Double(deltaY) * precisionScale * reverseMultiplier
+        let reversedTicksX = Double(deltaX) * precisionScale * reverseMultiplier
         pixelDeltaY *= reverseMultiplier * precisionScale
         pixelDeltaX *= reverseMultiplier * precisionScale
         pointDeltaY *= reverseMultiplier * precisionScale
@@ -261,13 +263,18 @@ class InputInterceptor {
             // Calculate pixels to scroll for this tick
             // Each wheel tick (line delta of ±1) should scroll a meaningful distance
             // Use the sign from the line delta to get direction, then apply pxPerTick
-            let pxMultiplier = (smoothScrolling == .verySmooth ? 1.3 : 1.0) * precisionScale
-            let ticksY = Double(reversedDeltaY)  // Usually ±1, sometimes ±2-3 for fast scrolling
-            let ticksX = Double(reversedDeltaX)
+            // reversedTicks is already a Double with precision scale applied
+            let pxMultiplier = smoothScrolling == .verySmooth ? 1.3 : 1.0
+            let ticksY = reversedTicksY  // Already includes reversal and precision scale
+            let ticksX = reversedTicksX
+            
+            // Horizontal scroll uses smaller multiplier and respects smoothness settings
+            // verySmooth mode makes horizontal scroll even smoother/slower
+            let horizontalScale = smoothScrolling == .verySmooth ? 0.12 : 0.15
             
             // Add pixels to scroll buffer
             let pxToAddY = ticksY * pxPerTick * pxMultiplier
-            let pxToAddX = ticksX * pxPerTick * pxMultiplier
+            let pxToAddX = ticksX * pxPerTick * horizontalScale
             
             // Convert to velocity: we want to scroll pxToAdd over msPerStep milliseconds
             // Initial velocity needed: v = 2 * distance / time (for linear deceleration to 0)
@@ -308,13 +315,14 @@ class InputInterceptor {
         // 2. Set integer delta first, then set the others to override
         // We use approach #2 (same as Scroll Reverser)
         
-        // For precision scroll, we need to reduce the integer delta too
-        // Since integer deltas are typically ±1, we can't reduce them directly,
+        // For precision scroll, we can't really reduce integer deltas below 1,
         // but the pixel/point deltas will be reduced
+        let intDeltaY = Int64(reversedTicksY.rounded())
+        let intDeltaX = Int64(reversedTicksX.rounded())
         
         // First, set the integer deltas (this may reset the other fields)
-        event.setIntegerValueField(.scrollWheelEventDeltaAxis1, value: reversedDeltaY)
-        event.setIntegerValueField(.scrollWheelEventDeltaAxis2, value: reversedDeltaX)
+        event.setIntegerValueField(.scrollWheelEventDeltaAxis1, value: intDeltaY)
+        event.setIntegerValueField(.scrollWheelEventDeltaAxis2, value: intDeltaX)
         
         // Then override with the correct modified values
         event.setDoubleValueField(.scrollWheelEventFixedPtDeltaAxis1, value: pixelDeltaY)
