@@ -19,12 +19,23 @@ class InputInterceptor {
     private var middleButtonStartPoint: CGPoint = .zero
     private var middleDragTriggered = false
     
-    // Smooth scrolling state
+    // Smooth scrolling state - physics engine for trackpad-like feel
     private var smoothScrollVelocityY: Double = 0
     private var smoothScrollVelocityX: Double = 0
-    private var smoothScrollTimer: Timer?
+    private var smoothScrollPositionY: Double = 0  // Accumulated position (for sub-pixel precision)
+    private var smoothScrollPositionX: Double = 0
+    private var displayLink: CVDisplayLink?
     private var smoothScrollPhase: SmoothScrollPhase = .idle
     private let smoothScrollLock = NSLock()
+    private var lastFrameTime: CFTimeInterval = 0
+    private var lastInputTime: CFTimeInterval = 0
+    
+    // Physics parameters (tuned for trackpad-like feel)
+    private let scrollFriction: Double = 12.0          // Higher = stops faster
+    private let scrollResponsiveness: Double = 0.25   // How much each wheel delta changes velocity
+    private let maxVelocity: Double = 4000.0          // Clamp to avoid absurd speeds
+    private let velocityThreshold: Double = 0.1       // Stop when velocity drops below this
+    private let inputTimeoutForMomentum: Double = 0.08 // Seconds after last input before switching to momentum
     
     private enum SmoothScrollPhase {
         case idle
@@ -120,6 +131,9 @@ class InputInterceptor {
     }
     
     func stop() {
+        // Stop smooth scrolling display link
+        stopDisplayLink()
+        
         if let tap = eventTap {
             CGEvent.tapEnable(tap: tap, enable: false)
         }
@@ -227,16 +241,23 @@ class InputInterceptor {
             let inputDeltaY = pointDeltaY != 0 ? pointDeltaY : Double(reversedDeltaY) * pixelsPerLine
             let inputDeltaX = pointDeltaX != 0 ? pointDeltaX : Double(reversedDeltaX) * pixelsPerLine
             
-            // Add to velocity - this accumulates scroll input
-            // We DON'T multiply here - the speed stays the same, smoothness comes from interpolation
-            smoothScrollVelocityY += inputDeltaY
-            smoothScrollVelocityX += inputDeltaX
+            // Physics model: add to velocity (accumulates scroll input)
+            // This creates the "throw" effect - faster scrolling = more momentum
+            let responsiveness = smoothScrolling == .verySmooth ? scrollResponsiveness * 1.5 : scrollResponsiveness
+            smoothScrollVelocityY += inputDeltaY * responsiveness * 60.0  // Scale for velocity units
+            smoothScrollVelocityX += inputDeltaX * responsiveness * 60.0
+            
+            // Clamp velocity to prevent absurd speeds
+            smoothScrollVelocityY = max(min(smoothScrollVelocityY, maxVelocity), -maxVelocity)
+            smoothScrollVelocityX = max(min(smoothScrollVelocityX, maxVelocity), -maxVelocity)
+            
             smoothScrollPhase = .scrolling
+            lastInputTime = CACurrentMediaTime()
             
             smoothScrollLock.unlock()
             
-            // Start timer if not running
-            startSmoothScrollTimer(smoothLevel: smoothScrolling)
+            // Start display link if not running
+            startDisplayLink(smoothLevel: smoothScrolling)
             
             // Suppress original event - we'll post smooth events instead
             return nil
@@ -264,109 +285,125 @@ class InputInterceptor {
         return event
     }
     
-    // MARK: - Smooth Scrolling
+    // MARK: - Smooth Scrolling with CVDisplayLink
     
     private var currentSmoothLevel: SmoothScrolling = .smooth
     
-    private func startSmoothScrollTimer(smoothLevel: SmoothScrolling) {
-        DispatchQueue.main.async { [weak self] in
-            guard let self = self else { return }
-            
-            self.currentSmoothLevel = smoothLevel
-            
-            // If timer already running, don't restart
-            if self.smoothScrollTimer?.isValid == true {
-                return
+    private func startDisplayLink(smoothLevel: SmoothScrolling) {
+        // Ensure we're on main thread for display link setup
+        if !Thread.isMainThread {
+            DispatchQueue.main.async { [weak self] in
+                self?.startDisplayLink(smoothLevel: smoothLevel)
             }
-            
-            // Post initial "began" phase
-            self.postSmoothScrollEvent(deltaY: 0, deltaX: 0, phase: .began, momentumPhase: 0)
-            
-            // 120 FPS for smooth animation
-            self.smoothScrollTimer = Timer.scheduledTimer(withTimeInterval: 1.0/120.0, repeats: true) { [weak self] timer in
-                self?.processSmoothScroll(timer: timer)
-            }
+            return
         }
+        
+        currentSmoothLevel = smoothLevel
+        
+        // If display link already running, don't restart
+        if displayLink != nil {
+            return
+        }
+        
+        // Create CVDisplayLink for frame-synchronized updates
+        var link: CVDisplayLink?
+        let status = CVDisplayLinkCreateWithActiveCGDisplays(&link)
+        guard status == kCVReturnSuccess, let displayLink = link else {
+            print("Failed to create CVDisplayLink")
+            return
+        }
+        
+        self.displayLink = displayLink
+        self.lastFrameTime = CACurrentMediaTime()
+        
+        // Post initial "began" phase
+        postSmoothScrollEvent(deltaY: 0, deltaX: 0, phase: .began, momentumPhase: 0)
+        
+        // Set up the callback
+        let callback: CVDisplayLinkOutputCallback = { displayLink, inNow, inOutputTime, flagsIn, flagsOut, userInfo -> CVReturn in
+            guard let userInfo = userInfo else { return kCVReturnError }
+            let interceptor = Unmanaged<InputInterceptor>.fromOpaque(userInfo).takeUnretainedValue()
+            interceptor.displayLinkCallback()
+            return kCVReturnSuccess
+        }
+        
+        CVDisplayLinkSetOutputCallback(displayLink, callback, Unmanaged.passUnretained(self).toOpaque())
+        CVDisplayLinkStart(displayLink)
     }
     
-    private func processSmoothScroll(timer: Timer) {
+    private func stopDisplayLink() {
+        if let link = displayLink {
+            CVDisplayLinkStop(link)
+            displayLink = nil
+        }
+        lastFrameTime = 0
+    }
+    
+    private func displayLinkCallback() {
+        let currentTime = CACurrentMediaTime()
+        let dt = lastFrameTime > 0 ? currentTime - lastFrameTime : 1.0 / 120.0
+        lastFrameTime = currentTime
+        
         smoothScrollLock.lock()
         
-        // Trackpad-like physics:
-        // - During active scrolling: emit velocity directly, apply light smoothing
-        // - During momentum: apply friction for gradual slowdown
-        //
-        // macOS trackpad uses roughly 0.95-0.98 friction at 60fps
-        // At 120fps, we need sqrt of that: ~0.975-0.99
-        let isActivelyScrolling = smoothScrollPhase == .scrolling
-        
-        // Friction values tuned to feel like trackpad
-        // Higher = more momentum (coasts longer)
-        let frictionFactor: Double
-        if isActivelyScrolling {
-            // Light smoothing during active scroll - keeps responsiveness
-            frictionFactor = currentSmoothLevel == .verySmooth ? 0.7 : 0.5
-        } else {
-            // Momentum phase - gradual slowdown like trackpad
-            frictionFactor = currentSmoothLevel == .verySmooth ? 0.985 : 0.975
-        }
-        
-        let velocityThreshold: Double = 0.5
-        
-        // Get current velocity
-        var velocityY = smoothScrollVelocityY
-        var velocityX = smoothScrollVelocityX
-        
-        // Calculate delta to emit this frame
-        // During active scrolling: emit a portion of accumulated velocity
-        // During momentum: emit current velocity and apply friction
-        let emitFraction: Double = isActivelyScrolling ? (1.0 - frictionFactor) : 1.0
-        let deltaY = velocityY * emitFraction
-        let deltaX = velocityX * emitFraction
-        
-        // Apply friction/consumption
-        if isActivelyScrolling {
-            // Consume the emitted portion
-            smoothScrollVelocityY *= frictionFactor
-            smoothScrollVelocityX *= frictionFactor
-        } else {
-            // Momentum: apply friction
-            smoothScrollVelocityY *= frictionFactor
-            smoothScrollVelocityX *= frictionFactor
-        }
-        
-        // Check for phase transition
-        // If velocity is low and we were scrolling, transition to momentum
-        if isActivelyScrolling && abs(smoothScrollVelocityY) < 2.0 && abs(smoothScrollVelocityX) < 2.0 {
+        // Check if we should transition from scrolling to momentum
+        // This happens when no new input has been received for a short time
+        let timeSinceInput = currentTime - lastInputTime
+        if smoothScrollPhase == .scrolling && timeSinceInput > inputTimeoutForMomentum {
             smoothScrollPhase = .momentum
         }
         
-        velocityY = smoothScrollVelocityY
-        velocityX = smoothScrollVelocityX
+        // Physics model: exponential friction decay
+        // velocity -= velocity * friction * dt
+        // This creates natural trackpad-like deceleration
+        
+        let friction = currentSmoothLevel == .verySmooth ? scrollFriction * 0.7 : scrollFriction
+        
+        // Calculate position delta for this frame: position += velocity * dt
+        let deltaY = smoothScrollVelocityY * dt
+        let deltaX = smoothScrollVelocityX * dt
+        
+        // Accumulate sub-pixel position for precision
+        smoothScrollPositionY += deltaY
+        smoothScrollPositionX += deltaX
+        
+        // Apply exponential friction: velocity -= velocity * friction * dt
+        smoothScrollVelocityY -= smoothScrollVelocityY * friction * dt
+        smoothScrollVelocityX -= smoothScrollVelocityX * friction * dt
+        
+        let velocityY = smoothScrollVelocityY
+        let velocityX = smoothScrollVelocityX
+        let phase = smoothScrollPhase
         
         smoothScrollLock.unlock()
         
         // Stop if velocity is negligible
         if abs(velocityY) < velocityThreshold && abs(velocityX) < velocityThreshold {
             // Post "ended" phase to trigger elastic bounce if at boundary
-            postSmoothScrollEvent(deltaY: 0, deltaX: 0, phase: .ended, momentumPhase: 0)
+            DispatchQueue.main.async { [weak self] in
+                self?.postSmoothScrollEvent(deltaY: 0, deltaX: 0, phase: .ended, momentumPhase: 0)
+            }
             
             smoothScrollLock.lock()
             smoothScrollVelocityY = 0
             smoothScrollVelocityX = 0
+            smoothScrollPositionY = 0
+            smoothScrollPositionX = 0
             smoothScrollPhase = .idle
             smoothScrollLock.unlock()
             
-            timer.invalidate()
-            smoothScrollTimer = nil
+            DispatchQueue.main.async { [weak self] in
+                self?.stopDisplayLink()
+            }
             return
         }
         
         // Determine momentum phase for the event
-        let momentumPhase: Int64 = smoothScrollPhase == .momentum ? 1 : 0
+        let momentumPhaseValue: Int64 = phase == .momentum ? 1 : 0
         
-        // Post a smooth scroll event with the calculated delta
-        postSmoothScrollEvent(deltaY: deltaY, deltaX: deltaX, phase: .changed, momentumPhase: momentumPhase)
+        // Post scroll event with the calculated delta
+        // We emit the delta directly - each frame moves by velocity * dt pixels
+        postSmoothScrollEvent(deltaY: deltaY, deltaX: deltaX, phase: .changed, momentumPhase: momentumPhaseValue)
     }
     
     // Scroll phases matching CGScrollPhase
