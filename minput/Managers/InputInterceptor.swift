@@ -256,8 +256,12 @@ class InputInterceptor {
         pointDeltaY *= reverseMultiplier * precisionScale
         pointDeltaX *= reverseMultiplier * precisionScale
         
+        // Determine if this is a horizontal scroll (Shift held)
+        let isHorizontalScroll = shiftHeld && shiftHorizontal && isMouseScroll
+        
         // If smooth scrolling is enabled for mouse events, use the smooth scroll system
-        if smoothScrolling != .off && isMouseScroll {
+        // BUT: horizontal scroll (Shift+Scroll) always bypasses smooth scrolling
+        if smoothScrolling != .off && isMouseScroll && !isHorizontalScroll {
             smoothScrollLock.lock()
             
             // Calculate pixels to scroll for this tick
@@ -266,31 +270,21 @@ class InputInterceptor {
             // reversedTicks is already a Double with precision scale applied
             let pxMultiplier = smoothScrolling == .verySmooth ? 1.3 : 1.0
             let ticksY = reversedTicksY  // Already includes reversal and precision scale
-            let ticksX = reversedTicksX
             
-            // Horizontal scroll uses smaller multiplier and respects smoothness settings
-            // verySmooth mode makes horizontal scroll even smoother/slower
-            // Scale is higher than before to ensure precision+horizontal combo works
-            let horizontalScale = smoothScrolling == .verySmooth ? 0.25 : 0.3
-            
-            // Add pixels to scroll buffer
+            // Add pixels to scroll buffer (vertical only, horizontal uses non-smooth path)
             let pxToAddY = ticksY * pxPerTick * pxMultiplier
-            let pxToAddX = ticksX * pxPerTick * horizontalScale
             
             // Convert to velocity: we want to scroll pxToAdd over msPerStep milliseconds
             // Initial velocity needed: v = 2 * distance / time (for linear deceleration to 0)
             // For exponential decay: v ≈ distance * friction (to scroll distance before stopping)
             let friction = smoothScrolling == .verySmooth ? scrollFriction * 0.7 : scrollFriction
             let velocityBoostY = pxToAddY * friction
-            let velocityBoostX = pxToAddX * friction
             
             // Add to existing velocity for accumulation during rapid scrolling
             smoothScrollVelocityY += velocityBoostY
-            smoothScrollVelocityX += velocityBoostX
             
             // Clamp velocity to prevent absurd speeds
             smoothScrollVelocityY = max(min(smoothScrollVelocityY, maxVelocity), -maxVelocity)
-            smoothScrollVelocityX = max(min(smoothScrollVelocityX, maxVelocity), -maxVelocity)
             
             smoothScrollPhase = .scrolling
             lastInputTime = CACurrentMediaTime()
@@ -304,9 +298,9 @@ class InputInterceptor {
             return nil
         }
         
-        // Non-smooth scroll path - apply modifiers and/or reversal
+        // Non-smooth scroll path - for horizontal scroll, disabled smooth scroll, or modifiers
         // Check if we need to modify the event at all
-        let needsModification = shouldReverse || (shiftHeld && shiftHorizontal && isMouseScroll) || (optionHeld && optionPrecision && isMouseScroll)
+        let needsModification = shouldReverse || isHorizontalScroll || (optionHeld && optionPrecision && isMouseScroll)
         
         guard needsModification else { return event }
         
