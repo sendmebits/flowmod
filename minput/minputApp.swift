@@ -33,9 +33,8 @@ struct minputApp: App {
         }
         .menuBarExtraStyle(.menu)
         
-        // Settings window using Window scene instead of Settings scene
-        // This avoids the layout recursion warning caused by TabView in Settings scene
-        Window("minput Settings", id: "settings") {
+        // Settings scene - provides proper macOS settings window styling
+        SwiftUI.Settings {
             SettingsView(
                 settings: settings,
                 deviceManager: deviceManager,
@@ -45,7 +44,7 @@ struct minputApp: App {
                 // Make settings window float on top and bring to front
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                     for window in NSApp.windows {
-                        if window.title == "minput Settings" {
+                        if window.title == "Settings" || window.identifier?.rawValue.contains("Settings") == true {
                             window.level = .floating
                             window.orderFrontRegardless()
                         }
@@ -54,8 +53,6 @@ struct minputApp: App {
                 NSApp.activate(ignoringOtherApps: true)
             }
         }
-        .windowResizability(.contentSize)
-        .defaultSize(width: 500, height: 480)
     }
     
     init() {
@@ -81,7 +78,7 @@ struct MenuBarContent: View {
     var permissionManager: PermissionManager
     var inputInterceptor: InputInterceptor
     
-    @Environment(\.openWindow) private var openWindow
+    @Environment(\.openSettings) private var openSettings
     
     var body: some View {
         // Status section
@@ -104,7 +101,7 @@ struct MenuBarContent: View {
         
         // Settings
         Button("Settings...") {
-            openWindow(id: "settings")
+            openSettings()
             NSApp.activate(ignoringOtherApps: true)
         }
         
