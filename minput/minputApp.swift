@@ -53,7 +53,6 @@ struct minputApp: App {
                 NSApp.activate(ignoringOtherApps: true)
             }
         }
-        .windowResizability(.contentSize)
     }
     
     init() {

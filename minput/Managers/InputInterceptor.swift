@@ -2,6 +2,7 @@ import Foundation
 import CoreGraphics
 import AppKit
 import Observation
+import QuartzCore
 
 /// Intercepts and modifies mouse and keyboard events
 @Observable
@@ -24,7 +25,7 @@ class InputInterceptor {
     private var smoothScrollVelocityX: Double = 0
     private var smoothScrollPositionY: Double = 0  // Accumulated position (for sub-pixel precision)
     private var smoothScrollPositionX: Double = 0
-    private var displayLink: CVDisplayLink?
+    private var displayLink: CADisplayLink?
     private var smoothScrollPhase: SmoothScrollPhase = .idle
     private let smoothScrollLock = NSLock()
     private var lastFrameTime: CFTimeInterval = 0
@@ -285,7 +286,7 @@ class InputInterceptor {
         return event
     }
     
-    // MARK: - Smooth Scrolling with CVDisplayLink
+    // MARK: - Smooth Scrolling with Display Link
     
     private var currentSmoothLevel: SmoothScrolling = .smooth
     
@@ -305,41 +306,29 @@ class InputInterceptor {
             return
         }
         
-        // Create CVDisplayLink for frame-synchronized updates
-        var link: CVDisplayLink?
-        let status = CVDisplayLinkCreateWithActiveCGDisplays(&link)
-        guard status == kCVReturnSuccess, let displayLink = link else {
-            print("Failed to create CVDisplayLink")
+        // Create display link from main screen for frame-synchronized updates
+        guard let screen = NSScreen.main else {
+            print("Failed to get main screen for display link")
             return
         }
         
-        self.displayLink = displayLink
+        let link = screen.displayLink(target: self, selector: #selector(displayLinkCallback(_:)))
+        link.add(to: .main, forMode: .common)
+        
+        self.displayLink = link
         self.lastFrameTime = CACurrentMediaTime()
         
         // Post initial "began" phase
         postSmoothScrollEvent(deltaY: 0, deltaX: 0, phase: .began, momentumPhase: 0)
-        
-        // Set up the callback
-        let callback: CVDisplayLinkOutputCallback = { displayLink, inNow, inOutputTime, flagsIn, flagsOut, userInfo -> CVReturn in
-            guard let userInfo = userInfo else { return kCVReturnError }
-            let interceptor = Unmanaged<InputInterceptor>.fromOpaque(userInfo).takeUnretainedValue()
-            interceptor.displayLinkCallback()
-            return kCVReturnSuccess
-        }
-        
-        CVDisplayLinkSetOutputCallback(displayLink, callback, Unmanaged.passUnretained(self).toOpaque())
-        CVDisplayLinkStart(displayLink)
     }
     
     private func stopDisplayLink() {
-        if let link = displayLink {
-            CVDisplayLinkStop(link)
-            displayLink = nil
-        }
+        displayLink?.invalidate()
+        displayLink = nil
         lastFrameTime = 0
     }
     
-    private func displayLinkCallback() {
+    @objc private func displayLinkCallback(_ link: CADisplayLink) {
         let currentTime = CACurrentMediaTime()
         let dt = lastFrameTime > 0 ? currentTime - lastFrameTime : 1.0 / 120.0
         lastFrameTime = currentTime
@@ -380,9 +369,7 @@ class InputInterceptor {
         // Stop if velocity is negligible
         if abs(velocityY) < velocityThreshold && abs(velocityX) < velocityThreshold {
             // Post "ended" phase to trigger elastic bounce if at boundary
-            DispatchQueue.main.async { [weak self] in
-                self?.postSmoothScrollEvent(deltaY: 0, deltaX: 0, phase: .ended, momentumPhase: 0)
-            }
+            postSmoothScrollEvent(deltaY: 0, deltaX: 0, phase: .ended, momentumPhase: 0)
             
             smoothScrollLock.lock()
             smoothScrollVelocityY = 0
@@ -392,9 +379,7 @@ class InputInterceptor {
             smoothScrollPhase = .idle
             smoothScrollLock.unlock()
             
-            DispatchQueue.main.async { [weak self] in
-                self?.stopDisplayLink()
-            }
+            stopDisplayLink()
             return
         }
         
