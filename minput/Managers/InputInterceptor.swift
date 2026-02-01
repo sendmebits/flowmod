@@ -30,6 +30,7 @@ class InputInterceptor {
     private let smoothScrollLock = NSLock()
     private var lastFrameTime: CFTimeInterval = 0
     private var lastInputTime: CFTimeInterval = 0
+    private var needsScrollBegan: Bool = true  // Track if we need to send began phase
     
     // Physics parameters (from Mac Mouse Fix)
     // Uses a hybrid approach: base animation for initial scroll + drag physics for momentum
@@ -374,8 +375,7 @@ class InputInterceptor {
         self.displayLink = link
         self.lastFrameTime = CACurrentMediaTime()
         
-        // Post initial "began" phase
-        postSmoothScrollEvent(deltaY: 0, deltaX: 0, phase: .began, momentumPhase: 0)
+        // Don't post began here - it's handled in displayLinkCallback via needsScrollBegan flag
     }
     
     private func stopDisplayLink() {
@@ -478,6 +478,7 @@ class InputInterceptor {
             targetScrollDistance = 0
             alreadyScrolledDistance = 0
             smoothScrollPhase = .idle
+            needsScrollBegan = true  // Next scroll needs a began phase
             smoothScrollLock.unlock()
             
             stopDisplayLink()
@@ -486,6 +487,19 @@ class InputInterceptor {
         
         // Determine momentum phase for the event
         let momentumPhaseValue: Int64 = phase == .momentum ? 1 : 0
+        
+        // Check if we need to send began phase
+        var shouldSendBegan = false
+        smoothScrollLock.lock()
+        if needsScrollBegan {
+            shouldSendBegan = true
+            needsScrollBegan = false
+        }
+        smoothScrollLock.unlock()
+        
+        if shouldSendBegan {
+            postSmoothScrollEvent(deltaY: 0, deltaX: 0, phase: .began, momentumPhase: 0)
+        }
         
         // Post scroll event with the calculated delta
         // We emit the delta directly - each frame moves by velocity * dt pixels
