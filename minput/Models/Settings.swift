@@ -22,15 +22,8 @@ class Settings {
         didSet { UserDefaults.standard.set(reverseScrollEnabled, forKey: "reverseScrollEnabled") }
     }
     
-    var smoothScrolling: SmoothScrolling {
-        get {
-            if let rawValue = UserDefaults.standard.string(forKey: "smoothScrolling"),
-               let value = SmoothScrolling(rawValue: rawValue) {
-                return value
-            }
-            return .off
-        }
-        set { UserDefaults.standard.set(newValue.rawValue, forKey: "smoothScrolling") }
+    var smoothScrolling: SmoothScrolling = .off {
+        didSet { UserDefaults.standard.set(smoothScrolling.rawValue, forKey: "smoothScrolling") }
     }
     
     // MARK: - Mouse Button Mappings
@@ -89,6 +82,14 @@ class Settings {
             reverseScrollEnabled = true
         } else {
             reverseScrollEnabled = UserDefaults.standard.bool(forKey: "reverseScrollEnabled")
+        }
+        
+        // Load smoothScrolling from UserDefaults (default to .off if not set)
+        if let rawValue = UserDefaults.standard.string(forKey: "smoothScrolling"),
+           let value = SmoothScrolling(rawValue: rawValue) {
+            smoothScrolling = value
+        } else {
+            smoothScrolling = .off
         }
         
         loadMouseButtonMappings()
