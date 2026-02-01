@@ -20,48 +20,59 @@ struct SettingsView: View {
                 permissionWarning
             }
             
-            // Tab content
-            TabView(selection: $selectedTab) {
-                ScrollSettingsView(settings: settings, deviceManager: deviceManager)
-                    .tabItem {
-                        Label("Scroll", systemImage: "scroll")
-                    }
-                    .tag(0)
-                
-                MouseButtonsView(settings: settings)
-                    .tabItem {
-                        Label("Buttons", systemImage: "computermouse")
-                    }
-                    .tag(1)
-                
-                MiddleDragGesturesView(settings: settings)
-                    .tabItem {
-                        Label("Gestures", systemImage: "hand.draw")
-                    }
-                    .tag(2)
-                
-                KeyboardMappingsView(settings: settings)
-                    .tabItem {
-                        Label("Keyboard", systemImage: "keyboard")
-                    }
-                    .tag(3)
-                
-                ExcludedAppsView(settings: settings)
-                    .tabItem {
-                        Label("Excluded", systemImage: "xmark.app")
-                    }
-                    .tag(4)
-                
-                GeneralSettingsView(settings: settings, deviceManager: deviceManager)
-                    .tabItem {
-                        Label("General", systemImage: "gear")
-                    }
-                    .tag(5)
+            // Tab content - using Group to avoid layout recursion
+            Group {
+                switch selectedTab {
+                case 0:
+                    ScrollSettingsView(settings: settings, deviceManager: deviceManager)
+                case 1:
+                    MouseButtonsView(settings: settings)
+                case 2:
+                    MiddleDragGesturesView(settings: settings)
+                case 3:
+                    KeyboardMappingsView(settings: settings)
+                case 4:
+                    ExcludedAppsView(settings: settings)
+                case 5:
+                    GeneralSettingsView(settings: settings, deviceManager: deviceManager)
+                default:
+                    ScrollSettingsView(settings: settings, deviceManager: deviceManager)
+                }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             .padding()
+            
+            Divider()
+            
+            // Custom tab bar at bottom
+            HStack(spacing: 0) {
+                tabButton(index: 0, icon: "scroll", label: "Scroll")
+                tabButton(index: 1, icon: "computermouse", label: "Buttons")
+                tabButton(index: 2, icon: "hand.draw", label: "Gestures")
+                tabButton(index: 3, icon: "keyboard", label: "Keyboard")
+                tabButton(index: 4, icon: "xmark.app", label: "Excluded")
+                tabButton(index: 5, icon: "gear", label: "General")
+            }
+            .padding(.vertical, 8)
         }
         .frame(width: 500, height: 480)
         .background(.regularMaterial)
+    }
+    
+    private func tabButton(index: Int, icon: String, label: String) -> some View {
+        Button {
+            selectedTab = index
+        } label: {
+            VStack(spacing: 4) {
+                Image(systemName: icon)
+                    .font(.system(size: 16))
+                Text(label)
+                    .font(.caption2)
+            }
+            .foregroundStyle(selectedTab == index ? Color.accentColor : .secondary)
+            .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.plain)
     }
     
     private var headerView: some View {
