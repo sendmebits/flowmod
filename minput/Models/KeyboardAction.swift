@@ -21,6 +21,7 @@ enum KeyboardAction: Codable, Equatable, Hashable, Identifiable, CaseIterable {
     case undo           // ⌘Z
     case redo           // ⇧⌘Z
     case selectAll      // ⌘A
+    case fullscreen     // ⌃⌘F
     case customShortcut(KeyCombo)
     
     var id: String {
@@ -43,6 +44,7 @@ enum KeyboardAction: Codable, Equatable, Hashable, Identifiable, CaseIterable {
         case .undo: return "undo"
         case .redo: return "redo"
         case .selectAll: return "selectAll"
+        case .fullscreen: return "fullscreen"
         case .customShortcut(let combo): return "custom_\(combo.keyCode)_\(combo.modifiers)"
         }
     }
@@ -67,6 +69,7 @@ enum KeyboardAction: Codable, Equatable, Hashable, Identifiable, CaseIterable {
         case .undo: return "Undo (⌘Z)"
         case .redo: return "Redo (⇧⌘Z)"
         case .selectAll: return "Select All (⌘A)"
+        case .fullscreen: return "Fullscreen (⌃⌘F)"
         case .customShortcut(let combo): return "Custom: \(combo.displayName)"
         }
     }
@@ -91,6 +94,7 @@ enum KeyboardAction: Codable, Equatable, Hashable, Identifiable, CaseIterable {
         case .undo: return "arrow.uturn.backward"
         case .redo: return "arrow.uturn.forward"
         case .selectAll: return "selection.pin.in.out"
+        case .fullscreen: return "arrow.up.left.and.arrow.down.right"
         case .customShortcut: return "keyboard"
         }
     }
@@ -134,6 +138,8 @@ enum KeyboardAction: Codable, Equatable, Hashable, Identifiable, CaseIterable {
             return KeyCombo(keyCode: 0x06, modifiers: CGEventFlags.maskCommand.rawValue | CGEventFlags.maskShift.rawValue) // ⇧⌘Z
         case .selectAll:
             return KeyCombo(keyCode: 0x00, modifiers: CGEventFlags.maskCommand.rawValue) // ⌘A
+        case .fullscreen:
+            return KeyCombo(keyCode: 0x03, modifiers: CGEventFlags.maskCommand.rawValue | CGEventFlags.maskControl.rawValue) // ⌃⌘F
         case .customShortcut(let combo):
             return combo
         }
@@ -144,6 +150,6 @@ enum KeyboardAction: Codable, Equatable, Hashable, Identifiable, CaseIterable {
         [.none, .lineStart, .lineEnd, .documentStart, .documentEnd,
          .pageUp, .pageDown, .deleteForward,
          .selectToLineStart, .selectToLineEnd, .selectToDocStart, .selectToDocEnd,
-         .copy, .cut, .paste, .undo, .redo, .selectAll]
+         .copy, .cut, .paste, .undo, .redo, .selectAll, .fullscreen]
     }
 }

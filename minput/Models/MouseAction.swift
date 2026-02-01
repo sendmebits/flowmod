@@ -15,6 +15,7 @@ enum MouseAction: Codable, Equatable, Hashable, Identifiable, CaseIterable {
     case undo
     case redo
     case selectAll
+    case fullscreen
     case customShortcut(KeyCombo)
     
     var id: String {
@@ -32,6 +33,7 @@ enum MouseAction: Codable, Equatable, Hashable, Identifiable, CaseIterable {
         case .undo: return "undo"
         case .redo: return "redo"
         case .selectAll: return "selectAll"
+        case .fullscreen: return "fullscreen"
         case .customShortcut(let combo): return "custom_\(combo.keyCode)_\(combo.modifiers)"
         }
     }
@@ -51,6 +53,7 @@ enum MouseAction: Codable, Equatable, Hashable, Identifiable, CaseIterable {
         case .undo: return "Undo (⌘Z)"
         case .redo: return "Redo (⇧⌘Z)"
         case .selectAll: return "Select All (⌘A)"
+        case .fullscreen: return "Fullscreen (⌃⌘F)"
         case .customShortcut(let combo): return "Custom: \(combo.displayName)"
         }
     }
@@ -70,6 +73,7 @@ enum MouseAction: Codable, Equatable, Hashable, Identifiable, CaseIterable {
         case .undo: return "arrow.uturn.backward"
         case .redo: return "arrow.uturn.forward"
         case .selectAll: return "selection.pin.in.out"
+        case .fullscreen: return "arrow.up.left.and.arrow.down.right"
         case .customShortcut: return "keyboard"
         }
     }
@@ -78,7 +82,7 @@ enum MouseAction: Codable, Equatable, Hashable, Identifiable, CaseIterable {
     static var allCases: [MouseAction] {
         [.none, .missionControl, .showDesktop, .launchpad,
          .back, .forward, .middleClick,
-         .copy, .cut, .paste, .undo, .redo, .selectAll]
+         .copy, .cut, .paste, .undo, .redo, .selectAll, .fullscreen]
     }
 }
 

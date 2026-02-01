@@ -15,13 +15,29 @@ struct MouseButtonsView: View {
                 
                 Spacer()
                 
-                Button {
-                    showingButtonRecorder = true
+                Menu {
+                    Button {
+                        showingButtonRecorder = true
+                    } label: {
+                        Label("Record New Button...", systemImage: "record.circle")
+                    }
+                    
+                    if !settings.removedBuiltInButtons.isEmpty {
+                        Divider()
+                        
+                        ForEach(Array(settings.removedBuiltInButtons).sorted(by: { $0.rawValue < $1.rawValue }), id: \.self) { button in
+                            Button {
+                                restoreBuiltInButton(button)
+                            } label: {
+                                Label("Restore \(button.rawValue)", systemImage: "arrow.uturn.backward")
+                            }
+                        }
+                    }
                 } label: {
                     Label("Add Button", systemImage: "plus")
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
+                .menuStyle(.borderlessButton)
+                .fixedSize()
             }
             
             Text("Configure what each mouse button does")
@@ -30,11 +46,12 @@ struct MouseButtonsView: View {
             
             GroupBox {
                 VStack(spacing: 0) {
-                    // Built-in buttons
-                    ForEach(MouseButton.allCases) { button in
+                    // Built-in buttons (excluding removed ones)
+                    let visibleBuiltInButtons = MouseButton.allCases.filter { !settings.removedBuiltInButtons.contains($0) }
+                    ForEach(visibleBuiltInButtons) { button in
                         buttonRow(for: button)
                         
-                        if button != MouseButton.allCases.last || !settings.customMouseButtonMappings.isEmpty {
+                        if button != visibleBuiltInButtons.last || !settings.customMouseButtonMappings.isEmpty {
                             Divider()
                                 .padding(.vertical, 8)
                         }
@@ -48,6 +65,13 @@ struct MouseButtonsView: View {
                             Divider()
                                 .padding(.vertical, 8)
                         }
+                    }
+                    
+                    // Show empty state if nothing visible
+                    if visibleBuiltInButtons.isEmpty && settings.customMouseButtonMappings.isEmpty {
+                        Text("No mouse buttons configured")
+                            .foregroundStyle(.secondary)
+                            .padding()
                     }
                 }
                 .padding(.vertical, 4)
@@ -102,6 +126,14 @@ struct MouseButtonsView: View {
             Spacer()
             
             actionPicker(for: button)
+            
+            Button {
+                deleteBuiltInButton(button)
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
         }
     }
     
@@ -217,6 +249,24 @@ struct MouseButtonsView: View {
     
     private func deleteCustomMapping(_ mapping: CustomMouseButtonMapping) {
         settings.customMouseButtonMappings.removeAll { $0.id == mapping.id }
+    }
+    
+    private func deleteBuiltInButton(_ button: MouseButton) {
+        settings.removedBuiltInButtons.insert(button)
+        settings.mouseButtonMappings.removeValue(forKey: button)
+    }
+    
+    private func restoreBuiltInButton(_ button: MouseButton) {
+        settings.removedBuiltInButtons.remove(button)
+        // Restore default action
+        switch button {
+        case .back:
+            settings.mouseButtonMappings[button] = .back
+        case .forward:
+            settings.mouseButtonMappings[button] = .forward
+        case .middleClick:
+            settings.mouseButtonMappings[button] = .middleClick
+        }
     }
 }
 

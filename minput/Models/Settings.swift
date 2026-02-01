@@ -46,6 +46,11 @@ class Settings {
         didSet { saveMouseButtonMappings() }
     }
     
+    // MARK: - Removed Built-in Mouse Buttons
+    var removedBuiltInButtons: Set<MouseButton> = [] {
+        didSet { saveRemovedBuiltInButtons() }
+    }
+    
     // MARK: - Custom Mouse Button Mappings
     var customMouseButtonMappings: [CustomMouseButtonMapping] = [] {
         didSet { saveCustomMouseButtonMappings() }
@@ -127,6 +132,7 @@ class Settings {
         }
         
         loadMouseButtonMappings()
+        loadRemovedBuiltInButtons()
         loadCustomMouseButtonMappings()
         loadMiddleDragMappings()
         loadKeyboardMappings()
@@ -161,6 +167,7 @@ class Settings {
     // MARK: - Persistence
     
     private let mouseButtonMappingsKey = "mouseButtonMappings"
+    private let removedBuiltInButtonsKey = "removedBuiltInButtons"
     private let customMouseButtonMappingsKey = "customMouseButtonMappings"
     private let middleDragMappingsKey = "middleDragMappings"
     private let keyboardMappingsKey = "keyboardMappings"
@@ -176,6 +183,19 @@ class Settings {
         if let data = UserDefaults.standard.data(forKey: mouseButtonMappingsKey),
            let mappings = try? JSONDecoder().decode([MouseButton: MouseAction].self, from: data) {
             mouseButtonMappings = mappings
+        }
+    }
+    
+    private func saveRemovedBuiltInButtons() {
+        if let data = try? JSONEncoder().encode(removedBuiltInButtons) {
+            UserDefaults.standard.set(data, forKey: removedBuiltInButtonsKey)
+        }
+    }
+    
+    private func loadRemovedBuiltInButtons() {
+        if let data = UserDefaults.standard.data(forKey: removedBuiltInButtonsKey),
+           let buttons = try? JSONDecoder().decode(Set<MouseButton>.self, from: data) {
+            removedBuiltInButtons = buttons
         }
     }
     

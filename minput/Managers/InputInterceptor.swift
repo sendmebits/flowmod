@@ -793,6 +793,9 @@ class InputInterceptor {
         case .selectAll:
             sendKeyCombo(KeyCombo(keyCode: 0x00, modifiers: CGEventFlags.maskCommand.rawValue)) // ⌘A
             
+        case .fullscreen:
+            sendKeyCombo(KeyCombo(keyCode: 0x03, modifiers: CGEventFlags.maskCommand.rawValue | CGEventFlags.maskControl.rawValue)) // ⌃⌘F
+            
         case .customShortcut(let combo):
             sendKeyCombo(combo)
         }
