@@ -94,6 +94,12 @@ class Settings {
         set { UserDefaults.standard.set(newValue, forKey: "assumeExternalKeyboard") }
     }
     
+    /// Enable debug logging
+    var debugLogging: Bool {
+        get { UserDefaults.standard.bool(forKey: "debugLogging") }
+        set { UserDefaults.standard.set(newValue, forKey: "debugLogging") }
+    }
+    
     // MARK: - Initialization
     
     private init() {

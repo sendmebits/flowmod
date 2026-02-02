@@ -135,7 +135,18 @@ class DeviceManager {
     }
     
     private func updateConnectionState() {
+        let prevMouse = externalMouseConnected
+        let prevKeyboard = externalKeyboardConnected
+        
         externalMouseConnected = connectedDevices.contains { $0.isMouse && !$0.isAppleDevice }
         externalKeyboardConnected = connectedDevices.contains { $0.isKeyboard && !$0.isAppleDevice }
+        
+        // Log state changes
+        if externalMouseConnected != prevMouse {
+            LogManager.shared.log("External mouse: \(externalMouseConnected ? "connected" : "disconnected")", category: "Device")
+        }
+        if externalKeyboardConnected != prevKeyboard {
+            LogManager.shared.log("External keyboard: \(externalKeyboardConnected ? "connected" : "disconnected")", category: "Device")
+        }
     }
 }

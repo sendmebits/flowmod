@@ -752,6 +752,8 @@ class InputInterceptor {
     // MARK: - Action Execution
     
     private func executeAction(_ action: MouseAction) {
+        LogManager.shared.log("Executing action: \(action.displayName)", category: "Action")
+        
         switch action {
         case .none:
             break
@@ -802,6 +804,8 @@ class InputInterceptor {
     }
     
     private func sendKeyCombo(_ combo: KeyCombo) {
+        LogManager.shared.log("Sending key combo: \(combo.displayName)", category: "Keyboard")
+        
         let source = CGEventSource(stateID: .hidSystemState)
         let flags = CGEventFlags(rawValue: combo.modifiers)
         
