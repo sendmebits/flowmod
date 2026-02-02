@@ -548,12 +548,12 @@ class InputInterceptor {
             middleDragTriggered = false
             
             // Check if middle click has a mapping
-            let action: MouseAction = onMain {
-                settings?.getAction(for: .middleClick) ?? .middleClick
+            let action: MouseAction? = onMain {
+                settings?.getAction(forButtonNumber: 2)
             }
             
-            // If action is just middle click, pass through
-            if action == .middleClick {
+            // If no mapping or action is just middle click, pass through
+            if action == nil || action == .middleClick {
                 return event
             }
             
@@ -561,22 +561,8 @@ class InputInterceptor {
             return nil
         }
         
-        // Back button (button 3)
-        if buttonNumber == 3 {
-            return handleMouseButtonAction(for: .back, originalEvent: event)
-        }
-        
-        // Forward button (button 4)
-        if buttonNumber == 4 {
-            return handleMouseButtonAction(for: .forward, originalEvent: event)
-        }
-        
-        // Check for custom button mappings (buttons 5+)
-        if buttonNumber >= 5 {
-            return handleCustomMouseButtonAction(buttonNumber: buttonNumber, originalEvent: event)
-        }
-        
-        return event
+        // All other buttons (3, 4, 5+) - check for custom mappings
+        return handleMouseButtonAction(buttonNumber: buttonNumber, originalEvent: event)
     }
     
     private func handleOtherMouseUp(_ event: CGEvent) -> CGEvent? {
@@ -594,32 +580,26 @@ class InputInterceptor {
             }
             
             // Otherwise, check middle click action
-            let action: MouseAction = onMain {
-                settings?.getAction(for: .middleClick) ?? .middleClick
+            let action: MouseAction? = onMain {
+                settings?.getAction(forButtonNumber: 2)
             }
             
-            if action == .middleClick {
+            // If no mapping or action is just middle click, pass through
+            if action == nil || action == .middleClick {
                 return event
             }
             
             // Execute the action on mouse up (for click-style actions)
-            executeAction(action)
+            executeAction(action!)
             return nil
         }
         
-        // Suppress up events for back/forward buttons since we handle them on mouse down
-        if buttonNumber == 3 || buttonNumber == 4 {
-            return nil
+        // Suppress up events for buttons that have mappings
+        let hasMapping: Bool = onMain {
+            settings?.getAction(forButtonNumber: buttonNumber) != nil
         }
-        
-        // Suppress up events for custom buttons that have mappings
-        if buttonNumber >= 5 {
-            let hasMapping: Bool = onMain {
-                settings?.getAction(forButtonNumber: buttonNumber) != nil
-            }
-            if hasMapping {
-                return nil
-            }
+        if hasMapping {
+            return nil
         }
         
         return event
@@ -668,23 +648,7 @@ class InputInterceptor {
         return event
     }
     
-    private func handleMouseButtonAction(for button: MouseButton, originalEvent: CGEvent) -> CGEvent? {
-        let action: MouseAction = onMain {
-            settings?.getAction(for: button) ?? .none
-        }
-        
-        // For .none, suppress the event entirely
-        if action == .none {
-            return nil
-        }
-        
-        // Execute the action - even for .back/.forward we need to send the keyboard shortcut
-        // because macOS apps don't respond to raw mouse button 3/4 events for navigation
-        executeAction(action)
-        return nil  // Always suppress the original mouse button event
-    }
-    
-    private func handleCustomMouseButtonAction(buttonNumber: Int64, originalEvent: CGEvent) -> CGEvent? {
+    private func handleMouseButtonAction(buttonNumber: Int64, originalEvent: CGEvent) -> CGEvent? {
         let action: MouseAction? = onMain {
             settings?.getAction(forButtonNumber: buttonNumber)
         }

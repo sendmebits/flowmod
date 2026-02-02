@@ -299,15 +299,9 @@ struct MouseButtonRecorderSheet: View {
         isRecording = false
         cleanup()
         
-        // Check if it's a primary button
+        // Check if it's a primary button (left/right click)
         if MouseButton.isPrimaryButton(buttonNumber) {
             recordResult = .primaryButton
-            return nil
-        }
-        
-        // Check if it's already mapped as a built-in button
-        if let builtIn = MouseButton.builtInButton(for: buttonNumber) {
-            recordResult = .alreadyMapped(builtIn.rawValue)
             return nil
         }
         

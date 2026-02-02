@@ -3,8 +3,7 @@ import SwiftUI
 /// Settings for mouse button remapping
 struct MouseButtonsView: View {
     @Bindable var settings: Settings
-    @State private var showingCustomShortcut: MouseButton?
-    @State private var showingCustomShortcutForCustomButton: UUID?
+    @State private var showingCustomShortcutForButton: UUID?
     @State private var showingButtonRecorder = false
     
     var body: some View {
@@ -30,47 +29,47 @@ struct MouseButtonsView: View {
                     .foregroundStyle(.secondary)
             
                 GroupBox {
-                    VStack(spacing: 0) {
-                        // Built-in buttons (always visible)
-                        ForEach(MouseButton.allCases) { button in
-                            buttonRow(for: button)
-                        
-                            if button != MouseButton.allCases.last || !settings.customMouseButtonMappings.isEmpty {
-                                Divider()
-                                    .padding(.vertical, 8)
+                    if settings.customMouseButtonMappings.isEmpty {
+                        VStack(spacing: 12) {
+                            Image(systemName: "computermouse")
+                                .font(.largeTitle)
+                                .foregroundStyle(.secondary)
+                            
+                            Text("No mouse button mappings")
+                                .font(.headline)
+                                .foregroundStyle(.secondary)
+                            
+                            Text("Click \"Add Button\" to configure extra mouse buttons")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .multilineTextAlignment(.center)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 20)
+                    } else {
+                        VStack(spacing: 0) {
+                            ForEach(settings.customMouseButtonMappings) { mapping in
+                                buttonRow(for: mapping)
+                            
+                                if mapping.id != settings.customMouseButtonMappings.last?.id {
+                                    Divider()
+                                        .padding(.vertical, 8)
+                                }
                             }
                         }
-                    
-                        // Custom buttons
-                        ForEach(settings.customMouseButtonMappings) { mapping in
-                            customButtonRow(for: mapping)
-                        
-                            if mapping.id != settings.customMouseButtonMappings.last?.id {
-                                Divider()
-                                    .padding(.vertical, 8)
-                            }
-                        }
+                        .padding(.vertical, 4)
                     }
-                    .padding(.vertical, 4)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .sheet(item: $showingCustomShortcut) { button in
-            KeyRecorderSheet(title: "Record Shortcut for \(button.rawValue)") { combo in
-                if let combo = combo {
-                    settings.mouseButtonMappings[button] = .customShortcut(combo)
-                }
-                showingCustomShortcut = nil
-            }
-        }
-        .sheet(item: $showingCustomShortcutForCustomButton) { mappingId in
+        .sheet(item: $showingCustomShortcutForButton) { mappingId in
             KeyRecorderSheet(title: "Record Shortcut") { combo in
                 if let combo = combo,
                    let index = settings.customMouseButtonMappings.firstIndex(where: { $0.id == mappingId }) {
                     settings.customMouseButtonMappings[index].action = .customShortcut(combo)
                 }
-                showingCustomShortcutForCustomButton = nil
+                showingCustomShortcutForButton = nil
             }
         }
         .sheet(isPresented: $showingButtonRecorder) {
@@ -90,23 +89,7 @@ struct MouseButtonsView: View {
         }
     }
     
-    private func buttonRow(for button: MouseButton) -> some View {
-        HStack {
-            Image(systemName: button.icon)
-                .font(.title3)
-                .foregroundStyle(Color.accentColor)
-                .frame(width: 24)
-            
-            Text(button.rawValue)
-                .frame(minWidth: 150, alignment: .leading)
-            
-            Spacer()
-            
-            actionPicker(for: button)
-        }
-    }
-    
-    private func customButtonRow(for mapping: CustomMouseButtonMapping) -> some View {
+    private func buttonRow(for mapping: CustomMouseButtonMapping) -> some View {
         HStack {
             Image(systemName: mapping.icon)
                 .font(.title3)
@@ -118,10 +101,10 @@ struct MouseButtonsView: View {
             
             Spacer()
             
-            customActionPicker(for: mapping)
+            actionPicker(for: mapping)
             
             Button {
-                deleteCustomMapping(mapping)
+                deleteMapping(mapping)
             } label: {
                 Image(systemName: "xmark.circle.fill")
                     .foregroundStyle(.secondary)
@@ -130,57 +113,11 @@ struct MouseButtonsView: View {
         }
     }
     
-    private func actionPicker(for button: MouseButton) -> some View {
-        let binding = Binding<MouseAction>(
-            get: { settings.mouseButtonMappings[button] ?? .none },
-            set: { newValue in
-                if case .customShortcut = newValue {
-                    showingCustomShortcut = button
-                } else {
-                    settings.mouseButtonMappings[button] = newValue
-                }
-            }
-        )
-        
-        return Menu {
-            ForEach(MouseAction.allCases) { action in
-                Button {
-                    binding.wrappedValue = action
-                } label: {
-                    Label(action.displayName, systemImage: action.icon)
-                }
-            }
-            
-            Divider()
-            
-            Button {
-                showingCustomShortcut = button
-            } label: {
-                Label("Custom Shortcut...", systemImage: "keyboard")
-            }
-        } label: {
-            HStack {
-                let action = settings.mouseButtonMappings[button] ?? .none
-                Image(systemName: action.icon)
-                Text(action.displayName)
-                    .lineLimit(1)
-                Image(systemName: "chevron.up.chevron.down")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(.quaternary)
-            .cornerRadius(6)
-        }
-        .menuStyle(.borderlessButton)
-    }
-    
-    private func customActionPicker(for mapping: CustomMouseButtonMapping) -> some View {
+    private func actionPicker(for mapping: CustomMouseButtonMapping) -> some View {
         Menu {
             ForEach(MouseAction.allCases) { action in
                 Button {
-                    updateCustomAction(for: mapping, to: action)
+                    updateAction(for: mapping, to: action)
                 } label: {
                     Label(action.displayName, systemImage: action.icon)
                 }
@@ -189,7 +126,7 @@ struct MouseButtonsView: View {
             Divider()
             
             Button {
-                showingCustomShortcutForCustomButton = mapping.id
+                showingCustomShortcutForButton = mapping.id
             } label: {
                 Label("Custom Shortcut...", systemImage: "keyboard")
             }
@@ -210,13 +147,13 @@ struct MouseButtonsView: View {
         .menuStyle(.borderlessButton)
     }
     
-    private func updateCustomAction(for mapping: CustomMouseButtonMapping, to action: MouseAction) {
+    private func updateAction(for mapping: CustomMouseButtonMapping, to action: MouseAction) {
         if let index = settings.customMouseButtonMappings.firstIndex(where: { $0.id == mapping.id }) {
             settings.customMouseButtonMappings[index].action = action
         }
     }
     
-    private func deleteCustomMapping(_ mapping: CustomMouseButtonMapping) {
+    private func deleteMapping(_ mapping: CustomMouseButtonMapping) {
         settings.customMouseButtonMappings.removeAll { $0.id == mapping.id }
     }
 }
