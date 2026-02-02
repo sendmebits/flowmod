@@ -29,18 +29,19 @@ class InputInterceptor {
     private var lastFrameTime: CFTimeInterval = 0
     private var lastInputTime: CFTimeInterval = 0
     private var needsScrollBegan: Bool = true  // Track if we need to send began phase
+    private var momentumBegan: Bool = false     // Track if we've sent momentum begin phase
     
     // Physics parameters (from Mac Mouse Fix)
     // Uses a hybrid approach: base animation for initial scroll + drag physics for momentum
     private let pxPerTick: Double = 60.0           // Pixels per wheel tick
     private let baseMsPerStep: Double = 140.0      // Base animation duration per tick (ms) - lowInertia
     private let baseMsPerStepSmooth: Double = 220.0 // For verySmooth mode - highInertia
-    private let dragCoefficient: Double = 23.0     // Drag for lowInertia (exp=1.0)
-    private let dragCoefficientSmooth: Double = 40.0 // Drag for highInertia (exp=0.7)
+    private let dragCoefficient: Double = 25.0     // Drag for lowInertia (exp=1.0) - slightly increased
+    private let dragCoefficientSmooth: Double = 42.0 // Drag for highInertia (exp=0.7) - slightly increased
     private let dragExponent: Double = 1.0         // For lowInertia
     private let dragExponentSmooth: Double = 0.7   // For highInertia - slower decel at end
     private let maxVelocity: Double = 3000.0       // Clamp to avoid absurd speeds
-    private let stopSpeed: Double = 30.0           // Stop when velocity drops below this (from MMF)
+    private let stopSpeed: Double = 40.0           // Stop when velocity drops below this - increased for snappier ending
     private let inputTimeoutForMomentum: Double = 0.08 // Seconds after last input before momentum
     
     // Animation state for base curve
@@ -290,6 +291,7 @@ class InputInterceptor {
                 animationStartTime = currentTime
                 animationDuration = duration
                 smoothScrollVelocityY = 0
+                momentumBegan = false  // Reset momentum tracking
             } else {
                 // Accumulate: add remaining distance + new distance
                 let remaining = targetScrollDistance - alreadyScrolledDistance
@@ -396,14 +398,20 @@ class InputInterceptor {
         let timeSinceInput = currentTime - lastInputTime
         if smoothScrollPhase == .animating && timeSinceInput > inputTimeoutForMomentum {
             // Transition to momentum phase - calculate exit velocity
-            // Exit velocity = remaining distance / remaining time (approximation)
+            // Use a more conservative approach to avoid excessive velocity buildup at boundaries
             let remainingDistance = targetScrollDistance - alreadyScrolledDistance
             if abs(remainingDistance) > 1 {
-                // Set velocity based on current scroll rate
-                smoothScrollVelocityY = remainingDistance / max(dt * 3, 0.016)
-                smoothScrollVelocityY = max(min(smoothScrollVelocityY, maxVelocity), -maxVelocity)
+                // Set velocity based on how fast we were scrolling (distance per frame)
+                // Use a shorter multiplier to reduce momentum at boundaries
+                smoothScrollVelocityY = remainingDistance / max(dt * 5, 0.03)
+                // Clamp to a more reasonable max to prevent runaway momentum
+                let momentumMaxVelocity = maxVelocity * 0.6
+                smoothScrollVelocityY = max(min(smoothScrollVelocityY, momentumMaxVelocity), -momentumMaxVelocity)
+            } else {
+                smoothScrollVelocityY = 0
             }
             smoothScrollPhase = .momentum
+            momentumBegan = false  // Reset so we send begin on first momentum event
         }
         
         // Get physics params based on smooth level
@@ -421,10 +429,12 @@ class InputInterceptor {
                 deltaY = targetScrollDistance - alreadyScrolledDistance
                 alreadyScrolledDistance = targetScrollDistance
                 
-                // Calculate exit velocity for momentum
-                smoothScrollVelocityY = deltaY / dt
-                smoothScrollVelocityY = max(min(smoothScrollVelocityY, maxVelocity), -maxVelocity)
+                // Calculate exit velocity for momentum - use conservative scaling
+                let momentumMaxVelocity = maxVelocity * 0.6
+                smoothScrollVelocityY = deltaY / max(dt * 2, 0.016)
+                smoothScrollVelocityY = max(min(smoothScrollVelocityY, momentumMaxVelocity), -momentumMaxVelocity)
                 smoothScrollPhase = .momentum
+                momentumBegan = false  // Reset so we send begin on first momentum event
             } else {
                 // Ease-out curve: 1 - (1 - t)^2
                 let t = elapsed / duration
@@ -465,7 +475,8 @@ class InputInterceptor {
         
         // Stop if velocity is below stop speed (only in momentum phase)
         if phase == .momentum && abs(velocityY) < stopSpeed && abs(velocityX) < stopSpeed {
-            // Post "ended" phase to trigger elastic bounce if at boundary
+            // Post momentum end (phase 3) then scroll ended
+            postSmoothScrollEvent(deltaY: 0, deltaX: 0, phase: .changed, momentumPhase: 3)
             postSmoothScrollEvent(deltaY: 0, deltaX: 0, phase: .ended, momentumPhase: 0)
             
             smoothScrollLock.lock()
@@ -475,14 +486,29 @@ class InputInterceptor {
             alreadyScrolledDistance = 0
             smoothScrollPhase = .idle
             needsScrollBegan = true  // Next scroll needs a began phase
+            momentumBegan = false
             smoothScrollLock.unlock()
             
             stopDisplayLink()
             return
         }
         
-        // Determine momentum phase for the event
-        let momentumPhaseValue: Int64 = phase == .momentum ? 1 : 0
+        // Determine momentum phase for the event:
+        // 0 = none (during active scrolling)
+        // 1 = begin momentum
+        // 2 = continuing momentum
+        // 3 = end momentum
+        var momentumPhaseValue: Int64 = 0
+        if phase == .momentum {
+            smoothScrollLock.lock()
+            if !momentumBegan {
+                momentumBegan = true
+                momentumPhaseValue = 1  // Begin
+            } else {
+                momentumPhaseValue = 2  // Continuing
+            }
+            smoothScrollLock.unlock()
+        }
         
         // Check if we need to send began phase
         var shouldSendBegan = false
