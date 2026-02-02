@@ -31,7 +31,7 @@ class InputInterceptor {
     private var needsScrollBegan: Bool = true  // Track if we need to send began phase
     private var momentumBegan: Bool = false     // Track if we've sent momentum begin phase
     
-    // Physics parameters (from Mac Mouse Fix)
+    // Physics parameters
     // Uses a hybrid approach: base animation for initial scroll + drag physics for momentum
     private let pxPerTick: Double = 60.0           // Pixels per wheel tick
     private let baseMsPerStep: Double = 140.0      // Base animation duration per tick (ms) - lowInertia
@@ -445,7 +445,7 @@ class InputInterceptor {
             }
         } else if smoothScrollPhase == .momentum {
             // Momentum phase - apply drag physics
-            // Mac Mouse Fix formula: velocity -= |velocity|^exp * coeff * dt * sign(velocity)
+            // Formula: velocity -= |velocity|^exp * coeff * dt * sign(velocity)
             deltaY = smoothScrollVelocityY * dt
             
             let dragY = pow(abs(smoothScrollVelocityY), dragExp) * dragCoeff * dt
