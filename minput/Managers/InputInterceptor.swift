@@ -31,17 +31,17 @@ class InputInterceptor {
     private var needsScrollBegan: Bool = true  // Track if we need to send began phase
     private var momentumBegan: Bool = false     // Track if we've sent momentum begin phase
     
-    // Physics parameters
+    // Physics parameters - tuned for trackpad-like smooth scrolling
     // Uses a hybrid approach: base animation for initial scroll + drag physics for momentum
     private let pxPerTick: Double = 60.0           // Pixels per wheel tick
-    private let baseMsPerStep: Double = 140.0      // Base animation duration per tick (ms) - lowInertia
-    private let baseMsPerStepSmooth: Double = 220.0 // For verySmooth mode - highInertia
-    private let dragCoefficient: Double = 25.0     // Drag for lowInertia (exp=1.0) - slightly increased
-    private let dragCoefficientSmooth: Double = 42.0 // Drag for highInertia (exp=0.7) - slightly increased
-    private let dragExponent: Double = 1.0         // For lowInertia
-    private let dragExponentSmooth: Double = 0.7   // For highInertia - slower decel at end
-    private let maxVelocity: Double = 3000.0       // Clamp to avoid absurd speeds
-    private let stopSpeed: Double = 40.0           // Stop when velocity drops below this - increased for snappier ending
+    private let baseMsPerStep: Double = 140.0      // Base animation duration per tick (ms) - smooth mode
+    private let baseMsPerStepSmooth: Double = 220.0 // For verySmooth mode - longer animation
+    private let dragCoefficient: Double = 18.0     // Drag coefficient for smooth mode
+    private let dragCoefficientSmooth: Double = 25.0 // Drag coefficient for verySmooth - lower = more coast
+    private let dragExponent: Double = 0.85        // Exponent < 1 = gentle decel at low speeds
+    private let dragExponentSmooth: Double = 0.65  // Even gentler for verySmooth - like trackpad
+    private let maxVelocity: Double = 2500.0       // Clamp to avoid absurd speeds
+    private let stopSpeed: Double = 8.0            // Very low stop threshold for gentle stop
     private let inputTimeoutForMomentum: Double = 0.08 // Seconds after last input before momentum
     
     // Animation state for base curve
@@ -285,13 +285,14 @@ class InputInterceptor {
             let currentTime = CACurrentMediaTime()
             
             if smoothScrollPhase == .idle || smoothScrollPhase == .momentum {
-                // Start fresh animation
+                // Start fresh animation - need to send began phase
                 targetScrollDistance = pxToAddY
                 alreadyScrolledDistance = 0
                 animationStartTime = currentTime
                 animationDuration = duration
                 smoothScrollVelocityY = 0
                 momentumBegan = false  // Reset momentum tracking
+                needsScrollBegan = true  // New scroll gesture needs began phase
             } else {
                 // Accumulate: add remaining distance + new distance
                 let remaining = targetScrollDistance - alreadyScrolledDistance
@@ -393,23 +394,26 @@ class InputInterceptor {
         
         var deltaY: Double = 0
         var deltaX: Double = 0
+        var shouldSendGestureEnded = false
         
         // Check if we should transition from animating to momentum
         let timeSinceInput = currentTime - lastInputTime
         if smoothScrollPhase == .animating && timeSinceInput > inputTimeoutForMomentum {
-            // Transition to momentum phase - calculate exit velocity
-            // Use a more conservative approach to avoid excessive velocity buildup at boundaries
-            let remainingDistance = targetScrollDistance - alreadyScrolledDistance
-            if abs(remainingDistance) > 1 {
-                // Set velocity based on how fast we were scrolling (distance per frame)
-                // Use a shorter multiplier to reduce momentum at boundaries
-                smoothScrollVelocityY = remainingDistance / max(dt * 5, 0.03)
-                // Clamp to a more reasonable max to prevent runaway momentum
-                let momentumMaxVelocity = maxVelocity * 0.6
-                smoothScrollVelocityY = max(min(smoothScrollVelocityY, momentumMaxVelocity), -momentumMaxVelocity)
-            } else {
-                smoothScrollVelocityY = 0
-            }
+            // Transition to momentum phase - first send "gesture ended" event
+            shouldSendGestureEnded = true
+            
+            // Calculate exit velocity based on what we were actually scrolling at
+            let elapsed = currentTime - animationStartTime
+            let t = min(elapsed / animationDuration, 1.0)
+            // Derivative of ease-out curve: 2 * (1 - t)
+            let speedFactor = 2.0 * (1.0 - t)
+            let baseSpeed = targetScrollDistance / animationDuration
+            smoothScrollVelocityY = baseSpeed * speedFactor
+            
+            // Clamp to reasonable bounds
+            let momentumMaxVelocity = maxVelocity * 0.7
+            smoothScrollVelocityY = max(min(smoothScrollVelocityY, momentumMaxVelocity), -momentumMaxVelocity)
+            
             smoothScrollPhase = .momentum
             momentumBegan = false  // Reset so we send begin on first momentum event
         }
@@ -425,16 +429,18 @@ class InputInterceptor {
             let duration = animationDuration
             
             if elapsed >= duration {
-                // Animation complete, transition to momentum
+                // Animation complete, transition to momentum with exit velocity
                 deltaY = targetScrollDistance - alreadyScrolledDistance
                 alreadyScrolledDistance = targetScrollDistance
                 
-                // Calculate exit velocity for momentum - use conservative scaling
-                let momentumMaxVelocity = maxVelocity * 0.6
-                smoothScrollVelocityY = deltaY / max(dt * 2, 0.016)
+                // Calculate exit velocity based on current scroll rate
+                // Since animation just ended, use a fraction of max to coast smoothly
+                let momentumMaxVelocity = maxVelocity * 0.5
+                smoothScrollVelocityY = deltaY / max(dt * 3, 0.025)
                 smoothScrollVelocityY = max(min(smoothScrollVelocityY, momentumMaxVelocity), -momentumMaxVelocity)
                 smoothScrollPhase = .momentum
                 momentumBegan = false  // Reset so we send begin on first momentum event
+                shouldSendGestureEnded = true  // Need to send gesture ended before momentum
             } else {
                 // Ease-out curve: 1 - (1 - t)^2
                 let t = elapsed / duration
@@ -475,8 +481,9 @@ class InputInterceptor {
         
         // Stop if velocity is below stop speed (only in momentum phase)
         if phase == .momentum && abs(velocityY) < stopSpeed && abs(velocityX) < stopSpeed {
-            // Post momentum end (phase 3) then scroll ended
-            postSmoothScrollEvent(deltaY: 0, deltaX: 0, phase: .changed, momentumPhase: 3)
+            // Post momentum end (momentumPhase=3, scrollPhase=0) then scroll ended (scrollPhase=4)
+            // This sequence signals to apps that momentum has ended, triggering elastic bounce
+            postSmoothScrollEvent(deltaY: 0, deltaX: 0, phase: nil, momentumPhase: 3)
             postSmoothScrollEvent(deltaY: 0, deltaX: 0, phase: .ended, momentumPhase: 0)
             
             smoothScrollLock.lock()
@@ -510,10 +517,10 @@ class InputInterceptor {
             smoothScrollLock.unlock()
         }
         
-        // Check if we need to send began phase
+        // Check if we need to send began phase (only for active scrolling, not momentum)
         var shouldSendBegan = false
         smoothScrollLock.lock()
-        if needsScrollBegan {
+        if needsScrollBegan && phase != .momentum {
             shouldSendBegan = true
             needsScrollBegan = false
         }
@@ -523,9 +530,18 @@ class InputInterceptor {
             postSmoothScrollEvent(deltaY: 0, deltaX: 0, phase: .began, momentumPhase: 0)
         }
         
+        // If transitioning from gesture to momentum, send gesture ended first
+        // This is critical for elastic bounce - apps need to know the gesture ended before momentum starts
+        if shouldSendGestureEnded {
+            postSmoothScrollEvent(deltaY: 0, deltaX: 0, phase: .ended, momentumPhase: 0)
+        }
+        
         // Post scroll event with the calculated delta
-        // We emit the delta directly - each frame moves by velocity * dt pixels
-        postSmoothScrollEvent(deltaY: deltaY, deltaX: deltaX, phase: .changed, momentumPhase: momentumPhaseValue)
+        // During active scrolling: scrollPhase = changed, momentumPhase = 0
+        // During momentum: scrollPhase = none (0), momentumPhase = 1/2/3
+        // This is how trackpad events work - elastic bounce depends on this distinction
+        let scrollPhase: ScrollEventPhase? = (phase == .momentum) ? nil : .changed
+        postSmoothScrollEvent(deltaY: deltaY, deltaX: deltaX, phase: scrollPhase, momentumPhase: momentumPhaseValue)
     }
     
     // Scroll phases matching CGScrollPhase
@@ -535,7 +551,7 @@ class InputInterceptor {
         case ended = 4
     }
     
-    private func postSmoothScrollEvent(deltaY: Double, deltaX: Double, phase: ScrollEventPhase, momentumPhase: Int64) {
+    private func postSmoothScrollEvent(deltaY: Double, deltaX: Double, phase: ScrollEventPhase?, momentumPhase: Int64) {
         guard let scrollEvent = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2, wheel1: 0, wheel2: 0, wheel3: 0) else {
             return
         }
@@ -546,10 +562,12 @@ class InputInterceptor {
         // Set as continuous scroll (like trackpad) - required for smooth scrolling and elastic bounce
         scrollEvent.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
         
-        // Set scroll phase - this triggers proper handling in apps (including elastic bounce)
-        scrollEvent.setIntegerValueField(.scrollWheelEventScrollPhase, value: phase.rawValue)
+        // Set scroll phase - 0 during momentum phase, non-zero during active gesture
+        // This distinction is what triggers elastic bounce in apps
+        let scrollPhaseValue: Int64 = phase?.rawValue ?? 0
+        scrollEvent.setIntegerValueField(.scrollWheelEventScrollPhase, value: scrollPhaseValue)
         
-        // Set momentum phase if in momentum
+        // Set momentum phase
         scrollEvent.setIntegerValueField(.scrollWheelEventMomentumPhase, value: momentumPhase)
         
         // Set the delta values
