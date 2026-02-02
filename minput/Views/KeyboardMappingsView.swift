@@ -7,27 +7,28 @@ struct KeyboardMappingsView: View {
     @State private var showingTargetRecorder: UUID?
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack {
-                Text("Keyboard Mappings")
-                    .font(.headline)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                HStack {
+                    Text("Keyboard Mappings")
+                        .font(.headline)
                 
-                Spacer()
+                    Spacer()
                 
-                Button {
-                    addMapping()
-                } label: {
-                    Label("Add Mapping", systemImage: "plus")
+                    Button {
+                        addMapping()
+                    } label: {
+                        Label("Add Mapping", systemImage: "plus")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-            }
             
-            Text("Create custom key mappings for built-in and external keyboards")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                Text("Create custom key mappings for built-in and external keyboards")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             
-            GroupBox {
+                GroupBox {
                 if settings.keyboardMappings.isEmpty {
                     VStack(spacing: 12) {
                         Image(systemName: "keyboard")
@@ -59,8 +60,8 @@ struct KeyboardMappingsView: View {
                     .padding(.vertical, 4)
                 }
             }
-            
-            Spacer()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
         }
         .sheet(item: $showingSourceRecorder) { id in
             KeyRecorderSheet(title: "Press a Key to Map") { combo in

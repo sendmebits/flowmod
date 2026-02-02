@@ -6,13 +6,14 @@ struct MiddleDragGesturesView: View {
     @State private var showingCustomShortcut: DragDirection?
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Middle Button Drag Gestures")
-                .font(.headline)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("Middle Button Drag Gestures")
+                    .font(.headline)
             
-            Text("Hold middle mouse button and drag in a direction to trigger an action")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                Text("Hold middle mouse button and drag in a direction to trigger an action")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             
             GroupBox {
                 VStack(spacing: 0) {
@@ -48,8 +49,8 @@ struct MiddleDragGesturesView: View {
                 }
                 .padding(.vertical, 4)
             }
-            
-            Spacer()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
         }
         .sheet(item: $showingCustomShortcut) { direction in
             KeyRecorderSheet(title: "Record Shortcut for Drag \(direction.rawValue)") { combo in

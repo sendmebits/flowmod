@@ -6,9 +6,10 @@ struct ScrollSettingsView: View {
     var deviceManager: DeviceManager
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            // Scroll Settings Section
-            GroupBox {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                // Scroll Settings Section
+                GroupBox {
                 VStack(alignment: .leading, spacing: 12) {
                     Text("Scroll Settings")
                         .font(.headline)
@@ -125,8 +126,8 @@ struct ScrollSettingsView: View {
             Text("Apple trackpads and Magic Mouse will continue to scroll naturally. Only external/Windows mice will have their scroll direction reversed.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            
-            Spacer()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 }

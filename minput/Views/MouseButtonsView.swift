@@ -8,12 +8,13 @@ struct MouseButtonsView: View {
     @State private var showingButtonRecorder = false
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack {
-                Text("Mouse Button Mappings")
-                    .font(.headline)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                HStack {
+                    Text("Mouse Button Mappings")
+                        .font(.headline)
                 
-                Spacer()
+                    Spacer()
                 
                 Menu {
                     Button {
@@ -76,8 +77,8 @@ struct MouseButtonsView: View {
                 }
                 .padding(.vertical, 4)
             }
-            
-            Spacer()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
         }
         .sheet(item: $showingCustomShortcut) { button in
             KeyRecorderSheet(title: "Record Shortcut for \(button.rawValue)") { combo in

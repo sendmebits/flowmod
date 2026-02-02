@@ -10,24 +10,25 @@ struct GeneralSettingsView: View {
     @State private var showAdvanced = false
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            // Launch at Login
-            GroupBox {
-                HStack {
-                    Image(systemName: "power")
-                        .font(.title2)
-                        .foregroundStyle(Color.accentColor)
-                        .frame(width: 32)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                // Launch at Login
+                GroupBox {
+                    HStack {
+                        Image(systemName: "power")
+                            .font(.title2)
+                            .foregroundStyle(Color.accentColor)
+                            .frame(width: 32)
                     
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Launch at Login")
-                            .font(.headline)
-                        Text("Start minput automatically when you log in")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Launch at Login")
+                                .font(.headline)
+                            Text("Start minput automatically when you log in")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     
-                    Spacer()
+                        Spacer()
                     
                     Toggle("", isOn: $launchAtLoginEnabled)
                         .toggleStyle(.switch)
@@ -66,8 +67,6 @@ struct GeneralSettingsView: View {
                 .padding(.vertical, 4)
             }
             
-            Spacer()
-            
             // Bottom buttons
             HStack {
                 Button {
@@ -84,6 +83,8 @@ struct GeneralSettingsView: View {
                 }
                 .buttonStyle(.bordered)
             }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
         }
         .onAppear {
             checkLaunchAtLoginStatus()
