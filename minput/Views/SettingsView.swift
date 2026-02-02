@@ -65,9 +65,14 @@ struct SettingsView: View {
                 .font(.title2)
                 .foregroundStyle(Color.accentColor)
             
-            Text("minput")
-                .font(.title2)
-                .fontWeight(.semibold)
+            VStack(alignment: .leading, spacing: 0) {
+                Text("minput")
+                    .font(.title2)
+                    .fontWeight(.semibold)
+                Text("v1.0.0")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
             
             Spacer()
             

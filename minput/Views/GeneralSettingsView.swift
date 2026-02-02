@@ -40,33 +40,6 @@ struct GeneralSettingsView: View {
                 .padding(.vertical, 4)
             }
             
-            // About
-            GroupBox {
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Image(systemName: "computermouse.fill")
-                            .font(.title)
-                            .foregroundStyle(Color.accentColor)
-                        
-                        VStack(alignment: .leading) {
-                            Text("minput")
-                                .font(.headline)
-                            Text("Version 1.0.0")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    
-                    Divider()
-                    
-                    Text("A lightweight input remapper for external mice and keyboards on macOS.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.vertical, 4)
-            }
-            
             // Bottom buttons
             HStack {
                 Button {

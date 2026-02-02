@@ -172,6 +172,7 @@ struct MouseButtonRecorderSheet: View {
     @State private var recordResult: MouseButtonRecordResult?
     @State private var isRecording = true
     @State private var mouseMonitor: Any?
+    @State private var globalMouseMonitor: Any?
     
     var body: some View {
         VStack(spacing: 20) {
@@ -278,8 +279,16 @@ struct MouseButtonRecorderSheet: View {
         cleanup()
         
         // Monitor for mouse button clicks (other mouse buttons)
+        // Local monitor for events in the app
         mouseMonitor = NSEvent.addLocalMonitorForEvents(matching: [.otherMouseDown, .leftMouseDown, .rightMouseDown]) { event in
             return handleMouseEvent(event)
+        }
+        
+        // Global monitor for events outside the app (needed because sheet might not capture all local events)
+        globalMouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.otherMouseDown]) { event in
+            Task { @MainActor in
+                _ = handleMouseEvent(event)
+            }
         }
     }
     
@@ -316,6 +325,10 @@ struct MouseButtonRecorderSheet: View {
         if let monitor = mouseMonitor {
             NSEvent.removeMonitor(monitor)
             mouseMonitor = nil
+        }
+        if let monitor = globalMouseMonitor {
+            NSEvent.removeMonitor(monitor)
+            globalMouseMonitor = nil
         }
     }
 }
