@@ -16,6 +16,9 @@ enum MouseAction: Codable, Equatable, Hashable, Identifiable, CaseIterable {
     case redo
     case selectAll
     case fullscreen
+    case switchSpaceLeft
+    case switchSpaceRight
+    case appExpose
     case customShortcut(KeyCombo)
     
     var id: String {
@@ -34,6 +37,9 @@ enum MouseAction: Codable, Equatable, Hashable, Identifiable, CaseIterable {
         case .redo: return "redo"
         case .selectAll: return "selectAll"
         case .fullscreen: return "fullscreen"
+        case .switchSpaceLeft: return "switchSpaceLeft"
+        case .switchSpaceRight: return "switchSpaceRight"
+        case .appExpose: return "appExpose"
         case .customShortcut(let combo): return "custom_\(combo.keyCode)_\(combo.modifiers)"
         }
     }
@@ -54,6 +60,9 @@ enum MouseAction: Codable, Equatable, Hashable, Identifiable, CaseIterable {
         case .redo: return "Redo (⇧⌘Z)"
         case .selectAll: return "Select All (⌘A)"
         case .fullscreen: return "Fullscreen (⌃⌘F)"
+        case .switchSpaceLeft: return "Switch Space Left"
+        case .switchSpaceRight: return "Switch Space Right"
+        case .appExpose: return "App Exposé"
         case .customShortcut(let combo): return "Custom: \(combo.displayName)"
         }
     }
@@ -74,6 +83,9 @@ enum MouseAction: Codable, Equatable, Hashable, Identifiable, CaseIterable {
         case .redo: return "arrow.uturn.forward"
         case .selectAll: return "selection.pin.in.out"
         case .fullscreen: return "arrow.up.left.and.arrow.down.right"
+        case .switchSpaceLeft: return "chevron.left.2"
+        case .switchSpaceRight: return "chevron.right.2"
+        case .appExpose: return "rectangle.stack"
         case .customShortcut: return "keyboard"
         }
     }
@@ -81,6 +93,7 @@ enum MouseAction: Codable, Equatable, Hashable, Identifiable, CaseIterable {
     // For CaseIterable conformance without associated values
     static var allCases: [MouseAction] {
         [.none, .missionControl, .showDesktop, .launchpad,
+         .switchSpaceLeft, .switchSpaceRight, .appExpose,
          .back, .forward, .middleClick,
          .copy, .cut, .paste, .undo, .redo, .selectAll, .fullscreen]
     }

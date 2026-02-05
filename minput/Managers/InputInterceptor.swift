@@ -806,6 +806,15 @@ class InputInterceptor {
         case .fullscreen:
             sendKeyCombo(KeyCombo(keyCode: 0x03, modifiers: CGEventFlags.maskCommand.rawValue | CGEventFlags.maskControl.rawValue)) // ⌃⌘F
             
+        case .switchSpaceLeft:
+            triggerSwitchSpaceLeft()
+            
+        case .switchSpaceRight:
+            triggerSwitchSpaceRight()
+            
+        case .appExpose:
+            triggerAppExpose()
+            
         case .customShortcut(let combo):
             sendKeyCombo(combo)
         }
@@ -874,5 +883,23 @@ class InputInterceptor {
         if let keyUp = CGEvent(keyboardEventSource: source, virtualKey: 0x83, keyDown: false) {
             keyUp.post(tap: .cghidEventTap)
         }
+    }
+    
+    private func triggerSwitchSpaceLeft() {
+        // Use private CGS Symbolic Hotkey API to trigger space switching
+        LogManager.shared.log("Sending Switch Space Left via CGS SymbolicHotkeys API", category: "Action")
+        SymbolicHotkeys.post(.moveLeftASpace)
+    }
+    
+    private func triggerSwitchSpaceRight() {
+        // Use private CGS Symbolic Hotkey API to trigger space switching
+        LogManager.shared.log("Sending Switch Space Right via CGS SymbolicHotkeys API", category: "Action")
+        SymbolicHotkeys.post(.moveRightASpace)
+    }
+    
+    private func triggerAppExpose() {
+        // Use private CGS Symbolic Hotkey API to trigger App Exposé
+        LogManager.shared.log("Sending App Exposé via CGS SymbolicHotkeys API", category: "Action")
+        SymbolicHotkeys.post(.applicationWindows)
     }
 }
