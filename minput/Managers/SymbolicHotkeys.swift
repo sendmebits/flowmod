@@ -8,46 +8,70 @@ import AppKit
 
 // MARK: - Private CGS API Declarations
 
-/// CGS connection type
-typealias CGSConnectionID = Int
+/// CGS Modifier flags (matches CGSModifierFlags from CGSHotKeys.h)
+struct CGSModifierFlags: OptionSet {
+    let rawValue: UInt32
+    
+    static let alphaShift = CGSModifierFlags(rawValue: 1 << 16)  // Caps Lock
+    static let shift = CGSModifierFlags(rawValue: 1 << 17)
+    static let control = CGSModifierFlags(rawValue: 1 << 18)
+    static let alternate = CGSModifierFlags(rawValue: 1 << 19)  // Option
+    static let command = CGSModifierFlags(rawValue: 1 << 20)
+    static let numericPad = CGSModifierFlags(rawValue: 1 << 21)
+    static let help = CGSModifierFlags(rawValue: 1 << 22)
+    static let function = CGSModifierFlags(rawValue: 1 << 23)
+}
 
-/// Get the default connection to the window server
-@_silgen_name("_CGSDefaultConnection")
-func CGSDefaultConnection() -> CGSConnectionID
+/// CGS Symbolic Hot Key enum (matches CGSSymbolicHotKey from CGSHotKeys.h)
+typealias CGSSymbolicHotKey = UInt32
 
-/// Private Dock API to trigger space switching
-@_silgen_name("CoreDockSendNotification")
-func CoreDockSendNotification(_ notification: CFString, _ unknown: UnsafeMutableRawPointer?) -> Int32
+/// Returns whether the symbolic hot key is enabled
+@_silgen_name("CGSIsSymbolicHotKeyEnabled")
+func CGSIsSymbolicHotKeyEnabled(_ hotKey: CGSSymbolicHotKey) -> Bool
+
+/// Sets whether the symbolic hot key is enabled
+@_silgen_name("CGSSetSymbolicHotKeyEnabled")
+func CGSSetSymbolicHotKeyEnabled(_ hotKey: CGSSymbolicHotKey, _ isEnabled: Bool) -> CGError
+
+/// Gets the configured key values for a symbolic hot key
+@_silgen_name("CGSGetSymbolicHotKeyValue")
+func CGSGetSymbolicHotKeyValue(
+    _ hotKey: CGSSymbolicHotKey,
+    _ outKeyEquivalent: UnsafeMutablePointer<UniChar>,
+    _ outVirtualKeyCode: UnsafeMutablePointer<UniChar>,
+    _ outModifiers: UnsafeMutablePointer<UInt32>
+) -> CGError
 
 // MARK: - Symbolic Hotkeys
 
 /// Enum representing macOS system-level symbolic hotkeys
 /// Values correspond to the symbolic hotkey IDs used by the CGS API
-enum SymbolicHotKey: Int32 {
-    // Mission Control family
-    case missionControl = 32                // F3 or Ctrl+Up - Mission Control
-    case applicationWindows = 33            // Ctrl+Down - App Exposé (Application Windows)
-    case showDesktop = 36                   // F11 - Show Desktop
-    case moveLeftASpace = 79                // Ctrl+Left - Move left a space
-    case moveRightASpace = 81               // Ctrl+Right - Move right a space
+enum SymbolicHotKey: UInt32 {
+    // Dock/Exposé
+    case exposeAllWindows = 32          // Mission Control
+    case exposeAllWindowsSlow = 34
+    case applicationWindows = 33         // App Exposé
+    case applicationWindowsSlow = 35
+    case exposeDesktop = 36             // Show Desktop
+    case exposeDesktopSlow = 37
     
-    // Launchpad & Dock
-    case launchpad = 160                    // F4 - Launchpad
-    case showNotificationCenter = 163       // Notification Center
+    // Spaces
+    case spaces = 75
+    case spacesSlow = 76
+    case moveLeftASpace = 79            // Move left a space
+    case moveLeftASpaceSlow = 80
+    case moveRightASpace = 81           // Move right a space
+    case moveRightASpaceSlow = 82
+    case spaceDown = 83
+    case spaceDownSlow = 84
+    case spaceUp = 85
+    case spaceUpSlow = 86
     
-    // Spotlight
-    case spotlightSearch = 64               // Cmd+Space - Spotlight
-    case finderSearch = 65                  // Cmd+Option+Space - Finder search
-    
-    // Screenshots
-    case screenshotFullScreen = 28          // Cmd+Shift+3
-    case screenshotSelection = 29           // Cmd+Shift+4
-    case screenshotWindow = 30              // Cmd+Shift+4, then Space
-    case screenshotTouch = 31               // Cmd+Shift+5
-    
-    // Display
-    case decreaseDisplayBrightness = 53
-    case increaseDisplayBrightness = 54
+    // Other
+    case launchpad = 160
+    case showNotificationCenter = 163
+    case spotlightSearch = 64
+    case lookUpWordInDictionary = 70
 }
 
 /// Marker for synthetic events to avoid re-processing by InputInterceptor
@@ -59,88 +83,116 @@ struct SymbolicHotkeys {
     /// Post a symbolic hotkey event to trigger a system action
     /// - Parameter hotkey: The symbolic hotkey to trigger
     static func post(_ hotkey: SymbolicHotKey) {
+        do {
+            try postSymbolicHotKey(hotkey)
+        } catch {
+            print("[SymbolicHotkeys] Failed to post hotkey \(hotkey): \(error)")
+            // Fallback to dedicated key for some actions
+            fallbackPost(hotkey)
+        }
+    }
+    
+    /// Post a symbolic hotkey by getting its configured key combination and posting that
+    private static func postSymbolicHotKey(_ hotkey: SymbolicHotKey) throws {
+        let hotkeyValue = CGSSymbolicHotKey(hotkey.rawValue)
+        
+        var keyEquivalent: UniChar = 0
+        var virtualKeyCode: UniChar = 0
+        var modifiers: UInt32 = 0
+        
+        // Get the user's configured keyboard shortcut for this symbolic hotkey
+        let error = CGSGetSymbolicHotKeyValue(
+            hotkeyValue,
+            &keyEquivalent,
+            &virtualKeyCode,
+            &modifiers
+        )
+        
+        guard error == .success else {
+            throw NSError(domain: "CGSError", code: Int(error.rawValue), userInfo: [
+                NSLocalizedDescriptionKey: "CGSGetSymbolicHotKeyValue failed with error \(error.rawValue)"
+            ])
+        }
+        
+        // Check if the hotkey is enabled, temporarily enable it if not
+        let hotkeyEnabled = CGSIsSymbolicHotKeyEnabled(hotkeyValue)
+        if !hotkeyEnabled {
+            _ = CGSSetSymbolicHotKeyEnabled(hotkeyValue, true)
+        }
+        
+        defer {
+            if !hotkeyEnabled {
+                // Wait a bit for events to be processed before disabling
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    _ = CGSSetSymbolicHotKeyEnabled(hotkeyValue, false)
+                }
+            }
+        }
+        
+        // Convert CGS modifiers to CGEventFlags
+        let flags = convertModifiersToEventFlags(CGSModifierFlags(rawValue: modifiers))
+        
+        // Post the key down and up events
+        let keyCode = UInt16(virtualKeyCode)
+        
+        let keyDown = CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: true)!
+        keyDown.flags = flags
+        keyDown.setIntegerValueField(.eventSourceUserData, value: syntheticEventMarker)
+        
+        let keyUp = CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: false)!
+        keyUp.flags = flags
+        keyUp.setIntegerValueField(.eventSourceUserData, value: syntheticEventMarker)
+        
+        keyDown.post(tap: .cgSessionEventTap)
+        keyUp.post(tap: .cgSessionEventTap)
+        
+        print("[SymbolicHotkeys] Posted hotkey \(hotkey) with keyCode=\(keyCode), modifiers=\(modifiers)")
+    }
+    
+    /// Convert CGSModifierFlags to CGEventFlags
+    private static func convertModifiersToEventFlags(_ modifiers: CGSModifierFlags) -> CGEventFlags {
+        var flags = CGEventFlags()
+        
+        if modifiers.contains(.command) {
+            flags.insert(.maskCommand)
+        }
+        if modifiers.contains(.shift) {
+            flags.insert(.maskShift)
+        }
+        if modifiers.contains(.alternate) {
+            flags.insert(.maskAlternate)
+        }
+        if modifiers.contains(.control) {
+            flags.insert(.maskControl)
+        }
+        if modifiers.contains(.function) {
+            flags.insert(.maskSecondaryFn)
+        }
+        
+        return flags
+    }
+    
+    /// Fallback method using dedicated key codes
+    private static func fallbackPost(_ hotkey: SymbolicHotKey) {
         switch hotkey {
-        case .moveLeftASpace:
-            // Use NX system-defined event for space switching left
-            postSpaceSwitchEvent(direction: .left)
-            
-        case .moveRightASpace:
-            // Use NX system-defined event for space switching right
-            postSpaceSwitchEvent(direction: .right)
-            
-        case .applicationWindows:
-            // App Exposé - use dedicated key code 0xA1 (161)
-            postDedicatedKey(0xA1)
-            
-        case .missionControl:
-            // Mission Control - use dedicated key code 0xA0 (160)
+        case .exposeAllWindows:
+            // Mission Control - dedicated key 0xA0
             postDedicatedKey(0xA0)
             
-        case .showDesktop:
-            // F11 key with Fn modifier
+        case .applicationWindows:
+            // App Exposé - dedicated key 0xA1
+            postDedicatedKey(0xA1)
+            
+        case .exposeDesktop:
+            // Show Desktop - F11
             postKeyEventWithModifiers(keyCode: UInt16(kVK_F11), modifiers: .maskSecondaryFn)
             
         case .launchpad:
-            // Use the dedicated Launchpad key (0x83 / 131)
+            // Launchpad - dedicated key 0x83
             postDedicatedKey(0x83)
             
         default:
-            print("[SymbolicHotkeys] Hotkey \(hotkey) not directly supported")
-        }
-    }
-    
-    private enum SpaceDirection {
-        case left
-        case right
-    }
-    
-    /// Post a space switching event using CGEvent with NX special key data
-    private static func postSpaceSwitchEvent(direction: SpaceDirection) {
-        // Post an NX system-defined event that triggers space switching
-        // This uses the same mechanism as the physical "Move to Left/Right Space" keys
-        
-        // Method: Use NSEvent to post a system-defined key event
-        // The subtype indicates the special key type
-        let nsEventSubtype: Int16 = 8  // NX_SUBTYPE_AUX_CONTROL_BUTTONS
-        
-        // Data1 format: (keyCode << 16) | (keyState << 8) | repeat
-        // keyState: 0x0A = key down, 0x0B = key up
-        let keyCode: Int32 = direction == .left ? 0xB4 : 0xB5
-        
-        // Key down
-        let keyDownData: Int = Int((keyCode << 16) | (0x0A << 8))
-        if let event = NSEvent.otherEvent(
-            with: .systemDefined,
-            location: .zero,
-            modifierFlags: [],
-            timestamp: ProcessInfo.processInfo.systemUptime,
-            windowNumber: 0,
-            context: nil,
-            subtype: nsEventSubtype,
-            data1: keyDownData,
-            data2: -1
-        ) {
-            event.cgEvent?.setIntegerValueField(.eventSourceUserData, value: syntheticEventMarker)
-            event.cgEvent?.post(tap: .cghidEventTap)
-        }
-        
-        usleep(50000)  // 50ms
-        
-        // Key up
-        let keyUpData: Int = Int((keyCode << 16) | (0x0B << 8))
-        if let event = NSEvent.otherEvent(
-            with: .systemDefined,
-            location: .zero,
-            modifierFlags: [],
-            timestamp: ProcessInfo.processInfo.systemUptime,
-            windowNumber: 0,
-            context: nil,
-            subtype: nsEventSubtype,
-            data1: keyUpData,
-            data2: -1
-        ) {
-            event.cgEvent?.setIntegerValueField(.eventSourceUserData, value: syntheticEventMarker)
-            event.cgEvent?.post(tap: .cghidEventTap)
+            print("[SymbolicHotkeys] No fallback for hotkey \(hotkey)")
         }
     }
     
@@ -148,20 +200,16 @@ struct SymbolicHotkeys {
     private static func postKeyEventWithModifiers(keyCode: UInt16, modifiers: CGEventFlags) {
         let source = CGEventSource(stateID: .hidSystemState)
         
-        // Create and post key down event
         guard let keyDown = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: true) else {
-            print("[SymbolicHotkeys] Failed to create key down event")
             return
         }
         keyDown.flags = modifiers
         keyDown.setIntegerValueField(.eventSourceUserData, value: syntheticEventMarker)
         keyDown.post(tap: .cghidEventTap)
         
-        usleep(50000)  // 50ms
+        usleep(50000)
         
-        // Create and post key up event
         guard let keyUp = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: false) else {
-            print("[SymbolicHotkeys] Failed to create key up event")
             return
         }
         keyUp.flags = modifiers
@@ -169,7 +217,7 @@ struct SymbolicHotkeys {
         keyUp.post(tap: .cghidEventTap)
     }
     
-    /// Post a dedicated system key (like Mission Control, Launchpad, App Exposé keys)
+    /// Post a dedicated system key
     private static func postDedicatedKey(_ keyCode: UInt16) {
         let source = CGEventSource(stateID: .hidSystemState)
         

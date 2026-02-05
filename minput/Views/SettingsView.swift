@@ -9,6 +9,13 @@ struct SettingsView: View {
     @State private var showMousePopover = false
     @State private var showKeyboardPopover = false
     
+    /// Get the app version from Bundle info
+    private var appVersionString: String {
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
+        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"
+        return "v\(version) (\(build))"
+    }
+    
     var body: some View {
         VStack(spacing: 0) {
             // Header
@@ -69,7 +76,7 @@ struct SettingsView: View {
                 Text("minput")
                     .font(.title2)
                     .fontWeight(.semibold)
-                Text("v1.0.0")
+                Text(appVersionString)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
