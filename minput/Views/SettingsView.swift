@@ -6,23 +6,8 @@ struct SettingsView: View {
     var deviceManager: DeviceManager
     var permissionManager: PermissionManager
     
-    @State private var showMousePopover = false
-    @State private var showKeyboardPopover = false
-    
-    /// Get the app version from Bundle info
-    private var appVersionString: String {
-        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
-        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"
-        return "v\(version) (\(build))"
-    }
-    
     var body: some View {
         VStack(spacing: 0) {
-            // Header
-            headerView
-            
-            Divider()
-            
             // Permission warning if needed
             if !permissionManager.hasAccessibilityPermission {
                 permissionWarning
@@ -64,75 +49,6 @@ struct SettingsView: View {
         }
         .frame(width: 500, height: 440)
         .background(.regularMaterial)
-    }
-    
-    private var headerView: some View {
-        HStack {
-            Image(systemName: "computermouse.fill")
-                .font(.title2)
-                .foregroundStyle(Color.accentColor)
-            
-            VStack(alignment: .leading, spacing: 0) {
-                Text("minput")
-                    .font(.title2)
-                    .fontWeight(.semibold)
-                Text(appVersionString)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-            
-            Spacer()
-            
-            // Connection status indicators
-            HStack(spacing: 12) {
-                connectionIndicator(
-                    connected: deviceManager.externalMouseConnected,
-                    icon: "computermouse",
-                    label: "Mouse",
-                    devices: deviceManager.connectedDevices.filter { $0.isMouse && !$0.isAppleDevice },
-                    showPopover: $showMousePopover
-                )
-                
-                connectionIndicator(
-                    connected: deviceManager.externalKeyboardConnected,
-                    icon: "keyboard",
-                    label: "Keyboard",
-                    devices: deviceManager.connectedDevices.filter { $0.isKeyboard && !$0.isAppleDevice },
-                    showPopover: $showKeyboardPopover
-                )
-            }
-        }
-        .padding()
-    }
-    
-    private func connectionIndicator(connected: Bool, icon: String, label: String, devices: [DeviceManager.HIDDevice], showPopover: Binding<Bool>) -> some View {
-        // Deduplicate device names
-        let uniqueDeviceNames = Array(Set(devices.map { $0.displayName })).sorted()
-        
-        let deviceList: String = {
-            if uniqueDeviceNames.isEmpty {
-                return "No external \(label.lowercased()) detected"
-            }
-            return uniqueDeviceNames.joined(separator: "\n")
-        }()
-        
-        return HStack(spacing: 4) {
-            Image(systemName: icon)
-                .font(.caption)
-            Circle()
-                .fill(connected ? Color.green : Color.gray.opacity(0.3))
-                .frame(width: 6, height: 6)
-        }
-        .foregroundStyle(connected ? .primary : .secondary)
-        .onHover { isHovering in
-            showPopover.wrappedValue = isHovering
-        }
-        .popover(isPresented: showPopover, arrowEdge: .bottom) {
-            Text(deviceList)
-                .font(.caption)
-                .padding(8)
-                .fixedSize()
-        }
     }
     
     private var permissionWarning: some View {
