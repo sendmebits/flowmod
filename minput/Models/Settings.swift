@@ -74,32 +74,27 @@ class Settings {
     }
 
     // MARK: - General Settings
-    var launchAtLogin: Bool {
-        get { UserDefaults.standard.bool(forKey: "launchAtLogin") }
-        set { UserDefaults.standard.set(newValue, forKey: "launchAtLogin") }
+    var launchAtLogin: Bool = false {
+        didSet { UserDefaults.standard.set(launchAtLogin, forKey: "launchAtLogin") }
     }
     
-    var dragThreshold: Double {
-        get { UserDefaults.standard.object(forKey: "dragThreshold") as? Double ?? 40.0 }
-        set { UserDefaults.standard.set(newValue, forKey: "dragThreshold") }
+    var dragThreshold: Double = 40.0 {
+        didSet { UserDefaults.standard.set(dragThreshold, forKey: "dragThreshold") }
     }
     
     /// Override device detection - assume external mouse is always connected
-    var assumeExternalMouse: Bool {
-        get { UserDefaults.standard.bool(forKey: "assumeExternalMouse") }
-        set { UserDefaults.standard.set(newValue, forKey: "assumeExternalMouse") }
+    var assumeExternalMouse: Bool = false {
+        didSet { UserDefaults.standard.set(assumeExternalMouse, forKey: "assumeExternalMouse") }
     }
     
     /// Override device detection - assume external keyboard is always connected
-    var assumeExternalKeyboard: Bool {
-        get { UserDefaults.standard.bool(forKey: "assumeExternalKeyboard") }
-        set { UserDefaults.standard.set(newValue, forKey: "assumeExternalKeyboard") }
+    var assumeExternalKeyboard: Bool = false {
+        didSet { UserDefaults.standard.set(assumeExternalKeyboard, forKey: "assumeExternalKeyboard") }
     }
     
     /// Enable debug logging
-    var debugLogging: Bool {
-        get { UserDefaults.standard.bool(forKey: "debugLogging") }
-        set { UserDefaults.standard.set(newValue, forKey: "debugLogging") }
+    var debugLogging: Bool = false {
+        didSet { UserDefaults.standard.set(debugLogging, forKey: "debugLogging") }
     }
     
     // MARK: - Initialization
@@ -151,6 +146,17 @@ class Settings {
         } else {
             precisionScrollMultiplier = 0.33
         }
+        
+        // Load general settings
+        launchAtLogin = UserDefaults.standard.bool(forKey: "launchAtLogin")
+        
+        if UserDefaults.standard.object(forKey: "dragThreshold") != nil {
+            dragThreshold = UserDefaults.standard.double(forKey: "dragThreshold")
+        }
+        
+        assumeExternalMouse = UserDefaults.standard.bool(forKey: "assumeExternalMouse")
+        assumeExternalKeyboard = UserDefaults.standard.bool(forKey: "assumeExternalKeyboard")
+        debugLogging = UserDefaults.standard.bool(forKey: "debugLogging")
         
         loadCustomMouseButtonMappings()
         loadMiddleDragMappings()
