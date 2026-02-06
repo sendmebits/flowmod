@@ -37,7 +37,7 @@ struct GeneralSettingsView: View {
                         VStack(alignment: .leading, spacing: 2) {
                             Text("Launch at Login")
                                 .font(.headline)
-                            Text("Start minput automatically when you log in")
+                            Text("Start FlowMod automatically when you log in")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
@@ -65,7 +65,7 @@ struct GeneralSettingsView: View {
                 
                 Spacer()
                 
-                Button("Quit minput") {
+                Button("Quit FlowMod") {
                     NSApplication.shared.terminate(nil)
                 }
                 .buttonStyle(.bordered)
@@ -112,7 +112,7 @@ struct GeneralSettingsView: View {
                     .font(.system(size: 32))
                     .foregroundStyle(Color.accentColor)
                 
-                Text("minput")
+                Text("FlowMod")
                     .font(.title2)
                     .fontWeight(.bold)
                 

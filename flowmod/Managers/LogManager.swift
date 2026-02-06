@@ -43,7 +43,7 @@ class LogManager {
             return "No logs available.\n\nNote: Enable 'Debug Logging' in Advanced settings to capture logs."
         }
         
-        var output = "minput Debug Logs\n"
+        var output = "FlowMod Debug Logs\n"
         output += "================\n"
         output += "Exported: \(Date())\n"
         output += "Entries: \(logEntries.count)\n\n"

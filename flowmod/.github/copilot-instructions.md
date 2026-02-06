@@ -1,8 +1,8 @@
-# minput - Copilot Instructions
+# FlowMod - Copilot Instructions
 
 ## Project Overview
 
-minput is a **macOS menu bar utility** for customizing external mouse and keyboard input behavior. It intercepts low-level HID events via `CGEvent` tap to provide scroll reversal, mouse button remapping, middle-click drag gestures, and keyboard key remapping.
+FlowMod is a **macOS menu bar utility** for customizing external mouse and keyboard input behavior. It intercepts low-level HID events via `CGEvent` tap to provide scroll reversal, mouse button remapping, middle-click drag gestures, and keyboard key remapping.
 
 **Key use case:** Making external (non-Apple) mice and keyboards behave like Mac native devices.
 
@@ -48,10 +48,10 @@ let shouldReverse = onMain {
 
 ```bash
 # Build from terminal
-xcodebuild -scheme minput -configuration Debug build
+xcodebuild -scheme flowmod -configuration Debug build
 
 # Run (requires granting Accessibility permission in System Settings)
-open build/Debug/minput.app
+open build/Debug/flowmod.app
 ```
 
 **Requirements:** macOS, Xcode, Accessibility permission (app sandbox disabled)

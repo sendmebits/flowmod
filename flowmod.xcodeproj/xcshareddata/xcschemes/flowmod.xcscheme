@@ -16,8 +16,8 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "B84B350A2F2E87AC00BD35B8"
-               BuildableName = "minput.app"
-               BlueprintName = "minput"
+               BuildableName = "flowmod.app"
+               BlueprintName = "flowmod"
                ReferencedContainer = "container:flowmod.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
@@ -45,8 +45,8 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "B84B350A2F2E87AC00BD35B8"
-            BuildableName = "minput.app"
-            BlueprintName = "minput"
+            BuildableName = "flowmod.app"
+            BlueprintName = "flowmod"
             ReferencedContainer = "container:flowmod.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
@@ -62,8 +62,8 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "B84B350A2F2E87AC00BD35B8"
-            BuildableName = "minput.app"
-            BlueprintName = "minput"
+            BuildableName = "flowmod.app"
+            BlueprintName = "flowmod"
             ReferencedContainer = "container:flowmod.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>

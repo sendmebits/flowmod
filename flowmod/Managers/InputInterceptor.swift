@@ -62,7 +62,7 @@ class InputInterceptor {
     private var deviceManager: DeviceManager?
     
     // Marker for synthetic events we post ourselves (to avoid re-processing)
-    private static let syntheticEventMarker: Int64 = 0x4D494E505554  // "MINPUT" in hex
+    private static let syntheticEventMarker: Int64 = 0x464C4F574D4F44  // "FLOWMOD" in hex
     
     private init() {}
     
