@@ -73,61 +73,41 @@ struct MenuBarContent: View {
     var deviceManager: DeviceManager
     var permissionManager: PermissionManager
     var inputInterceptor: InputInterceptor
-    
-    @Environment(\.openSettings) private var openSettings
-    
+
     var body: some View {
-        // Status section
-        VStack(alignment: .leading, spacing: 4) {
-            if inputInterceptor.isRunning {
-                Label("Active", systemImage: "checkmark.circle.fill")
-                    .foregroundStyle(.green)
-            } else {
-                Label("Inactive", systemImage: "xmark.circle")
-                    .foregroundStyle(.secondary)
-            }
+        Toggle("Mouse", isOn: $settings.mouseEnabled)
+        Toggle("Keyboard", isOn: $settings.keyboardEnabled)
+
+        Divider()
+
+        SettingsLink {
+            Text("Settings...")
         }
-        
+
         Divider()
-        
-        // Quick toggles
-        Toggle("Reverse Scroll", isOn: $settings.reverseScrollEnabled)
-        
-        Divider()
-        
-        // Settings
-        Button("Settings...") {
-            openSettings()
-            NSApp.activate(ignoringOtherApps: true)
-        }
-        
-        Divider()
-        
-        // Start/Stop
+
         if inputInterceptor.isRunning {
-            Button("Pause minput") {
+            Button("Disable") {
                 inputInterceptor.stop()
             }
         } else {
-            Button("Start minput") {
+            Button("Enable") {
                 startInterceptor()
             }
         }
-        
-        Divider()
-        
-        Button("Quit minput") {
+
+        Button("Quit") {
             NSApplication.shared.terminate(nil)
         }
         .keyboardShortcut("q", modifiers: .command)
     }
-    
+
     private func startInterceptor() {
         guard permissionManager.hasAccessibilityPermission else {
             permissionManager.requestPermission()
             return
         }
-        
+
         Task { @MainActor in
             inputInterceptor.start(settings: settings, deviceManager: deviceManager)
         }

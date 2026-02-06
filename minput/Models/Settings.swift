@@ -61,6 +61,18 @@ class Settings {
         didSet { saveExcludedApps() }
     }
     
+    // MARK: - Master Toggles
+
+    /// Master toggle for mouse interception (scroll, buttons, drag gestures)
+    var mouseEnabled: Bool = true {
+        didSet { UserDefaults.standard.set(mouseEnabled, forKey: "mouseEnabled") }
+    }
+
+    /// Master toggle for keyboard interception (key remapping)
+    var keyboardEnabled: Bool = true {
+        didSet { UserDefaults.standard.set(keyboardEnabled, forKey: "keyboardEnabled") }
+    }
+
     // MARK: - General Settings
     var launchAtLogin: Bool {
         get { UserDefaults.standard.bool(forKey: "launchAtLogin") }
@@ -93,6 +105,19 @@ class Settings {
     // MARK: - Initialization
     
     private init() {
+        // Load master toggles from UserDefaults (default to true if not set)
+        if UserDefaults.standard.object(forKey: "mouseEnabled") == nil {
+            mouseEnabled = true
+        } else {
+            mouseEnabled = UserDefaults.standard.bool(forKey: "mouseEnabled")
+        }
+        
+        if UserDefaults.standard.object(forKey: "keyboardEnabled") == nil {
+            keyboardEnabled = true
+        } else {
+            keyboardEnabled = UserDefaults.standard.bool(forKey: "keyboardEnabled")
+        }
+        
         // Load reverseScrollEnabled from UserDefaults (default to true if not set)
         if UserDefaults.standard.object(forKey: "reverseScrollEnabled") == nil {
             reverseScrollEnabled = true

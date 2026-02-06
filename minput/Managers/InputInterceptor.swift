@@ -169,19 +169,30 @@ class InputInterceptor {
         if event.getIntegerValueField(.eventSourceUserData) == InputInterceptor.syntheticEventMarker {
             return event
         }
-        
+
+        // Check master toggles (read on main thread)
+        let (mouseEnabled, keyboardEnabled) = onMain {
+            (settings?.mouseEnabled ?? true, settings?.keyboardEnabled ?? true)
+        }
+
         switch type {
         case .scrollWheel:
+            guard mouseEnabled else { return event }
             return handleScrollEvent(event)
         case .otherMouseDown:
+            guard mouseEnabled else { return event }
             return handleOtherMouseDown(event)
         case .otherMouseUp:
+            guard mouseEnabled else { return event }
             return handleOtherMouseUp(event)
         case .otherMouseDragged:
+            guard mouseEnabled else { return event }
             return handleOtherMouseDragged(event)
         case .keyDown:
+            guard keyboardEnabled else { return event }
             return handleKeyDown(event)
         case .keyUp:
+            guard keyboardEnabled else { return event }
             return handleKeyUp(event)
         default:
             return event

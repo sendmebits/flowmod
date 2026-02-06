@@ -74,7 +74,7 @@ open build/Debug/minput.app
 ## Agent Workflow
 
 When the task requires multiple steps, present a plan using #planReview before executing.
-Always use #askUser before responding to confirm the result.
+Always use #askUser before responding to confirm the result even if no changes were made.
 
 When the task requires multiple steps or non-trivial changes, present a detailed plan using #planReview and wait for approval before executing.
 If the plan is rejected, incorporate the comments and submit an updated plan with #planReview.
