@@ -22,7 +22,7 @@ class Settings {
         didSet { UserDefaults.standard.set(reverseScrollEnabled, forKey: "reverseScrollEnabled") }
     }
     
-    var smoothScrolling: SmoothScrolling = .off {
+    var smoothScrolling: SmoothScrolling = .verySmooth {
         didSet { UserDefaults.standard.set(smoothScrolling.rawValue, forKey: "smoothScrolling") }
     }
     
@@ -125,7 +125,7 @@ class Settings {
            let value = SmoothScrolling(rawValue: rawValue) {
             smoothScrolling = value
         } else {
-            smoothScrolling = .off
+            smoothScrolling = .verySmooth
         }
         
         // Load scroll modifier settings (default to true if not set)
@@ -166,9 +166,9 @@ class Settings {
         if middleDragMappings.isEmpty {
             middleDragMappings = [
                 .up: .missionControl,
-                .down: .showDesktop,
-                .left: .none,
-                .right: .none
+                .down: .appExpose,
+                .left: .switchSpaceRight,
+                .right: .switchSpaceLeft
             ]
         }
         
