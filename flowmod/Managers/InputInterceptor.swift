@@ -282,7 +282,8 @@ class InputInterceptor {
         
         // If smooth scrolling is enabled for mouse events, use the smooth scroll system
         // BUT: horizontal scroll (Shift+Scroll) always bypasses smooth scrolling
-        if smoothScrolling != .off && isMouseScroll && !isHorizontalScroll {
+        // BUT: Option held bypasses smooth scrolling (acts as if smooth scrolling is off)
+        if smoothScrolling != .off && isMouseScroll && !isHorizontalScroll && !optionHeld {
             smoothScrollLock.lock()
             
             // Calculate pixels to scroll for this tick

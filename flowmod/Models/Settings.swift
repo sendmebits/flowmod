@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import Observation
+import ServiceManagement
 
 /// Smooth scrolling intensity options
 enum SmoothScrolling: String, CaseIterable, Identifiable {
@@ -74,7 +75,7 @@ class Settings {
     }
 
     // MARK: - General Settings
-    var launchAtLogin: Bool = false {
+    var launchAtLogin: Bool = true {
         didSet { UserDefaults.standard.set(launchAtLogin, forKey: "launchAtLogin") }
     }
     
@@ -148,7 +149,16 @@ class Settings {
         }
         
         // Load general settings
-        launchAtLogin = UserDefaults.standard.bool(forKey: "launchAtLogin")
+        if UserDefaults.standard.object(forKey: "launchAtLogin") != nil {
+            launchAtLogin = UserDefaults.standard.bool(forKey: "launchAtLogin")
+        } else {
+            // First launch: default to true and register
+            launchAtLogin = true
+            UserDefaults.standard.set(true, forKey: "launchAtLogin")
+            if #available(macOS 13.0, *) {
+                try? SMAppService.mainApp.register()
+            }
+        }
         
         if UserDefaults.standard.object(forKey: "dragThreshold") != nil {
             dragThreshold = UserDefaults.standard.double(forKey: "dragThreshold")
