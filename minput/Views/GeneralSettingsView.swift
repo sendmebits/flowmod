@@ -105,25 +105,25 @@ struct GeneralSettingsView: View {
     }
     
     private var headerView: some View {
-        HStack {
-            Image(systemName: "computermouse.fill")
-                .font(.title2)
-                .foregroundStyle(Color.accentColor)
-            
-            VStack(alignment: .leading, spacing: 0) {
+        VStack(spacing: 14) {
+            // App identity — centered
+            VStack(spacing: 4) {
+                Image(systemName: "computermouse.fill")
+                    .font(.system(size: 32))
+                    .foregroundStyle(Color.accentColor)
+                
                 Text("minput")
                     .font(.title2)
-                    .fontWeight(.semibold)
+                    .fontWeight(.bold)
+                
                 Text(appVersionString)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
             }
             
-            Spacer()
-            
-            // Connection status indicators
-            HStack(spacing: 12) {
-                connectionIndicator(
+            // Device connection pills — centered
+            HStack(spacing: 10) {
+                devicePill(
                     connected: deviceManager.externalMouseConnected,
                     icon: "computermouse",
                     label: "Mouse",
@@ -131,7 +131,7 @@ struct GeneralSettingsView: View {
                     showPopover: $showMousePopover
                 )
                 
-                connectionIndicator(
+                devicePill(
                     connected: deviceManager.externalKeyboardConnected,
                     icon: "keyboard",
                     label: "Keyboard",
@@ -140,26 +140,31 @@ struct GeneralSettingsView: View {
                 )
             }
         }
+        .frame(maxWidth: .infinity)
     }
     
-    private func connectionIndicator(connected: Bool, icon: String, label: String, devices: [DeviceManager.HIDDevice], showPopover: Binding<Bool>) -> some View {
-        // Deduplicate device names
+    private func devicePill(connected: Bool, icon: String, label: String, devices: [DeviceManager.HIDDevice], showPopover: Binding<Bool>) -> some View {
         let uniqueDeviceNames = Array(Set(devices.map { $0.displayName })).sorted()
+        let deviceList = uniqueDeviceNames.isEmpty
+            ? "No external \(label.lowercased()) detected"
+            : uniqueDeviceNames.joined(separator: "\n")
         
-        let deviceList: String = {
-            if uniqueDeviceNames.isEmpty {
-                return "No external \(label.lowercased()) detected"
-            }
-            return uniqueDeviceNames.joined(separator: "\n")
-        }()
-        
-        return HStack(spacing: 4) {
+        return HStack(spacing: 6) {
             Image(systemName: icon)
+                .font(.caption2)
+            Text(label)
                 .font(.caption)
+                .fontWeight(.medium)
             Circle()
                 .fill(connected ? Color.green : Color.gray.opacity(0.3))
                 .frame(width: 6, height: 6)
         }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
+        .background(
+            RoundedRectangle(cornerRadius: 6)
+                .fill(connected ? Color.accentColor.opacity(0.08) : Color.secondary.opacity(0.06))
+        )
         .foregroundStyle(connected ? .primary : .secondary)
         .onHover { isHovering in
             showPopover.wrappedValue = isHovering
