@@ -6,16 +6,19 @@
       "size" : "16x16"
     },
     {
+      "filename" : "FlowMod_icon_32.png",
       "idiom" : "mac",
       "scale" : "2x",
       "size" : "16x16"
     },
     {
+      "filename" : "FlowMod_icon_32 1.png",
       "idiom" : "mac",
       "scale" : "1x",
       "size" : "32x32"
     },
     {
+      "filename" : "FlowMod_icon_64.png",
       "idiom" : "mac",
       "scale" : "2x",
       "size" : "32x32"
