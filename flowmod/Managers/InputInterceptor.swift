@@ -263,8 +263,12 @@ class InputInterceptor {
             pointDeltaY = 0
         }
         
+        // Determine if Option is being used to bypass smooth scrolling
+        let optionBypassesSmooth = optionHeld && smoothScrolling != .off && isMouseScroll
+        
         // Apply Option modifier: slow down scroll for precision (applies to both X and Y)
-        let precisionScale: Double = (optionHeld && optionPrecision && isMouseScroll) ? precisionMultiplier : 1.0
+        // Don't apply precision when Option is being used to bypass smooth scrolling
+        let precisionScale: Double = (optionHeld && optionPrecision && isMouseScroll && !optionBypassesSmooth) ? precisionMultiplier : 1.0
         
         // Apply reversal if enabled - compute AFTER the swap so values are correct
         // Keep as Double for smooth scroll to preserve fractional precision
