@@ -4,15 +4,15 @@ import CoreGraphics
 /// Actions that can be triggered by keyboard remapping
 enum KeyboardAction: Codable, Equatable, Hashable, Identifiable, CaseIterable {
     case none
-    case lineStart      // ⌘←
-    case lineEnd        // ⌘→
+    case lineStart      // ⌃A
+    case lineEnd        // ⌃E
     case documentStart  // ⌘↑
     case documentEnd    // ⌘↓
     case pageUp
     case pageDown
     case deleteForward
-    case selectToLineStart    // ⇧⌘←
-    case selectToLineEnd      // ⇧⌘→
+    case selectToLineStart    // ⇧⌃A
+    case selectToLineEnd      // ⇧⌃E
     case selectToDocStart     // ⇧⌘↑
     case selectToDocEnd       // ⇧⌘↓
     case copy           // ⌘C
@@ -52,15 +52,15 @@ enum KeyboardAction: Codable, Equatable, Hashable, Identifiable, CaseIterable {
     var displayName: String {
         switch self {
         case .none: return "None (Pass Through)"
-        case .lineStart: return "Line Start (⌘←)"
-        case .lineEnd: return "Line End (⌘→)"
+        case .lineStart: return "Line Start (⌃A)"
+        case .lineEnd: return "Line End (⌃E)"
         case .documentStart: return "Document Start (⌘↑)"
         case .documentEnd: return "Document End (⌘↓)"
         case .pageUp: return "Page Up"
         case .pageDown: return "Page Down"
         case .deleteForward: return "Delete Forward (⌦)"
-        case .selectToLineStart: return "Select to Line Start (⇧⌘←)"
-        case .selectToLineEnd: return "Select to Line End (⇧⌘→)"
+        case .selectToLineStart: return "Select to Line Start (⇧⌃A)"
+        case .selectToLineEnd: return "Select to Line End (⇧⌃E)"
         case .selectToDocStart: return "Select to Doc Start (⇧⌘↑)"
         case .selectToDocEnd: return "Select to Doc End (⇧⌘↓)"
         case .copy: return "Copy (⌘C)"
@@ -105,9 +105,9 @@ enum KeyboardAction: Codable, Equatable, Hashable, Identifiable, CaseIterable {
         case .none:
             return nil
         case .lineStart:
-            return KeyCombo(keyCode: 0x7B, modifiers: CGEventFlags.maskCommand.rawValue) // ⌘←
+            return KeyCombo(keyCode: 0x00, modifiers: CGEventFlags.maskControl.rawValue) // ⌃A
         case .lineEnd:
-            return KeyCombo(keyCode: 0x7C, modifiers: CGEventFlags.maskCommand.rawValue) // ⌘→
+            return KeyCombo(keyCode: 0x0E, modifiers: CGEventFlags.maskControl.rawValue) // ⌃E
         case .documentStart:
             return KeyCombo(keyCode: 0x7E, modifiers: CGEventFlags.maskCommand.rawValue) // ⌘↑
         case .documentEnd:
@@ -119,9 +119,9 @@ enum KeyboardAction: Codable, Equatable, Hashable, Identifiable, CaseIterable {
         case .deleteForward:
             return KeyCombo(keyCode: 0x75, modifiers: 0) // Forward Delete
         case .selectToLineStart:
-            return KeyCombo(keyCode: 0x7B, modifiers: CGEventFlags.maskCommand.rawValue | CGEventFlags.maskShift.rawValue)
+            return KeyCombo(keyCode: 0x00, modifiers: CGEventFlags.maskControl.rawValue | CGEventFlags.maskShift.rawValue)
         case .selectToLineEnd:
-            return KeyCombo(keyCode: 0x7C, modifiers: CGEventFlags.maskCommand.rawValue | CGEventFlags.maskShift.rawValue)
+            return KeyCombo(keyCode: 0x0E, modifiers: CGEventFlags.maskControl.rawValue | CGEventFlags.maskShift.rawValue)
         case .selectToDocStart:
             return KeyCombo(keyCode: 0x7E, modifiers: CGEventFlags.maskCommand.rawValue | CGEventFlags.maskShift.rawValue)
         case .selectToDocEnd:
