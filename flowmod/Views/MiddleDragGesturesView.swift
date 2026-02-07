@@ -49,6 +49,40 @@ struct MiddleDragGesturesView: View {
                 }
                 .padding(.vertical, 4)
             }
+            
+            // Continuous gesture mode
+            GroupBox {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Image(systemName: "hand.draw")
+                            .font(.title2)
+                            .foregroundStyle(Color.accentColor)
+                            .frame(width: 32)
+                        
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Continuous Gestures")
+                                .font(.subheadline)
+                                .fontWeight(.medium)
+                            Text("Animation follows your drag like a trackpad swipe")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        
+                        Spacer()
+                        
+                        Toggle("", isOn: $settings.continuousGestures)
+                            .toggleStyle(.switch)
+                            .labelsHidden()
+                    }
+                    
+                    if settings.continuousGestures {
+                        Text("Works with Mission Control, App Exposé, Switch Spaces, Show Desktop, and Launchpad. Other actions use trigger mode.")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+                .padding(.vertical, 4)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         }

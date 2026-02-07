@@ -52,6 +52,14 @@ class Settings {
         didSet { saveMiddleDragMappings() }
     }
     
+    /// When true, compatible drag gestures (Mission Control, App Exposé, Switch Spaces,
+    /// Show Desktop, Launchpad) use continuous DockSwipe simulation — the animation
+    /// follows the mouse drag like a real trackpad three-finger swipe.
+    /// When false, uses the current fire-and-forget trigger behavior.
+    var continuousGestures: Bool = true {
+        didSet { UserDefaults.standard.set(continuousGestures, forKey: "continuousGestures") }
+    }
+    
     // MARK: - Keyboard Mappings
     var keyboardMappings: [KeyboardMapping] = [] {
         didSet { saveKeyboardMappings() }
@@ -162,6 +170,12 @@ class Settings {
         
         if UserDefaults.standard.object(forKey: "dragThreshold") != nil {
             dragThreshold = UserDefaults.standard.double(forKey: "dragThreshold")
+        }
+        
+        if UserDefaults.standard.object(forKey: "continuousGestures") != nil {
+            continuousGestures = UserDefaults.standard.bool(forKey: "continuousGestures")
+        } else {
+            continuousGestures = true  // Default to continuous mode
         }
         
         assumeExternalMouse = UserDefaults.standard.bool(forKey: "assumeExternalMouse")

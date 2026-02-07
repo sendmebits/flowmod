@@ -15,10 +15,28 @@ class InputInterceptor {
     var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
     
+    // HID-level event tap for mouse drags during continuous gestures.
+    // When macOS enters DockSwipe gesture mode, the WindowServer stops
+    // forwarding otherMouseDragged events to session-level taps. This
+    // HID-level tap receives events before the WindowServer processes them.
+    private var dragHIDTap: CFMachPort?
+    private var dragHIDRunLoopSource: CFRunLoopSource?
+    
     // Middle button drag tracking
     private var middleButtonDown = false
     private var middleButtonStartPoint: CGPoint = .zero
     private var middleDragTriggered = false
+    
+    // Continuous gesture (DockSwipe) state
+    private let dockSwipeSimulator = DockSwipeSimulator()
+    private var continuousGestureActive = false
+    private var continuousGestureAxisLocked = false
+    private var continuousGestureAxis: ContinuousAxis = .horizontal
+    private var continuousGestureLastPoint: CGPoint = .zero
+    
+    private enum ContinuousAxis {
+        case horizontal, vertical
+    }
     
     // Smooth scrolling state - physics engine for trackpad-like feel
     private var smoothScrollVelocityY: Double = 0
@@ -142,11 +160,89 @@ class InputInterceptor {
             isRunning = true
             print("Input interceptor started")
         }
+        
+        // Create HID-level event tap for mouse drags during continuous gestures.
+        // This tap is at kCGHIDEventTap (before WindowServer), so it receives
+        // otherMouseDragged events even during DockSwipe animations.
+        // It starts DISABLED and is only enabled during continuous gestures.
+        let hidDragMask: CGEventMask = (
+            (1 << CGEventType.otherMouseDragged.rawValue)
+        )
+        
+        let hidCallback: CGEventTapCallBack = { proxy, type, event, userInfo in
+            if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+                if let userInfo = userInfo {
+                    let interceptor = Unmanaged<InputInterceptor>.fromOpaque(userInfo).takeUnretainedValue()
+                    if let tap = interceptor.dragHIDTap {
+                        CGEvent.tapEnable(tap: tap, enable: true)
+                    }
+                }
+                return Unmanaged.passRetained(event)
+            }
+            
+            guard let userInfo = userInfo else {
+                return Unmanaged.passRetained(event)
+            }
+            
+            let interceptor = Unmanaged<InputInterceptor>.fromOpaque(userInfo).takeUnretainedValue()
+            
+            // Only process during active continuous gesture
+            guard interceptor.continuousGestureActive else {
+                return Unmanaged.passRetained(event)
+            }
+            
+            // Read deltas and feed to DockSwipe simulator
+            interceptor.handleHIDDragDuringContinuousGesture(event)
+            
+            // Suppress the event at HID level so cursor doesn't move
+            // and session-level tap doesn't see it
+            return nil
+        }
+        
+        if let hidTap = CGEvent.tapCreate(
+            tap: .cghidEventTap,
+            place: .headInsertEventTap,
+            options: .defaultTap,
+            eventsOfInterest: hidDragMask,
+            callback: hidCallback,
+            userInfo: Unmanaged.passUnretained(self).toOpaque()
+        ) {
+            dragHIDTap = hidTap
+            dragHIDRunLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, hidTap, 0)
+            if let hidSource = dragHIDRunLoopSource {
+                CFRunLoopAddSource(CFRunLoopGetCurrent(), hidSource, .commonModes)
+                // Start DISABLED — enabled only during continuous gestures
+                CGEvent.tapEnable(tap: hidTap, enable: false)
+                print("HID drag event tap created (disabled)")
+            }
+        } else {
+            print("Warning: Failed to create HID-level drag event tap")
+        }
     }
     
     func stop() {
         // Stop smooth scrolling display link
         stopDisplayLink()
+        
+        // Cancel any active continuous gesture
+        if continuousGestureActive {
+            continuousGestureActive = false
+            dockSwipeSimulator.forceCancel()
+            if let hidTap = dragHIDTap {
+                CGEvent.tapEnable(tap: hidTap, enable: false)
+            }
+            CGAssociateMouseAndMouseCursorPosition(1)
+        }
+        
+        // Disable and clean up HID drag tap
+        if let hidTap = dragHIDTap {
+            CGEvent.tapEnable(tap: hidTap, enable: false)
+        }
+        if let hidSource = dragHIDRunLoopSource {
+            CFRunLoopRemoveSource(CFRunLoopGetCurrent(), hidSource, .commonModes)
+        }
+        dragHIDTap = nil
+        dragHIDRunLoopSource = nil
         
         if let tap = eventTap {
             CGEvent.tapEnable(tap: tap, enable: false)
@@ -606,6 +702,8 @@ class InputInterceptor {
             middleButtonDown = true
             middleButtonStartPoint = event.location
             middleDragTriggered = false
+            continuousGestureActive = false
+            continuousGestureAxisLocked = false
             
             // Check if middle click has a mapping
             let action: MouseAction? = onMain {
@@ -632,6 +730,24 @@ class InputInterceptor {
             defer {
                 middleButtonDown = false
                 middleDragTriggered = false
+                continuousGestureAxisLocked = false
+            }
+            
+            // End continuous gesture if active
+            if continuousGestureActive {
+                continuousGestureActive = false
+                dockSwipeSimulator.end(cancel: false)
+                
+                // Disable HID-level drag tap
+                if let hidTap = dragHIDTap {
+                    CGEvent.tapEnable(tap: hidTap, enable: false)
+                }
+                
+                // Unfreeze cursor
+                CGAssociateMouseAndMouseCursorPosition(1)
+                
+                LogManager.shared.log("Continuous gesture ended", category: "Gesture")
+                return nil
             }
             
             // If drag gesture was triggered, suppress the mouse up
@@ -666,16 +782,89 @@ class InputInterceptor {
     }
     
     private func handleOtherMouseDragged(_ event: CGEvent) -> CGEvent? {
-        guard middleButtonDown && !middleDragTriggered else { return event }
+        guard middleButtonDown else { return event }
+        
+        // If a continuous gesture is already active, the HID-level tap handles updates.
+        // The session tap may not receive drags during DockSwipe, so we just suppress here.
+        if continuousGestureActive {
+            return nil  // Suppress mouse moved events during gesture
+        }
+        
+        // Not yet triggered — check for threshold
+        guard !middleDragTriggered else { return event }
         
         let currentPoint = event.location
         let deltaX = currentPoint.x - middleButtonStartPoint.x
         let deltaY = currentPoint.y - middleButtonStartPoint.y
         
-        let threshold: Double = onMain {
-            settings?.dragThreshold ?? 40
+        let (threshold, useContinuous): (Double, Bool) = onMain {
+            (settings?.dragThreshold ?? 40, settings?.continuousGestures ?? true)
         }
         
+        // For continuous mode, determine axis early with a smaller dead zone
+        // and begin the DockSwipe gesture immediately
+        if useContinuous {
+            let axisThreshold = threshold * 0.5  // Smaller threshold for axis detection
+            
+            if !continuousGestureAxisLocked {
+                // Need enough movement to determine axis
+                if abs(deltaX) > axisThreshold || abs(deltaY) > axisThreshold {
+                    if abs(deltaY) > abs(deltaX) {
+                        continuousGestureAxis = .vertical
+                    } else {
+                        continuousGestureAxis = .horizontal
+                    }
+                    continuousGestureAxisLocked = true
+                    
+                    // Check if the mapped actions for this axis support continuous gestures
+                    if axisSupportsContinuous(axis: continuousGestureAxis) {
+                        // Determine the initial DockSwipe type from the dominant direction
+                        let initialDirection: DragDirection
+                        if continuousGestureAxis == .horizontal {
+                            initialDirection = deltaX < 0 ? .left : .right
+                        } else {
+                            initialDirection = deltaY < 0 ? .up : .down
+                        }
+                        
+                        let action: MouseAction = onMain {
+                            self.settings?.getAction(for: initialDirection) ?? .none
+                        }
+                        
+                        let swipeType = dockSwipeType(for: initialDirection, action: action)
+                        let screenSize = NSScreen.main?.frame.size ?? CGSize(width: 1920, height: 1080)
+                        
+                        // Calculate initial delta from accumulated movement
+                        let initialDelta: Double
+                        if continuousGestureAxis == .horizontal {
+                            let spaceSeparatorWidth: Double = 63
+                            initialDelta = -deltaX / (screenSize.width + spaceSeparatorWidth)
+                        } else {
+                            initialDelta = -deltaY / screenSize.height
+                        }
+                        
+                        continuousGestureActive = true
+                        continuousGestureLastPoint = currentPoint
+                        middleDragTriggered = true
+                        
+                        // Enable HID-level event tap to receive drags during gesture
+                        if let hidTap = dragHIDTap {
+                            CGEvent.tapEnable(tap: hidTap, enable: true)
+                        }
+                        
+                        // Freeze cursor position during gesture
+                        CGAssociateMouseAndMouseCursorPosition(0)
+                        
+                        dockSwipeSimulator.begin(type: swipeType, delta: initialDelta)
+                        
+                        LogManager.shared.log("Continuous gesture began: \(swipeType) axis=\(continuousGestureAxis)", category: "Gesture")
+                        return nil
+                    }
+                    // If continuous not supported for this axis, fall through to trigger mode
+                }
+            }
+        }
+        
+        // Trigger mode (original behavior) — or continuous not supported for this action
         var direction: DragDirection?
         
         // Determine dominant direction
@@ -917,5 +1106,70 @@ class InputInterceptor {
         // Use private CGS Symbolic Hotkey API to trigger App Exposé
         LogManager.shared.log("Sending App Exposé via CGS SymbolicHotkeys API", category: "Action")
         SymbolicHotkeys.post(.applicationWindows)
+    }
+    
+    // MARK: - HID-Level Drag Handler (Continuous Gestures)
+    
+    /// Called from the HID-level event tap callback during active continuous gestures.
+    /// This receives otherMouseDragged events even while macOS is in DockSwipe
+    /// gesture mode (Spaces animation), which blocks session-level taps.
+    func handleHIDDragDuringContinuousGesture(_ event: CGEvent) {
+        let pixelDX = Double(event.getIntegerValueField(.mouseEventDeltaX))
+        let pixelDY = Double(event.getIntegerValueField(.mouseEventDeltaY))
+        
+        guard pixelDX != 0 || pixelDY != 0 else { return }
+        
+        // Convert pixel deltas to DockSwipe units
+        let screenSize = NSScreen.main?.frame.size ?? CGSize(width: 1920, height: 1080)
+        
+        if continuousGestureAxis == .horizontal {
+            let spaceSeparatorWidth: Double = 63
+            let swipeDelta = -pixelDX / (screenSize.width + spaceSeparatorWidth)
+            dockSwipeSimulator.update(delta: swipeDelta)
+        } else {
+            let swipeDelta = -pixelDY / screenSize.height
+            dockSwipeSimulator.update(delta: swipeDelta)
+        }
+    }
+    
+    // MARK: - Continuous Gesture Helpers
+    
+    /// Whether a mouse action supports continuous DockSwipe gesture simulation.
+    /// Only system-level animations that correspond to trackpad three-finger swipes.
+    private func actionSupportsContinuousGesture(_ action: MouseAction) -> Bool {
+        switch action {
+        case .missionControl, .appExpose, .switchSpaceLeft, .switchSpaceRight,
+             .showDesktop, .launchpad:
+            return true
+        default:
+            return false
+        }
+    }
+    
+    /// Determine the DockSwipe type for a drag direction and its mapped action.
+    private func dockSwipeType(for direction: DragDirection, action: MouseAction) -> DockSwipeSimulator.SwipeType {
+        switch action {
+        case .switchSpaceLeft, .switchSpaceRight:
+            return .horizontal
+        case .missionControl, .appExpose:
+            return .vertical
+        case .showDesktop, .launchpad:
+            return .pinch
+        default:
+            return .horizontal
+        }
+    }
+    
+    /// Check if any action in the given axis direction supports continuous gestures.
+    private func axisSupportsContinuous(axis: ContinuousAxis) -> Bool {
+        let (action1, action2): (MouseAction, MouseAction) = onMain {
+            let s = self.settings!
+            if axis == .horizontal {
+                return (s.getAction(for: .left), s.getAction(for: .right))
+            } else {
+                return (s.getAction(for: .up), s.getAction(for: .down))
+            }
+        }
+        return actionSupportsContinuousGesture(action1) || actionSupportsContinuousGesture(action2)
     }
 }

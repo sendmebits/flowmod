@@ -20,6 +20,9 @@ xcuserdata/
 .build/
 Packages/
 
+# Editors
+.vscode
+
 # macOS
 .DS_Store
 .AppleDouble
