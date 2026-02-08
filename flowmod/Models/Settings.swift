@@ -18,38 +18,41 @@ enum SmoothScrolling: String, CaseIterable, Identifiable {
 class Settings {
     static let shared = Settings()
     
+    /// Flag to suppress didSet UserDefaults writes during initialization
+    private var isLoading = true
+    
     // MARK: - Scroll Settings
     var reverseScrollEnabled: Bool = true {
-        didSet { UserDefaults.standard.set(reverseScrollEnabled, forKey: "reverseScrollEnabled") }
+        didSet { if !isLoading { UserDefaults.standard.set(reverseScrollEnabled, forKey: "reverseScrollEnabled") } }
     }
     
     var smoothScrolling: SmoothScrolling = .verySmooth {
-        didSet { UserDefaults.standard.set(smoothScrolling.rawValue, forKey: "smoothScrolling") }
+        didSet { if !isLoading { UserDefaults.standard.set(smoothScrolling.rawValue, forKey: "smoothScrolling") } }
     }
     
     /// Shift key modifier: scroll horizontally instead of vertically
     var shiftHorizontalScroll: Bool = true {
-        didSet { UserDefaults.standard.set(shiftHorizontalScroll, forKey: "shiftHorizontalScroll") }
+        didSet { if !isLoading { UserDefaults.standard.set(shiftHorizontalScroll, forKey: "shiftHorizontalScroll") } }
     }
     
     /// Option key modifier: slow down scroll speed for precision
     var optionPrecisionScroll: Bool = true {
-        didSet { UserDefaults.standard.set(optionPrecisionScroll, forKey: "optionPrecisionScroll") }
+        didSet { if !isLoading { UserDefaults.standard.set(optionPrecisionScroll, forKey: "optionPrecisionScroll") } }
     }
     
     /// Precision scroll speed multiplier (0.0 to 1.0)
     var precisionScrollMultiplier: Double = 0.33 {
-        didSet { UserDefaults.standard.set(precisionScrollMultiplier, forKey: "precisionScrollMultiplier") }
+        didSet { if !isLoading { UserDefaults.standard.set(precisionScrollMultiplier, forKey: "precisionScrollMultiplier") } }
     }
     
     // MARK: - Custom Mouse Button Mappings
     var customMouseButtonMappings: [CustomMouseButtonMapping] = [] {
-        didSet { saveCustomMouseButtonMappings() }
+        didSet { if !isLoading { saveCustomMouseButtonMappings() } }
     }
     
     // MARK: - Middle Drag Gesture Mappings
     var middleDragMappings: [DragDirection: MouseAction] = [:] {
-        didSet { saveMiddleDragMappings() }
+        didSet { if !isLoading { saveMiddleDragMappings() } }
     }
     
     /// When true, compatible drag gestures (Mission Control, App Exposé, Switch Spaces,
@@ -57,53 +60,53 @@ class Settings {
     /// follows the mouse drag like a real trackpad three-finger swipe.
     /// When false, uses the current fire-and-forget trigger behavior.
     var continuousGestures: Bool = true {
-        didSet { UserDefaults.standard.set(continuousGestures, forKey: "continuousGestures") }
+        didSet { if !isLoading { UserDefaults.standard.set(continuousGestures, forKey: "continuousGestures") } }
     }
     
     // MARK: - Keyboard Mappings
     var keyboardMappings: [KeyboardMapping] = [] {
-        didSet { saveKeyboardMappings() }
+        didSet { if !isLoading { saveKeyboardMappings() } }
     }
     
     // MARK: - Excluded Apps
     var excludedApps: [ExcludedApp] = [] {
-        didSet { saveExcludedApps() }
+        didSet { if !isLoading { saveExcludedApps() } }
     }
     
     // MARK: - Master Toggles
 
     /// Master toggle for mouse interception (scroll, buttons, drag gestures)
     var mouseEnabled: Bool = true {
-        didSet { UserDefaults.standard.set(mouseEnabled, forKey: "mouseEnabled") }
+        didSet { if !isLoading { UserDefaults.standard.set(mouseEnabled, forKey: "mouseEnabled") } }
     }
 
     /// Master toggle for keyboard interception (key remapping)
     var keyboardEnabled: Bool = true {
-        didSet { UserDefaults.standard.set(keyboardEnabled, forKey: "keyboardEnabled") }
+        didSet { if !isLoading { UserDefaults.standard.set(keyboardEnabled, forKey: "keyboardEnabled") } }
     }
 
     // MARK: - General Settings
     var launchAtLogin: Bool = true {
-        didSet { UserDefaults.standard.set(launchAtLogin, forKey: "launchAtLogin") }
+        didSet { if !isLoading { UserDefaults.standard.set(launchAtLogin, forKey: "launchAtLogin") } }
     }
     
     var dragThreshold: Double = 40.0 {
-        didSet { UserDefaults.standard.set(dragThreshold, forKey: "dragThreshold") }
+        didSet { if !isLoading { UserDefaults.standard.set(dragThreshold, forKey: "dragThreshold") } }
     }
     
     /// Override device detection - assume external mouse is always connected
     var assumeExternalMouse: Bool = false {
-        didSet { UserDefaults.standard.set(assumeExternalMouse, forKey: "assumeExternalMouse") }
+        didSet { if !isLoading { UserDefaults.standard.set(assumeExternalMouse, forKey: "assumeExternalMouse") } }
     }
     
     /// Override device detection - assume external keyboard is always connected
     var assumeExternalKeyboard: Bool = false {
-        didSet { UserDefaults.standard.set(assumeExternalKeyboard, forKey: "assumeExternalKeyboard") }
+        didSet { if !isLoading { UserDefaults.standard.set(assumeExternalKeyboard, forKey: "assumeExternalKeyboard") } }
     }
     
     /// Enable debug logging
     var debugLogging: Bool = false {
-        didSet { UserDefaults.standard.set(debugLogging, forKey: "debugLogging") }
+        didSet { if !isLoading { UserDefaults.standard.set(debugLogging, forKey: "debugLogging") } }
     }
     
     // MARK: - Initialization
@@ -202,6 +205,8 @@ class Settings {
                 KeyboardMapping(sourceKey: .end, targetAction: .lineEnd)
             ]
         }
+        
+        isLoading = false
     }
     
     // MARK: - Persistence

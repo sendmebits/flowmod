@@ -79,6 +79,9 @@ class InputInterceptor {
     private var settings: Settings?
     private var deviceManager: DeviceManager?
     
+    // Cached frontmost app bundle ID (updated via notification, not queried per-event)
+    private var cachedFrontmostBundleID: String?
+    
     // Marker for synthetic events we post ourselves (to avoid re-processing)
     private static let syntheticEventMarker: Int64 = 0x464C4F574D4F44  // "FLOWMOD" in hex
     
@@ -95,12 +98,27 @@ class InputInterceptor {
         }
     }
     
+    @objc private func frontmostAppDidChange(_ notification: Notification) {
+        if let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication {
+            cachedFrontmostBundleID = app.bundleIdentifier
+        }
+    }
+    
     @MainActor
     func start(settings: Settings, deviceManager: DeviceManager) {
         guard !isRunning else { return }
         
         self.settings = settings
         self.deviceManager = deviceManager
+        
+        // Cache frontmost app and observe changes (avoids querying per-event)
+        cachedFrontmostBundleID = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self,
+            selector: #selector(frontmostAppDidChange(_:)),
+            name: NSWorkspace.didActivateApplicationNotification,
+            object: nil
+        )
         
         // Define which events we want to tap
         let eventMask: CGEventMask = (
@@ -220,9 +238,14 @@ class InputInterceptor {
         }
     }
     
+    @MainActor
     func stop() {
         // Stop smooth scrolling display link
         stopDisplayLink()
+        
+        // Remove workspace observer
+        NSWorkspace.shared.notificationCenter.removeObserver(self)
+        cachedFrontmostBundleID = nil
         
         // Cancel any active continuous gesture
         if continuousGestureActive {
@@ -930,14 +953,17 @@ class InputInterceptor {
         let modifiers = event.flags.rawValue
         
         // Check if external keyboard is connected (or assumed)
+        // Use cached frontmost app bundle ID instead of querying NSWorkspace per-event
+        let cachedBundleID = cachedFrontmostBundleID
         let (hasExternalKeyboard, isExcludedApp, action): (Bool, Bool, KeyboardAction?) = onMain {
             let hasKeyboard = settings?.assumeExternalKeyboard ?? false || (deviceManager?.externalKeyboardConnected ?? false)
             
-            // Check if frontmost app is excluded
-            var excluded = false
-            if let frontApp = NSWorkspace.shared.frontmostApplication,
-               let bundleID = frontApp.bundleIdentifier {
+            // Check if frontmost app is excluded (using cached bundle ID)
+            let excluded: Bool
+            if let bundleID = cachedBundleID {
                 excluded = settings?.isAppExcluded(bundleID) ?? false
+            } else {
+                excluded = false
             }
             
             let keyAction = settings?.getKeyboardAction(for: keyCode, modifiers: modifiers)
@@ -1117,12 +1143,12 @@ class InputInterceptor {
         
         guard pixelDX != 0 || pixelDY != 0 else { return }
         
-        // Convert pixel deltas to DockSwipe units using calibrated scaling
+        // Convert pixel deltas to DockSwipe units using cached scaling
         if continuousGestureAxis == .horizontal {
-            let swipeDelta = -DockSwipeSimulator.pixelToDockSwipe(pixelDX, type: .horizontal)
+            let swipeDelta = -dockSwipeSimulator.pixelToDockSwipeScaled(pixelDX, type: .horizontal)
             dockSwipeSimulator.update(delta: swipeDelta)
         } else {
-            let swipeDelta = -DockSwipeSimulator.pixelToDockSwipe(pixelDY, type: .vertical)
+            let swipeDelta = -dockSwipeSimulator.pixelToDockSwipeScaled(pixelDY, type: .vertical)
             dockSwipeSimulator.update(delta: swipeDelta)
         }
     }
@@ -1158,7 +1184,7 @@ class InputInterceptor {
     /// Check if any action in the given axis direction supports continuous gestures.
     private func axisSupportsContinuous(axis: ContinuousAxis) -> Bool {
         let (action1, action2): (MouseAction, MouseAction) = onMain {
-            let s = self.settings!
+            guard let s = self.settings else { return (.none, .none) }
             if axis == .horizontal {
                 return (s.getAction(for: .left), s.getAction(for: .right))
             } else {

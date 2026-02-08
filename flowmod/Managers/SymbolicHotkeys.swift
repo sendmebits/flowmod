@@ -207,14 +207,16 @@ struct SymbolicHotkeys {
         keyDown.setIntegerValueField(.eventSourceUserData, value: syntheticEventMarker)
         keyDown.post(tap: .cghidEventTap)
         
-        usleep(50000)
-        
-        guard let keyUp = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: false) else {
-            return
+        // Post key-up asynchronously to avoid blocking the main thread
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            let source = CGEventSource(stateID: .hidSystemState)
+            guard let keyUp = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: false) else {
+                return
+            }
+            keyUp.flags = modifiers
+            keyUp.setIntegerValueField(.eventSourceUserData, value: syntheticEventMarker)
+            keyUp.post(tap: .cghidEventTap)
         }
-        keyUp.flags = modifiers
-        keyUp.setIntegerValueField(.eventSourceUserData, value: syntheticEventMarker)
-        keyUp.post(tap: .cghidEventTap)
     }
     
     /// Post a dedicated system key
@@ -226,11 +228,13 @@ struct SymbolicHotkeys {
             keyDown.post(tap: .cghidEventTap)
         }
         
-        usleep(50000)
-        
-        if let keyUp = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: false) {
-            keyUp.setIntegerValueField(.eventSourceUserData, value: syntheticEventMarker)
-            keyUp.post(tap: .cghidEventTap)
+        // Post key-up asynchronously to avoid blocking the main thread
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            let source = CGEventSource(stateID: .hidSystemState)
+            if let keyUp = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: false) {
+                keyUp.setIntegerValueField(.eventSourceUserData, value: syntheticEventMarker)
+                keyUp.post(tap: .cghidEventTap)
+            }
         }
     }
 }

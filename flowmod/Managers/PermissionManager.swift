@@ -21,6 +21,12 @@ class PermissionManager {
     /// Check current accessibility permission status
     func checkPermission() {
         hasAccessibilityPermission = AXIsProcessTrusted()
+        
+        // Stop polling once permission is granted
+        if hasAccessibilityPermission {
+            checkTimer?.invalidate()
+            checkTimer = nil
+        }
     }
     
     /// Prompt user for accessibility permission

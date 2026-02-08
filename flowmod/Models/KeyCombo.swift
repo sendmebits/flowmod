@@ -75,13 +75,28 @@ struct KeyCombo: Codable, Equatable, Hashable {
     }
     
     private func characterForKeyCode(_ keyCode: UInt16) -> String? {
+        return KeyCombo.cachedCharacterForKeyCode(keyCode)
+    }
+    
+    /// Cached keyboard layout lookup to avoid repeated TISCopyCurrentKeyboardInputSource calls
+    private static var cachedKeyboardLayout: UnsafePointer<UCKeyboardLayout>?
+    private static var cachedLayoutInputSourceID: String?
+    
+    private static func cachedCharacterForKeyCode(_ keyCode: UInt16) -> String? {
         let source = TISCopyCurrentKeyboardInputSource().takeRetainedValue()
-        guard let layoutData = TISGetInputSourceProperty(source, kTISPropertyUnicodeKeyLayoutData) else {
-            return nil
+        let sourceID = Unmanaged.passUnretained(source).toOpaque().debugDescription
+        
+        // Refresh cached layout if input source changed
+        if sourceID != cachedLayoutInputSourceID {
+            guard let layoutData = TISGetInputSourceProperty(source, kTISPropertyUnicodeKeyLayoutData) else {
+                return nil
+            }
+            let dataRef = unsafeBitCast(layoutData, to: CFData.self)
+            cachedKeyboardLayout = unsafeBitCast(CFDataGetBytePtr(dataRef), to: UnsafePointer<UCKeyboardLayout>.self)
+            cachedLayoutInputSourceID = sourceID
         }
         
-        let dataRef = unsafeBitCast(layoutData, to: CFData.self)
-        let keyboardLayout = unsafeBitCast(CFDataGetBytePtr(dataRef), to: UnsafePointer<UCKeyboardLayout>.self)
+        guard let keyboardLayout = cachedKeyboardLayout else { return nil }
         
         var deadKeyState: UInt32 = 0
         var chars = [UniChar](repeating: 0, count: 4)

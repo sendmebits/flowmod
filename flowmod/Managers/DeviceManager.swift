@@ -36,12 +36,23 @@ class DeviceManager {
             }
             return "Unknown Device"
         }
+        
+        /// Content-based equality (ignores UUID so polling doesn't trigger redraws)
+        static func == (lhs: HIDDevice, rhs: HIDDevice) -> Bool {
+            lhs.vendorID == rhs.vendorID &&
+            lhs.productID == rhs.productID &&
+            lhs.vendorName == rhs.vendorName &&
+            lhs.productName == rhs.productName &&
+            lhs.isKeyboard == rhs.isKeyboard &&
+            lhs.isMouse == rhs.isMouse &&
+            lhs.isAppleDevice == rhs.isAppleDevice
+        }
     }
     
     private init() {
         setupHIDManager()
-        // Also poll periodically for device changes
-        refreshTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
+        // Safety-net poll for devices that may not trigger callbacks (e.g. some Bluetooth)
+        refreshTimer = Timer.scheduledTimer(withTimeInterval: 30.0, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
                 self?.refreshDevices()
             }
@@ -77,6 +88,21 @@ class DeviceManager {
         
         IOHIDManagerScheduleWithRunLoop(manager, CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue)
         
+        // Register callbacks for immediate device connect/disconnect detection
+        let matchCallback: IOHIDDeviceCallback = { context, result, sender, device in
+            guard let context = context else { return }
+            let dm = Unmanaged<DeviceManager>.fromOpaque(context).takeUnretainedValue()
+            Task { @MainActor in dm.refreshDevices() }
+        }
+        let removeCallback: IOHIDDeviceCallback = { context, result, sender, device in
+            guard let context = context else { return }
+            let dm = Unmanaged<DeviceManager>.fromOpaque(context).takeUnretainedValue()
+            Task { @MainActor in dm.refreshDevices() }
+        }
+        let selfPtr = Unmanaged.passUnretained(self).toOpaque()
+        IOHIDManagerRegisterDeviceMatchingCallback(manager, matchCallback, selfPtr)
+        IOHIDManagerRegisterDeviceRemovalCallback(manager, removeCallback, selfPtr)
+        
         let result = IOHIDManagerOpen(manager, IOOptionBits(kIOHIDOptionsTypeNone))
         if result != kIOReturnSuccess {
             print("Failed to open HID Manager: \(result)")
@@ -95,11 +121,15 @@ class DeviceManager {
             return
         }
         
-        connectedDevices = deviceSet.compactMap { device -> HIDDevice? in
+        let newDevices = deviceSet.compactMap { device -> HIDDevice? in
             return createHIDDevice(from: device)
         }
         
-        updateConnectionState()
+        // Only assign if content actually changed (avoids unnecessary @Observable notifications)
+        if newDevices != connectedDevices {
+            connectedDevices = newDevices
+            updateConnectionState()
+        }
     }
     
     private func createHIDDevice(from device: IOHIDDevice) -> HIDDevice? {

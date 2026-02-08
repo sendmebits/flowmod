@@ -10,15 +10,20 @@ class LogManager {
     private let maxLogEntries = 500
     private var logEntries: [LogEntry] = []
     
+    /// Shared date formatter (DateFormatter is expensive to create)
+    private static let dateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss.SSS"
+        return formatter
+    }()
+    
     struct LogEntry {
         let timestamp: Date
         let category: String
         let message: String
         
         var formatted: String {
-            let formatter = DateFormatter()
-            formatter.dateFormat = "yyyy-MM-dd HH:mm:ss.SSS"
-            return "[\(formatter.string(from: timestamp))] [\(category)] \(message)"
+            return "[\(LogManager.dateFormatter.string(from: timestamp))] [\(category)] \(message)"
         }
     }
     

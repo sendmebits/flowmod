@@ -50,6 +50,9 @@ class DockSwipeSimulator {
     private var lastDelta: Double = 0
     private var invertedFromDevice: Bool = false
     
+    /// Cached space count for the duration of a gesture (avoids per-event CGS API calls)
+    private var cachedSpaceCount: Int = 2
+    
     /// Timer for resending end events to prevent "stuck" gesture bug
     private var endRetryTimer1: DispatchWorkItem?
     private var endRetryTimer2: DispatchWorkItem?
@@ -67,12 +70,12 @@ class DockSwipeSimulator {
     /// Convert a pixel delta to DockSwipe units for the given swipe type.
     /// Accounts for screen size and number of Spaces so that the animation
     /// tracks 1:1 with the mouse cursor movement.
-    static func pixelToDockSwipe(_ pixels: Double, type: SwipeType) -> Double {
+    static func pixelToDockSwipe(_ pixels: Double, type: SwipeType, spaceCount: Int? = nil) -> Double {
         let screenSize = NSScreen.main?.frame.size ?? CGSize(width: 1920, height: 1080)
         
         switch type {
         case .horizontal:
-            let nSpaces = DockSwipeSimulator.numberOfSpaces()
+            let nSpaces = spaceCount ?? DockSwipeSimulator.numberOfSpaces()
             // Mac Mouse Fix formula: when nSpaces==1 or 2, a full screen drag = one space transition
             let originOffsetForOneSpace = nSpaces <= 1 ? 2.0 : 1.0 + (1.0 / Double(nSpaces - 1))
             let spaceSeparatorWidth: Double = 63
@@ -82,6 +85,11 @@ class DockSwipeSimulator {
         case .pinch:
             return pixels / screenSize.height
         }
+    }
+    
+    /// Instance method that uses the cached space count (call after begin())
+    func pixelToDockSwipeScaled(_ pixels: Double, type: SwipeType) -> Double {
+        DockSwipeSimulator.pixelToDockSwipe(pixels, type: type, spaceCount: cachedSpaceCount)
     }
     
     /// Query the Window Server for the number of Spaces on the current display.
@@ -125,6 +133,7 @@ class DockSwipeSimulator {
         self.originOffset = delta
         self.lastDelta = delta
         self.isActive = true
+        self.cachedSpaceCount = DockSwipeSimulator.numberOfSpaces()
         
         postDockSwipeEvent(delta: delta, phase: .began)
     }
