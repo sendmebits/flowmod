@@ -493,7 +493,7 @@ class InputInterceptor {
         // internally recalculate the point/fixed-pt fields. So we must either:
         // 1. Set integer delta LAST, or
         // 2. Set integer delta first, then set the others to override
-        // We use approach #2 (same as Scroll Reverser)
+        // We use approach #2: set integer delta first, then override the others
         
         // For precision scroll, we can't really reduce integer deltas below 1,
         // but the pixel/point deltas will be reduced
@@ -516,8 +516,8 @@ class InputInterceptor {
     // MARK: - Magnification (Zoom) Gesture
     
     /// Post a trackpad-style magnification (pinch-to-zoom) CGEvent.
-    /// Uses the same approach as Mac Mouse Fix: NSEventTypeGesture (type 29)
-    /// with subtype kIOHIDEventTypeZoom (8).
+    /// Posts NSEventTypeGesture (type 29) events with subtype
+    /// kIOHIDEventTypeZoom (8) to simulate trackpad pinch-to-zoom.
     private func postMagnificationEvent(magnification: Double, phase: Int64) {
         guard let event = CGEvent(source: nil) else { return }
         // Set type to NSEventTypeGesture (29)

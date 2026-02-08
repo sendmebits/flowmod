@@ -80,7 +80,7 @@ class DockSwipeSimulator {
         switch type {
         case .horizontal:
             let nSpaces = spaceCount ?? DockSwipeSimulator.numberOfSpaces()
-            // Mac Mouse Fix formula: when nSpaces==1 or 2, a full screen drag = one space transition
+            // When nSpaces==1 or 2, a full screen drag = one space transition
             let originOffsetForOneSpace = nSpaces <= 1 ? 2.0 : 1.0 + (1.0 / Double(nSpaces - 1))
             let spaceSeparatorWidth: Double = 63
             return pixels * originOffsetForOneSpace / (screenSize.width + spaceSeparatorWidth)
@@ -305,7 +305,7 @@ class DockSwipeSimulator {
         
         // Set event type to NSEventTypeGesture (29)
         e29.setDoubleValueField(CGEventField(rawValue: 55)!, value: 29)
-        // Magic constant observed in Mac Mouse Fix
+        // Magic constant required for DockSwipe companion events
         e29.setDoubleValueField(CGEventField(rawValue: 41)!, value: 33231)
         
         // --- Event 2: Type 30 (NSEventTypeMagnify) with DockSwipe subtype ---
@@ -314,7 +314,7 @@ class DockSwipeSimulator {
         // Set event type to NSEventTypeMagnify (30) — confusingly named but required
         e30.setDoubleValueField(CGEventField(rawValue: 55)!, value: 30)
         
-        // Magic constant (same as e29 — Mac Mouse Fix sets this on both events)
+        // Magic constant (same as e29 — required on both events)
         e30.setDoubleValueField(CGEventField(rawValue: 41)!, value: 33231)
         
         // Subtype = kIOHIDEventTypeDockSwipe (value 23 in IOHIDEventTypes.h)
