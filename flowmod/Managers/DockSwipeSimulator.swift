@@ -204,7 +204,29 @@ class DockSwipeSimulator {
         let phase: Phase = shouldCancel ? .cancelled : .ended
         
         // Use smoothed velocity for exit speed (more reliable than single last delta)
-        let exitVelocity = shouldCancel ? 0 : smoothedVelocity
+        // For non-cancelled gestures, ensure a minimum exit velocity so macOS
+        // commits the transition — small quick flicks have clear intent but
+        // low average velocity which macOS may interpret as "stopped dragging"
+        let exitVelocity: Double
+        if shouldCancel {
+            exitVelocity = 0
+        } else {
+            let sign = originOffset >= 0 ? 1.0 : -1.0
+            // Scale minimum velocity inversely with offset: short flicks need
+            // more "throw" momentum to convince macOS to commit, while longer
+            // drags already have enough offset and need less exit speed
+            let minCommitVelocity: Double
+            if abs(originOffset) < 0.3 {
+                minCommitVelocity = 0.06 * sign  // Gentle nudge for small drags
+            } else {
+                minCommitVelocity = 0.03 * sign  // Minimal floor for longer drags
+            }
+            if abs(smoothedVelocity) < abs(minCommitVelocity) || (smoothedVelocity * sign) < 0 {
+                exitVelocity = minCommitVelocity
+            } else {
+                exitVelocity = smoothedVelocity
+            }
+        }
         lastDelta = exitVelocity  // Store for postDockSwipeEvent to use
         
         postDockSwipeEvent(delta: 0, phase: phase)

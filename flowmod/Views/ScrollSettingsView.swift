@@ -118,6 +118,54 @@ struct ScrollSettingsView: View {
                             .toggleStyle(.switch)
                             .labelsHidden()
                     }
+                    
+                    Divider()
+                    
+                    // Control for fast scroll
+                    HStack {
+                        Image(systemName: "hare")
+                            .font(.body)
+                            .foregroundStyle(Color.accentColor)
+                            .frame(width: 24)
+                        
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Control + Scroll = Fast")
+                                .font(.subheadline)
+                            Text("Hold Control to scroll faster")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        
+                        Spacer()
+                        
+                        Toggle("", isOn: $settings.controlFastScroll)
+                            .toggleStyle(.switch)
+                            .labelsHidden()
+                    }
+                    
+                    Divider()
+                    
+                    // Command for zoom
+                    HStack {
+                        Image(systemName: "plus.magnifyingglass")
+                            .font(.body)
+                            .foregroundStyle(Color.accentColor)
+                            .frame(width: 24)
+                        
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Command + Scroll = Zoom")
+                                .font(.subheadline)
+                            Text("Hold Command to zoom in and out")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        
+                        Spacer()
+                        
+                        Toggle("", isOn: $settings.commandZoomScroll)
+                            .toggleStyle(.switch)
+                            .labelsHidden()
+                    }
                 }
                 .padding(.vertical, 4)
             }

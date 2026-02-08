@@ -80,6 +80,10 @@ class InputInterceptor {
     // Cached frontmost app bundle ID (updated via notification, not queried per-event)
     private var cachedFrontmostBundleID: String?
     
+    // Command+Scroll zoom gesture state
+    private var zoomGestureActive = false
+    private var zoomEndTimer: DispatchWorkItem?
+    
     // Marker for synthetic events we post ourselves (to avoid re-processing)
     private static let syntheticEventMarker: Int64 = 0x464C4F574D4F44  // "FLOWMOD" in hex
     
@@ -322,15 +326,17 @@ class InputInterceptor {
         guard let settings = settings else { return event }
         
         // Get settings on main thread
-        let (shouldReverse, smoothScrolling, shiftHorizontal, optionPrecision, precisionMultiplier) = onMain {
+        let (shouldReverse, smoothScrolling, shiftHorizontal, optionPrecision, precisionMultiplier, controlFast, fastMultiplier, commandZoom) = onMain {
             let reverse = settings.reverseScrollEnabled && (settings.assumeExternalMouse || (deviceManager?.externalMouseConnected ?? false))
-            return (reverse, settings.smoothScrolling, settings.shiftHorizontalScroll, settings.optionPrecisionScroll, settings.precisionScrollMultiplier)
+            return (reverse, settings.smoothScrolling, settings.shiftHorizontalScroll, settings.optionPrecisionScroll, settings.precisionScrollMultiplier, settings.controlFastScroll, settings.fastScrollMultiplier, settings.commandZoomScroll)
         }
         
         // Check modifier keys
         let flags = event.flags
         let shiftHeld = flags.contains(.maskShift)
         let optionHeld = flags.contains(.maskAlternate)
+        let controlHeld = flags.contains(.maskControl)
+        let commandHeld = flags.contains(.maskCommand)
         
         // Check if this is a continuous (trackpad) or discrete (mouse wheel) scroll
         // Note: Many modern mice (especially Logitech) report as continuous scroll
@@ -369,6 +375,29 @@ class InputInterceptor {
         var pointDeltaY = event.getDoubleValueField(.scrollWheelEventPointDeltaAxis1)
         var pointDeltaX = event.getDoubleValueField(.scrollWheelEventPointDeltaAxis2)
         
+        // Command + Scroll = Zoom: convert scroll to pinch-to-zoom magnification gesture
+        // Posts trackpad-style magnification events that work universally across apps
+        if commandHeld && commandZoom && isMouseScroll {
+            // End any active zoom from a previous modifier release that hasn't timed out
+            let scrollDelta = deltaY != 0 ? deltaY : deltaX
+            let magnification = Double(scrollDelta) / 50.0
+            
+            if !zoomGestureActive {
+                zoomGestureActive = true
+                postMagnificationEvent(magnification: 0, phase: 1) // began
+            }
+            postMagnificationEvent(magnification: magnification, phase: 2) // changed
+            scheduleZoomEnd()
+            return nil // Suppress original scroll event
+        }
+        
+        // If zoom was active but Command is no longer held, end it immediately
+        if zoomGestureActive && !commandHeld {
+            zoomEndTimer?.cancel()
+            postMagnificationEvent(magnification: 0, phase: 4) // ended
+            zoomGestureActive = false
+        }
+        
         // Apply Shift modifier: convert vertical scroll to horizontal
         if shiftHeld && shiftHorizontal && isMouseScroll {
             // Swap Y values to X
@@ -387,16 +416,20 @@ class InputInterceptor {
         // Don't apply precision when Option is being used to bypass smooth scrolling
         let precisionScale: Double = (optionHeld && optionPrecision && isMouseScroll && !optionBypassesSmooth) ? precisionMultiplier : 1.0
         
+        // Apply Control modifier: speed up scroll (applies to both X and Y)
+        let fastScale: Double = (controlHeld && controlFast && isMouseScroll) ? fastMultiplier : 1.0
+        
         // Apply reversal if enabled - compute AFTER the swap so values are correct
         // Keep as Double for smooth scroll to preserve fractional precision
         // Note: reverseMultiplier flips direction when reverse scrolling is enabled
         let reverseMultiplier: Double = shouldReverse ? -1.0 : 1.0
-        let reversedTicksY = Double(deltaY) * precisionScale * reverseMultiplier
-        let reversedTicksX = Double(deltaX) * precisionScale * reverseMultiplier
-        pixelDeltaY *= reverseMultiplier * precisionScale
-        pixelDeltaX *= reverseMultiplier * precisionScale
-        pointDeltaY *= reverseMultiplier * precisionScale
-        pointDeltaX *= reverseMultiplier * precisionScale
+        let combinedScale = precisionScale * fastScale * reverseMultiplier
+        let reversedTicksY = Double(deltaY) * combinedScale
+        let reversedTicksX = Double(deltaX) * combinedScale
+        pixelDeltaY *= combinedScale
+        pixelDeltaX *= combinedScale
+        pointDeltaY *= combinedScale
+        pointDeltaX *= combinedScale
         
         // Determine if this is a horizontal scroll (Shift held)
         let isHorizontalScroll = shiftHeld && shiftHorizontal && isMouseScroll
@@ -404,7 +437,10 @@ class InputInterceptor {
         // If smooth scrolling is enabled for mouse events, use the smooth scroll system
         // BUT: horizontal scroll (Shift+Scroll) always bypasses smooth scrolling
         // BUT: Option held bypasses smooth scrolling (acts as if smooth scrolling is off)
-        if smoothScrolling != .off && isMouseScroll && !isHorizontalScroll && !optionHeld {
+        // Control+Scroll also bypasses smooth scrolling for immediate fast scroll
+        let controlBypassesSmooth = controlHeld && controlFast && isMouseScroll
+        
+        if smoothScrolling != .off && isMouseScroll && !isHorizontalScroll && !optionHeld && !controlBypassesSmooth {
             smoothScrollLock.lock()
             
             // Calculate pixels to scroll for this tick
@@ -449,7 +485,7 @@ class InputInterceptor {
         
         // Non-smooth scroll path - for horizontal scroll, disabled smooth scroll, or modifiers
         // Check if we need to modify the event at all
-        let needsModification = shouldReverse || isHorizontalScroll || (optionHeld && optionPrecision && isMouseScroll)
+        let needsModification = shouldReverse || isHorizontalScroll || (optionHeld && optionPrecision && isMouseScroll) || (controlHeld && controlFast && isMouseScroll)
         
         guard needsModification else { return event }
         
@@ -475,6 +511,37 @@ class InputInterceptor {
         event.setDoubleValueField(.scrollWheelEventPointDeltaAxis2, value: pointDeltaX)
         
         return event
+    }
+    
+    // MARK: - Magnification (Zoom) Gesture
+    
+    /// Post a trackpad-style magnification (pinch-to-zoom) CGEvent.
+    /// Uses the same approach as Mac Mouse Fix: NSEventTypeGesture (type 29)
+    /// with subtype kIOHIDEventTypeZoom (8).
+    private func postMagnificationEvent(magnification: Double, phase: Int64) {
+        guard let event = CGEvent(source: nil) else { return }
+        // Set type to NSEventTypeGesture (29)
+        event.setDoubleValueField(CGEventField(rawValue: 55)!, value: 29)
+        // Set subtype to kIOHIDEventTypeZoom (8)
+        event.setIntegerValueField(CGEventField(rawValue: 110)!, value: 8)
+        // Set IOHIDEventPhase
+        event.setIntegerValueField(CGEventField(rawValue: 132)!, value: phase)
+        // Set magnification amount
+        event.setDoubleValueField(CGEventField(rawValue: 113)!, value: magnification)
+        // Post at HID level (required for system-level gesture recognition)
+        event.post(tap: .cghidEventTap)
+    }
+    
+    /// End an active zoom gesture after a delay (when scrolling stops)
+    private func scheduleZoomEnd() {
+        zoomEndTimer?.cancel()
+        let timer = DispatchWorkItem { [weak self] in
+            guard let self = self, self.zoomGestureActive else { return }
+            self.postMagnificationEvent(magnification: 0, phase: 4) // ended
+            self.zoomGestureActive = false
+        }
+        zoomEndTimer = timer
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: timer)
     }
     
     // MARK: - Smooth Scrolling with Display Link

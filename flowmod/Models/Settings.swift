@@ -45,6 +45,21 @@ class Settings {
         didSet { if !isLoading { UserDefaults.standard.set(precisionScrollMultiplier, forKey: "precisionScrollMultiplier") } }
     }
     
+    /// Control key modifier: speed up scroll for fast scrolling
+    var controlFastScroll: Bool = true {
+        didSet { if !isLoading { UserDefaults.standard.set(controlFastScroll, forKey: "controlFastScroll") } }
+    }
+    
+    /// Fast scroll speed multiplier (1.0 to 10.0)
+    var fastScrollMultiplier: Double = 3.0 {
+        didSet { if !isLoading { UserDefaults.standard.set(fastScrollMultiplier, forKey: "fastScrollMultiplier") } }
+    }
+    
+    /// Command key modifier: zoom in/out instead of scrolling
+    var commandZoomScroll: Bool = true {
+        didSet { if !isLoading { UserDefaults.standard.set(commandZoomScroll, forKey: "commandZoomScroll") } }
+    }
+    
     // MARK: - Custom Mouse Button Mappings
     var customMouseButtonMappings: [CustomMouseButtonMapping] = [] {
         didSet { if !isLoading { saveCustomMouseButtonMappings() } }
@@ -157,6 +172,24 @@ class Settings {
             precisionScrollMultiplier = UserDefaults.standard.double(forKey: "precisionScrollMultiplier")
         } else {
             precisionScrollMultiplier = 0.33
+        }
+        
+        if UserDefaults.standard.object(forKey: "controlFastScroll") == nil {
+            controlFastScroll = true
+        } else {
+            controlFastScroll = UserDefaults.standard.bool(forKey: "controlFastScroll")
+        }
+        
+        if UserDefaults.standard.object(forKey: "fastScrollMultiplier") != nil {
+            fastScrollMultiplier = UserDefaults.standard.double(forKey: "fastScrollMultiplier")
+        } else {
+            fastScrollMultiplier = 3.0
+        }
+        
+        if UserDefaults.standard.object(forKey: "commandZoomScroll") == nil {
+            commandZoomScroll = true
+        } else {
+            commandZoomScroll = UserDefaults.standard.bool(forKey: "commandZoomScroll")
         }
         
         // Load general settings
