@@ -831,15 +831,13 @@ class InputInterceptor {
                         }
                         
                         let swipeType = dockSwipeType(for: initialDirection, action: action)
-                        let screenSize = NSScreen.main?.frame.size ?? CGSize(width: 1920, height: 1080)
                         
                         // Calculate initial delta from accumulated movement
                         let initialDelta: Double
                         if continuousGestureAxis == .horizontal {
-                            let spaceSeparatorWidth: Double = 63
-                            initialDelta = -deltaX / (screenSize.width + spaceSeparatorWidth)
+                            initialDelta = -DockSwipeSimulator.pixelToDockSwipe(deltaX, type: swipeType)
                         } else {
-                            initialDelta = -deltaY / screenSize.height
+                            initialDelta = -DockSwipeSimulator.pixelToDockSwipe(deltaY, type: swipeType)
                         }
                         
                         continuousGestureActive = true
@@ -1119,15 +1117,12 @@ class InputInterceptor {
         
         guard pixelDX != 0 || pixelDY != 0 else { return }
         
-        // Convert pixel deltas to DockSwipe units
-        let screenSize = NSScreen.main?.frame.size ?? CGSize(width: 1920, height: 1080)
-        
+        // Convert pixel deltas to DockSwipe units using calibrated scaling
         if continuousGestureAxis == .horizontal {
-            let spaceSeparatorWidth: Double = 63
-            let swipeDelta = -pixelDX / (screenSize.width + spaceSeparatorWidth)
+            let swipeDelta = -DockSwipeSimulator.pixelToDockSwipe(pixelDX, type: .horizontal)
             dockSwipeSimulator.update(delta: swipeDelta)
         } else {
-            let swipeDelta = -pixelDY / screenSize.height
+            let swipeDelta = -DockSwipeSimulator.pixelToDockSwipe(pixelDY, type: .vertical)
             dockSwipeSimulator.update(delta: swipeDelta)
         }
     }

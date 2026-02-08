@@ -2,6 +2,16 @@ import Foundation
 import CoreGraphics
 import AppKit
 
+// MARK: - Private CGS API for Space Count
+
+/// Returns the default connection to the Window Server
+@_silgen_name("CGSMainConnectionID")
+private func CGSMainConnectionID() -> Int32
+
+/// Returns an array of display-space dictionaries from the Window Server
+@_silgen_name("CGSCopyManagedDisplaySpaces")
+private func CGSCopyManagedDisplaySpaces(_ conn: Int32) -> CFArray?
+
 /// Simulates macOS trackpad DockSwipe gestures via synthesized CGEvents.
 /// This enables continuous, drag-following animations for Mission Control,
 /// App Exposé, Switch Spaces, Show Desktop, and Launchpad — identical to
@@ -51,6 +61,54 @@ class DockSwipeSimulator {
         .vertical:   2.802596928649634e-45,
         .pinch:      4.203895392974451e-45,
     ]
+    
+    // MARK: - Pixel-to-DockSwipe Scaling
+    
+    /// Convert a pixel delta to DockSwipe units for the given swipe type.
+    /// Accounts for screen size and number of Spaces so that the animation
+    /// tracks 1:1 with the mouse cursor movement.
+    static func pixelToDockSwipe(_ pixels: Double, type: SwipeType) -> Double {
+        let screenSize = NSScreen.main?.frame.size ?? CGSize(width: 1920, height: 1080)
+        
+        switch type {
+        case .horizontal:
+            let nSpaces = DockSwipeSimulator.numberOfSpaces()
+            // Mac Mouse Fix formula: when nSpaces==1 or 2, a full screen drag = one space transition
+            let originOffsetForOneSpace = nSpaces <= 1 ? 2.0 : 1.0 + (1.0 / Double(nSpaces - 1))
+            let spaceSeparatorWidth: Double = 63
+            return pixels * originOffsetForOneSpace / (screenSize.width + spaceSeparatorWidth)
+        case .vertical:
+            return pixels / screenSize.height
+        case .pinch:
+            return pixels / screenSize.height
+        }
+    }
+    
+    /// Query the Window Server for the number of Spaces on the current display.
+    private static func numberOfSpaces() -> Int {
+        let conn = CGSMainConnectionID()
+        guard let displaysArr = CGSCopyManagedDisplaySpaces(conn) as? [[String: Any]] else {
+            return 2  // Reasonable default
+        }
+        // Find the entry for the current (main) display
+        // Each element has a "Spaces" key containing an array of space dicts
+        // Use the first display (main) if we can't match
+        for display in displaysArr {
+            if let spaces = display["Spaces"] as? [[String: Any]] {
+                // Filter out fullscreen app spaces — only count regular user spaces
+                // Regular spaces have type 0, fullscreen spaces have type 4
+                let userSpaces = spaces.filter { dict in
+                    let t = dict["type"] as? Int ?? 0
+                    return t == 0
+                }
+                if !userSpaces.isEmpty {
+                    return userSpaces.count
+                }
+                return spaces.count
+            }
+        }
+        return 2
+    }
     
     // MARK: - Public Interface
     
