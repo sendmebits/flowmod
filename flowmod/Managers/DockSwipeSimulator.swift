@@ -180,7 +180,19 @@ class DockSwipeSimulator {
         // they want to revert, not commit the space transition
         var shouldCancel = cancel
         if !shouldCancel {
-            let nearOrigin = abs(originOffset) < 0.15
+            // Near-origin threshold varies by gesture type:
+            // - Horizontal (Spaces): offsets are scaled by space count, so they
+            //   grow faster → higher threshold is safe
+            // - Vertical/Pinch: offset = pixels/screenHeight, naturally small →
+            //   lower threshold so short intentional flicks still commit
+            let nearOriginThreshold: Double
+            switch currentType {
+            case .horizontal:
+                nearOriginThreshold = 0.15
+            case .vertical, .pinch:
+                nearOriginThreshold = 0.05
+            }
+            let nearOrigin = abs(originOffset) < nearOriginThreshold
             let velocityOpposesOffset = originOffset != 0 && smoothedVelocity != 0 &&
                 (originOffset > 0) != (smoothedVelocity > 0)
             
@@ -215,8 +227,9 @@ class DockSwipeSimulator {
             // Scale minimum velocity inversely with offset: short flicks need
             // more "throw" momentum to convince macOS to commit, while longer
             // drags already have enough offset and need less exit speed
+            let smallOffsetThreshold: Double = (currentType == .horizontal) ? 0.3 : 0.15
             let minCommitVelocity: Double
-            if abs(originOffset) < 0.3 {
+            if abs(originOffset) < smallOffsetThreshold {
                 minCommitVelocity = 0.06 * sign  // Gentle nudge for small drags
             } else {
                 minCommitVelocity = 0.03 * sign  // Minimal floor for longer drags
