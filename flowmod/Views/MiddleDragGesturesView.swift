@@ -15,42 +15,7 @@ struct MiddleDragGesturesView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             
-            GroupBox {
-                VStack(spacing: 0) {
-                    ForEach(DragDirection.allCases) { direction in
-                        directionRow(for: direction)
-                        
-                        if direction != DragDirection.allCases.last {
-                            Divider()
-                                .padding(.vertical, 8)
-                        }
-                    }
-                }
-                .padding(.vertical, 4)
-            }
-            
-            // Threshold slider
-            GroupBox {
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Text("Drag Sensitivity")
-                            .font(.subheadline)
-                        Spacer()
-                        Text("\(Int(settings.dragThreshold))px")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    
-                    Slider(value: $settings.dragThreshold, in: 20...100, step: 5)
-                    
-                    Text("Distance you need to drag before triggering the gesture")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                .padding(.vertical, 4)
-            }
-            
-            // Continuous gesture mode
+            // Continuous gesture mode — shown first
             GroupBox {
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
@@ -76,10 +41,48 @@ struct MiddleDragGesturesView: View {
                     }
                     
                     if settings.continuousGestures {
-                        Text("Works with Mission Control, App Exposé, Switch Spaces, Show Desktop, and Launchpad. Other actions use trigger mode.")
+                        Text("Works with Mission Control, App Exposé, Switch Spaces, Show Desktop, and Launchpad. Direction settings below are not used in this mode.")
                             .font(.caption2)
                             .foregroundStyle(.tertiary)
                     }
+                }
+                .padding(.vertical, 4)
+            }
+            
+            // Direction mappings
+            GroupBox {
+                VStack(spacing: 0) {
+                    ForEach(DragDirection.allCases) { direction in
+                        directionRow(for: direction)
+                        
+                        if direction != DragDirection.allCases.last {
+                            Divider()
+                                .padding(.vertical, 8)
+                        }
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+            .opacity(settings.continuousGestures ? 0.5 : 1.0)
+            .allowsHitTesting(!settings.continuousGestures)
+            
+            // Threshold slider
+            GroupBox {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text("Drag Sensitivity")
+                            .font(.subheadline)
+                        Spacer()
+                        Text("\(Int(settings.dragThreshold))px")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    
+                    Slider(value: $settings.dragThreshold, in: 20...100, step: 5)
+                    
+                    Text("Distance you need to drag before triggering the gesture")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
                 .padding(.vertical, 4)
             }
