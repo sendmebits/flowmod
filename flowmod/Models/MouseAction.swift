@@ -128,15 +128,7 @@ enum MouseButton: String, Codable, CaseIterable, Identifiable {
         return buttonNumber == 0 || buttonNumber == 1  // Left click = 0, Right click = 1
     }
     
-    /// Check if a button number is already a built-in button
-    static func isBuiltInButton(_ buttonNumber: Int64) -> Bool {
-        return allCases.contains { $0.buttonNumber == buttonNumber }
-    }
-    
-    /// Get built-in button for a button number, if any
-    static func builtInButton(for buttonNumber: Int64) -> MouseButton? {
-        return allCases.first { $0.buttonNumber == buttonNumber }
-    }
+
 }
 
 /// A custom mouse button mapping for buttons beyond the built-in ones

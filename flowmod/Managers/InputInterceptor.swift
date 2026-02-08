@@ -32,7 +32,6 @@ class InputInterceptor {
     private var continuousGestureActive = false
     private var continuousGestureAxisLocked = false
     private var continuousGestureAxis: ContinuousAxis = .horizontal
-    private var continuousGestureLastPoint: CGPoint = .zero
     
     private enum ContinuousAxis {
         case horizontal, vertical
@@ -63,7 +62,6 @@ class InputInterceptor {
     private let inputTimeoutForMomentum: Double = 0.08 // Seconds after last input before momentum
     
     // Animation state for base curve
-    private var animationProgress: Double = 0      // 0 to 1 progress through base animation
     private var animationDuration: Double = 0      // Duration of current animation
     private var animationStartTime: CFTimeInterval = 0
     private var targetScrollDistance: Double = 0   // Total distance to scroll this animation
@@ -864,7 +862,6 @@ class InputInterceptor {
                         }
                         
                         continuousGestureActive = true
-                        continuousGestureLastPoint = currentPoint
                         middleDragTriggered = true
                         
                         // Enable HID-level event tap to receive drags during gesture

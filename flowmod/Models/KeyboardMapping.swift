@@ -31,11 +31,6 @@ struct KeyboardMapping: Codable, Identifiable, Equatable {
         return 0
     }
     
-    /// Returns the full source key combo for matching
-    var sourceKeyCombo: KeyCombo? {
-        guard let keyCode = effectiveKeyCode else { return nil }
-        return KeyCombo(keyCode: keyCode, modifiers: effectiveModifiers)
-    }
 }
 
 /// An app excluded from keyboard remapping

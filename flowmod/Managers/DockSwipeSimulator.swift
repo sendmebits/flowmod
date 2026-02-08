@@ -186,9 +186,6 @@ class DockSwipeSimulator {
         }
     }
     
-    /// Whether a gesture is currently in progress
-    var gestureActive: Bool { isActive }
-    
     /// Force-cancel any active gesture (e.g. when interceptor stops)
     func forceCancel() {
         if isActive {
