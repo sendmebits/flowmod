@@ -53,6 +53,10 @@ class DockSwipeSimulator {
     /// Cached space count for the duration of a gesture (avoids per-event CGS API calls)
     private var cachedSpaceCount: Int = 2
     
+    /// Recent deltas for smoothed exit velocity calculation
+    private var recentDeltas: [Double] = []
+    private let maxRecentDeltas = 5
+    
     /// Timer for resending end events to prevent "stuck" gesture bug
     private var endRetryTimer1: DispatchWorkItem?
     private var endRetryTimer2: DispatchWorkItem?
@@ -134,6 +138,7 @@ class DockSwipeSimulator {
         self.lastDelta = delta
         self.isActive = true
         self.cachedSpaceCount = DockSwipeSimulator.numberOfSpaces()
+        self.recentDeltas = [delta]
         
         postDockSwipeEvent(delta: delta, phase: .began)
     }
@@ -146,6 +151,12 @@ class DockSwipeSimulator {
         originOffset += delta
         lastDelta = delta
         
+        // Track recent deltas for smoothed exit velocity
+        recentDeltas.append(delta)
+        if recentDeltas.count > maxRecentDeltas {
+            recentDeltas.removeFirst()
+        }
+        
         postDockSwipeEvent(delta: delta, phase: .changed)
     }
     
@@ -157,7 +168,45 @@ class DockSwipeSimulator {
         guard isActive else { return }
         isActive = false
         
-        let phase: Phase = cancel ? .cancelled : .ended
+        // Calculate smoothed exit velocity from recent deltas
+        let smoothedVelocity: Double
+        if recentDeltas.isEmpty {
+            smoothedVelocity = 0
+        } else {
+            smoothedVelocity = recentDeltas.reduce(0, +) / Double(recentDeltas.count)
+        }
+        
+        // Smart cancel detection: if the user dragged back toward origin,
+        // they want to revert, not commit the space transition
+        var shouldCancel = cancel
+        if !shouldCancel {
+            let nearOrigin = abs(originOffset) < 0.15
+            let velocityOpposesOffset = originOffset != 0 && smoothedVelocity != 0 &&
+                (originOffset > 0) != (smoothedVelocity > 0)
+            
+            // Count how many of the recent deltas oppose the offset direction
+            // (more robust than just checking the average)
+            let backwardDeltas = recentDeltas.filter { d in
+                originOffset != 0 && d != 0 && (d > 0) != (originOffset > 0)
+            }
+            let majorityDraggingBack = backwardDeltas.count > recentDeltas.count / 2
+            
+            if nearOrigin {
+                // Very close to start — always cancel
+                shouldCancel = true
+            } else if velocityOpposesOffset && majorityDraggingBack {
+                // User was deliberately flicking back (majority of recent motion is backward)
+                // Cancel regardless of how far they peeked
+                shouldCancel = true
+            }
+        }
+        
+        let phase: Phase = shouldCancel ? .cancelled : .ended
+        
+        // Use smoothed velocity for exit speed (more reliable than single last delta)
+        let exitVelocity = shouldCancel ? 0 : smoothedVelocity
+        lastDelta = exitVelocity  // Store for postDockSwipeEvent to use
+        
         postDockSwipeEvent(delta: 0, phase: phase)
         
         // Schedule retry sends to prevent the "stuck" animation bug.
