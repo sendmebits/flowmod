@@ -84,6 +84,27 @@ class InputInterceptor {
     private var zoomGestureActive = false
     private var zoomEndTimer: DispatchWorkItem?
     
+    // When true, all keyboard/modifier events pass through without remapping.
+    // Used during key recording so existing mappings don't interfere.
+    var recordingPassthrough = false {
+        didSet {
+            if recordingPassthrough {
+                // Clear modifier state since events will pass through unprocessed
+                // during recording — prevents stale swap state on resume
+                activeModifierSwaps.removeAll()
+                suppressedModifierKeyCodes.removeAll()
+            }
+        }
+    }
+    
+    // Modifier-to-modifier remapping state: tracks active modifier swaps
+    // (e.g., physical Command acting as Option while held). Keyed by source hardware keyCode.
+    private var activeModifierSwaps: [UInt16: (sourceFlag: CGEventFlags, targetKeyCode: UInt16, targetFlag: CGEventFlags)] = [:]
+    
+    // Tracks modifier keys suppressed by non-modifier one-shot actions
+    // so we can also suppress their release events
+    private var suppressedModifierKeyCodes: Set<UInt16> = []
+    
     // Marker for synthetic events we post ourselves (to avoid re-processing)
     private static let syntheticEventMarker: Int64 = 0x464C4F574D4F44  // "FLOWMOD" in hex
     
@@ -129,7 +150,8 @@ class InputInterceptor {
             (1 << CGEventType.otherMouseUp.rawValue) |
             (1 << CGEventType.otherMouseDragged.rawValue) |
             (1 << CGEventType.keyDown.rawValue) |
-            (1 << CGEventType.keyUp.rawValue)
+            (1 << CGEventType.keyUp.rawValue) |
+            (1 << CGEventType.flagsChanged.rawValue)
         )
         
         // Create event tap with inline closure that can be converted to C function pointer
@@ -310,11 +332,14 @@ class InputInterceptor {
             guard mouseEnabled else { return event }
             return handleOtherMouseDragged(event)
         case .keyDown:
-            guard keyboardEnabled else { return event }
+            guard keyboardEnabled && !recordingPassthrough else { return event }
             return handleKeyDown(event)
         case .keyUp:
-            guard keyboardEnabled else { return event }
+            guard keyboardEnabled && !recordingPassthrough else { return event }
             return handleKeyUp(event)
+        case .flagsChanged:
+            guard keyboardEnabled && !recordingPassthrough else { return event }
+            return handleFlagsChanged(event)
         default:
             return event
         }
@@ -790,20 +815,38 @@ class InputInterceptor {
             middleButtonDown = true
             middleButtonStartPoint = event.location
             middleDragTriggered = false
-            continuousGestureActive = false
+            
+            // Properly end any leftover continuous gesture from a previous interaction
+            // (e.g. if a mouseUp was lost due to tap being disabled by timeout)
+            if continuousGestureActive {
+                continuousGestureActive = false
+                dockSwipeSimulator.forceCancel()
+                if let hidTap = dragHIDTap {
+                    CGEvent.tapEnable(tap: hidTap, enable: false)
+                }
+                CGAssociateMouseAndMouseCursorPosition(1)
+            }
             continuousGestureAxisLocked = false
             
-            // Check if middle click has a mapping
-            let action: MouseAction? = onMain {
-                settings?.getAction(forButtonNumber: 2)
+            // Check if middle click has a mapping AND if drag gestures are configured
+            let (action, hasDragGestures): (MouseAction?, Bool) = onMain {
+                let a = settings?.getAction(forButtonNumber: 2)
+                let hasGestures = !(settings?.middleDragMappings.isEmpty ?? true)
+                return (a, hasGestures)
             }
             
-            // If no mapping or action is just middle click, pass through
+            // If no mapping or action is just middle click, check for drag gestures
             if action == nil || action == .middleClick {
+                if hasDragGestures {
+                    // Suppress mouseDown: drag gesture detection needs to decide
+                    // whether this is a click or a gesture. If no gesture triggers,
+                    // we'll send a synthetic middle click on mouseUp.
+                    return nil
+                }
                 return event
             }
             
-            // Otherwise, suppress the event (we'll handle on mouse up or drag)
+            // Non-middleClick mapping: suppress the event (we'll handle on mouse up or drag)
             return nil
         }
         
@@ -843,17 +886,25 @@ class InputInterceptor {
                 return nil
             }
             
-            // Otherwise, check middle click action
-            let action: MouseAction? = onMain {
-                settings?.getAction(forButtonNumber: 2)
+            // Otherwise, check middle click action and drag gesture configuration
+            let (action, hasDragGestures): (MouseAction?, Bool) = onMain {
+                let a = settings?.getAction(forButtonNumber: 2)
+                let hasGestures = !(settings?.middleDragMappings.isEmpty ?? true)
+                return (a, hasGestures)
             }
             
-            // If no mapping or action is just middle click, pass through
+            // If no mapping or action is just middle click
             if action == nil || action == .middleClick {
+                if hasDragGestures {
+                    // mouseDown was suppressed for gesture detection — send synthetic
+                    // middle click so the app (e.g. browser) receives a complete click
+                    postSyntheticMiddleClick(at: middleButtonStartPoint)
+                    return nil
+                }
                 return event
             }
             
-            // Execute the action on mouse up (for click-style actions)
+            // Execute the custom action on mouse up (for click-style actions)
             executeAction(action!)
             return nil
         }
@@ -1013,6 +1064,28 @@ class InputInterceptor {
     }
     
     private func handleKeyEvent(_ event: CGEvent, isDown: Bool) -> CGEvent? {
+        // Apply active modifier-to-modifier swaps to the event's flags.
+        // This ensures that e.g. pressing C while remapped-Command is held
+        // produces Option+C (when Command→Option is active), not Command+C.
+        if !activeModifierSwaps.isEmpty {
+            var flags = event.flags
+            var flagsToRemove = CGEventFlags()
+            var flagsToAdd = CGEventFlags()
+            
+            for (_, swap) in activeModifierSwaps {
+                if flags.contains(swap.sourceFlag) {
+                    flagsToRemove.insert(swap.sourceFlag)
+                    flagsToAdd.insert(swap.targetFlag)
+                }
+            }
+            
+            if !flagsToRemove.isEmpty || !flagsToAdd.isEmpty {
+                flags.subtract(flagsToRemove)
+                flags.formUnion(flagsToAdd)
+                event.flags = flags
+            }
+        }
+        
         let keyCode = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
         let modifiers = event.flags.rawValue
         
@@ -1048,6 +1121,134 @@ class InputInterceptor {
         }
         
         return nil  // Suppress original event
+    }
+    
+    // MARK: - Modifier Key (flagsChanged) Handling
+    
+    private func handleFlagsChanged(_ event: CGEvent) -> CGEvent? {
+        let keyCode = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
+        
+        // Only handle known modifier key codes
+        guard let sourceModifierFlag = cgEventFlagForModifierKeyCode(keyCode) else { return event }
+        
+        let flags = event.flags
+        let isPressed = flags.contains(sourceModifierFlag)
+        
+        // --- RELEASE ---
+        if !isPressed {
+            // Modifier-to-modifier: transform the release event
+            if let swap = activeModifierSwaps.removeValue(forKey: keyCode) {
+                var newFlags = flags
+                var flagsToRemove = CGEventFlags()
+                var flagsToAdd = CGEventFlags()
+                
+                // Apply remaining active modifier swaps to the flags
+                // (other remapped modifiers may still be held)
+                for (otherKeyCode, otherSwap) in activeModifierSwaps where otherKeyCode != keyCode {
+                    if newFlags.contains(otherSwap.sourceFlag) {
+                        flagsToRemove.insert(otherSwap.sourceFlag)
+                        flagsToAdd.insert(otherSwap.targetFlag)
+                    }
+                }
+                
+                newFlags.subtract(flagsToRemove)
+                newFlags.formUnion(flagsToAdd)
+                event.flags = newFlags
+                event.setIntegerValueField(.keyboardEventKeycode, value: Int64(swap.targetKeyCode))
+                event.setIntegerValueField(.eventSourceUserData, value: InputInterceptor.syntheticEventMarker)
+                return event
+            }
+            
+            // One-shot suppression: suppress matching release
+            if suppressedModifierKeyCodes.remove(keyCode) != nil {
+                return nil
+            }
+            
+            return event
+        }
+        
+        // --- PRESS ---
+        // Calculate "other" modifiers, excluding the current key's flag
+        // AND excluding flags from already-active modifier swaps (those are
+        // already remapped and shouldn't affect this lookup)
+        let relevantModifierMask: UInt64 = CGEventFlags.maskControl.rawValue |
+                                           CGEventFlags.maskAlternate.rawValue |
+                                           CGEventFlags.maskShift.rawValue |
+                                           CGEventFlags.maskCommand.rawValue
+        var otherModifiers = (flags.rawValue & relevantModifierMask) & ~sourceModifierFlag.rawValue
+        for (_, swap) in activeModifierSwaps {
+            otherModifiers = otherModifiers & ~swap.sourceFlag.rawValue
+        }
+        
+        let cachedBundleID = cachedFrontmostBundleID
+        let (hasExternalKeyboard, isExcludedApp, action): (Bool, Bool, KeyboardAction?) = onMain {
+            let hasKeyboard = settings?.assumeExternalKeyboard ?? false || (deviceManager?.externalKeyboardConnected ?? false)
+            let excluded: Bool
+            if let bundleID = cachedBundleID {
+                excluded = settings?.isAppExcluded(bundleID) ?? false
+            } else {
+                excluded = false
+            }
+            let keyAction = settings?.getKeyboardAction(for: keyCode, modifiers: otherModifiers)
+            return (hasKeyboard, excluded, keyAction)
+        }
+        
+        guard hasExternalKeyboard && !isExcludedApp else { return event }
+        guard let targetAction = action, targetAction != .none else { return event }
+        
+        // Check if the target is a modifier key (modifier-to-modifier remapping)
+        // This makes the source modifier continuously act as the target modifier
+        if case .customShortcut(let targetCombo) = targetAction,
+           targetCombo.modifiers == 0,
+           let targetModifierFlag = cgEventFlagForModifierKeyCode(targetCombo.keyCode) {
+            
+            // Transform the event in place: swap source modifier flag with target
+            var newFlags = flags
+            var flagsToRemove: CGEventFlags = [sourceModifierFlag]
+            var flagsToAdd: CGEventFlags = [targetModifierFlag]
+            
+            // Also apply all existing active swaps to the flags
+            // (handles bidirectional swaps like Command↔Option)
+            for (_, swap) in activeModifierSwaps {
+                if newFlags.contains(swap.sourceFlag) {
+                    flagsToRemove.insert(swap.sourceFlag)
+                    flagsToAdd.insert(swap.targetFlag)
+                }
+            }
+            
+            newFlags.subtract(flagsToRemove)
+            newFlags.formUnion(flagsToAdd)
+            event.flags = newFlags
+            event.setIntegerValueField(.keyboardEventKeycode, value: Int64(targetCombo.keyCode))
+            event.setIntegerValueField(.eventSourceUserData, value: InputInterceptor.syntheticEventMarker)
+            
+            // Track the active swap for keyDown/keyUp flag transformation
+            activeModifierSwaps[keyCode] = (
+                sourceFlag: sourceModifierFlag,
+                targetKeyCode: targetCombo.keyCode,
+                targetFlag: targetModifierFlag
+            )
+            
+            return event  // Pass through the transformed event
+        }
+        
+        // Non-modifier target: fire one-shot action
+        if let combo = targetAction.keyCombo {
+            sendKeyCombo(combo)
+        }
+        suppressedModifierKeyCodes.insert(keyCode)
+        return nil  // Suppress the original modifier press
+    }
+    
+    /// Maps a modifier key code to its corresponding CGEventFlags flag
+    private func cgEventFlagForModifierKeyCode(_ keyCode: UInt16) -> CGEventFlags? {
+        switch keyCode {
+        case 0x37, 0x36: return .maskCommand    // Left/Right Command
+        case 0x38, 0x3C: return .maskShift      // Left/Right Shift
+        case 0x3A, 0x3D: return .maskAlternate  // Left/Right Option
+        case 0x3B, 0x3E: return .maskControl    // Left/Right Control
+        default: return nil
+        }
     }
     
     // MARK: - Action Execution
@@ -1131,6 +1332,24 @@ class InputInterceptor {
             keyUp.flags = flags
             keyUp.setIntegerValueField(.eventSourceUserData, value: InputInterceptor.syntheticEventMarker)
             keyUp.post(tap: .cghidEventTap)
+        }
+    }
+    
+    /// Post a synthetic middle-click (otherMouseDown + otherMouseUp) at the given location.
+    /// Used when the real mouseDown was suppressed for drag gesture detection but no gesture triggered.
+    private func postSyntheticMiddleClick(at location: CGPoint) {
+        let source = CGEventSource(stateID: .hidSystemState)
+        
+        if let down = CGEvent(mouseEventSource: source, mouseType: .otherMouseDown, mouseCursorPosition: location, mouseButton: .center) {
+            down.setIntegerValueField(.mouseEventButtonNumber, value: 2)
+            down.setIntegerValueField(.eventSourceUserData, value: InputInterceptor.syntheticEventMarker)
+            down.post(tap: .cghidEventTap)
+        }
+        
+        if let up = CGEvent(mouseEventSource: source, mouseType: .otherMouseUp, mouseCursorPosition: location, mouseButton: .center) {
+            up.setIntegerValueField(.mouseEventButtonNumber, value: 2)
+            up.setIntegerValueField(.eventSourceUserData, value: InputInterceptor.syntheticEventMarker)
+            up.post(tap: .cghidEventTap)
         }
     }
     

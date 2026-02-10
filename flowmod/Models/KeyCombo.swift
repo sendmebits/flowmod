@@ -27,11 +27,15 @@ struct KeyCombo: Codable, Equatable, Hashable {
             0x31: "Space",
             0x33: "⌫", // Delete
             0x35: "⎋", // Escape
-            0x37: "⌘",
-            0x38: "⇧",
-            0x39: "⇪", // Caps Lock
-            0x3A: "⌥",
-            0x3B: "⌃",
+            0x36: "⌘",  // Right Command
+            0x37: "⌘",  // Left Command
+            0x38: "⇧",  // Left Shift
+            0x39: "⇪",  // Caps Lock
+            0x3A: "⌥",  // Left Option
+            0x3B: "⌃",  // Left Control
+            0x3C: "⇧",  // Right Shift
+            0x3D: "⌥",  // Right Option
+            0x3E: "⌃",  // Right Control
             0x7E: "↑",
             0x7D: "↓",
             0x7B: "←",

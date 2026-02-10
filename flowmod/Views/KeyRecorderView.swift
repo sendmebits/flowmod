@@ -10,6 +10,8 @@ struct KeyRecorderSheet: View {
     @State private var isRecording = true
     @State private var keyDownMonitor: Any?
     @State private var flagsChangedMonitor: Any?
+    @State private var pendingModifierKeyCode: UInt16?
+    @State private var peakModifierFlags: NSEvent.ModifierFlags = []
     
     var body: some View {
         VStack(spacing: 20) {
@@ -76,10 +78,15 @@ struct KeyRecorderSheet: View {
         .padding(24)
         .frame(width: 320)
         .onAppear {
+            // Pause all keyboard remapping so existing mappings don't
+            // interfere with recording (important when swapping keys)
+            InputInterceptor.shared.recordingPassthrough = true
             startRecording()
         }
         .onDisappear {
             cleanup()
+            // Resume normal keyboard remapping
+            InputInterceptor.shared.recordingPassthrough = false
         }
     }
     
@@ -87,22 +94,29 @@ struct KeyRecorderSheet: View {
         // Clean up any existing monitors first
         cleanup()
         
-        // Use both local and global monitors to capture all key events
-        // Local monitor for regular app events
+        // Reset modifier tracking state
+        pendingModifierKeyCode = nil
+        peakModifierFlags = []
+        
+        // Local monitor for regular key events
         keyDownMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown]) { event in
             return handleKeyEvent(event)
         }
         
-        // Also add a global monitor to catch events that might be intercepted
-        // Note: This requires accessibility permissions which the app already has
+        // Monitor for modifier key presses (Control, Option, Shift, Command)
+        // Modifier keys generate .flagsChanged events, not .keyDown events.
+        // We record modifier-only presses when all modifiers are released
+        // without any regular key being pressed in between.
         flagsChangedMonitor = NSEvent.addLocalMonitorForEvents(matching: [.flagsChanged]) { event in
-            // We don't record modifier-only keys, but we need to track them
-            // Just pass through - the actual recording happens on keyDown
-            return event
+            return handleFlagsChanged(event)
         }
     }
     
     private func handleKeyEvent(_ event: NSEvent) -> NSEvent? {
+        // A regular key was pressed, cancel any pending modifier-only recording
+        pendingModifierKeyCode = nil
+        peakModifierFlags = []
+        
         let keyCode = UInt16(event.keyCode)
         
         // Ignore escape without modifiers (used for cancel)
@@ -139,6 +153,55 @@ struct KeyRecorderSheet: View {
         cleanup()
         
         return nil  // Consume the event
+    }
+    
+    private func handleFlagsChanged(_ event: NSEvent) -> NSEvent? {
+        guard isRecording else { return event }
+        
+        let currentFlags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let keyCode = UInt16(event.keyCode)
+        let keyModifierFlag = modifierFlagForKeyCode(keyCode)
+        
+        if currentFlags.contains(keyModifierFlag) {
+            // This modifier key was just pressed — track it
+            pendingModifierKeyCode = keyCode
+            peakModifierFlags = peakModifierFlags.union(currentFlags)
+        }
+        
+        // When all modifiers are released, record the modifier-only combo
+        if currentFlags.isEmpty, let primaryKeyCode = pendingModifierKeyCode {
+            // Build modifier flags from the peak state, excluding the primary key's own flag
+            var modifiers: UInt64 = 0
+            let otherFlags = peakModifierFlags.subtracting(modifierFlagForKeyCode(primaryKeyCode))
+            
+            if otherFlags.contains(.control) { modifiers |= CGEventFlags.maskControl.rawValue }
+            if otherFlags.contains(.option) { modifiers |= CGEventFlags.maskAlternate.rawValue }
+            if otherFlags.contains(.shift) { modifiers |= CGEventFlags.maskShift.rawValue }
+            if otherFlags.contains(.command) { modifiers |= CGEventFlags.maskCommand.rawValue }
+            
+            recordedCombo = KeyCombo(keyCode: primaryKeyCode, modifiers: modifiers)
+            isRecording = false
+            
+            // Reset state and stop monitoring
+            pendingModifierKeyCode = nil
+            peakModifierFlags = []
+            cleanup()
+            
+            return nil  // Consume the event
+        }
+        
+        return event
+    }
+    
+    /// Maps a modifier key code to its corresponding NSEvent.ModifierFlags
+    private func modifierFlagForKeyCode(_ keyCode: UInt16) -> NSEvent.ModifierFlags {
+        switch keyCode {
+        case 0x37, 0x36: return .command    // Left/Right Command
+        case 0x38, 0x3C: return .shift      // Left/Right Shift
+        case 0x3A, 0x3D: return .option     // Left/Right Option
+        case 0x3B, 0x3E: return .control    // Left/Right Control
+        default: return []
+        }
     }
     
     private func cleanup() {

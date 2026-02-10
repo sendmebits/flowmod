@@ -25,7 +25,10 @@ struct FlowModApp: App {
                 inputInterceptor: inputInterceptor
             )
         } label: {
-            Image(systemName: "computermouse.fill")
+            let isActive = permissionManager.hasAccessibilityPermission
+                && inputInterceptor.isRunning
+                && (settings.mouseEnabled || settings.keyboardEnabled)
+            Image(nsImage: Self.menuBarImage(active: isActive))
         }
         .menuBarExtraStyle(.menu)
         
@@ -63,6 +66,47 @@ struct FlowModApp: App {
                 }
             }
         }
+    }
+
+    // MARK: - Menu Bar Icon Builder
+
+    /// Creates a template NSImage for the menu bar icon.
+    /// When inactive, draws a diagonal slash across the mouse symbol.
+    static func menuBarImage(active: Bool) -> NSImage {
+        let symbolConfig = NSImage.SymbolConfiguration(pointSize: 14, weight: .medium)
+        guard let base = NSImage(systemSymbolName: "computermouse.fill",
+                                 accessibilityDescription: "FlowMod")?
+                .withSymbolConfiguration(symbolConfig) else {
+            return NSImage()
+        }
+
+        if active {
+            let img = base.copy() as! NSImage
+            img.isTemplate = true
+            return img
+        }
+
+        // Draw the base icon in gray with a red diagonal slash overlay
+        let size = base.size
+        let result = NSImage(size: size, flipped: false) { rect in
+            // Mouse icon uses labelColor — adapts to light/dark menu bar
+            NSColor.labelColor.set()
+            base.draw(in: rect)
+
+            // Diagonal slash in red — high contrast, reads as "stopped/disabled"
+            let path = NSBezierPath()
+            let inset: CGFloat = 1.5
+            path.move(to: NSPoint(x: rect.maxX - inset, y: rect.maxY - inset))
+            path.line(to: NSPoint(x: rect.minX + inset, y: rect.minY + inset))
+            path.lineWidth = 2.0
+            path.lineCapStyle = .round
+            NSColor.systemRed.setStroke()
+            path.stroke()
+
+            return true
+        }
+        result.isTemplate = false  // Use our explicit colors, not system tint
+        return result
     }
 }
 
