@@ -117,7 +117,7 @@ class UpdateManager {
             
             if isNewerVersion(remote: remoteVersion, local: localVersion) {
                 latestVersion = remoteVersion
-                // Find the FlowMod.app.zip asset
+                // Find the zip asset (e.g. flowmod.zip) containing the .app bundle
                 if let asset = release.assets.first(where: { $0.name.lowercased().contains("flowmod") && $0.name.hasSuffix(".zip") }) {
                     downloadURL = URL(string: asset.browserDownloadURL)
                 } else {
