@@ -1,0 +1,133 @@
+name: Generate Release Notes
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  generate-notes:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # full history so we can diff between tags
+
+      - name: Build release notes from commits
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ github.event.release.tag_name }}
+          RELEASE_ID: ${{ github.event.release.id }}
+        run: |
+          set -euo pipefail
+
+          # ── Find the previous release tag ──────────────────────────
+          PREV_TAG=$(git tag --sort=-creatordate | grep -v "^${TAG_NAME}$" | head -n 1 || true)
+
+          if [ -z "$PREV_TAG" ]; then
+            echo "No previous tag found — using all commits on the branch."
+            RANGE="HEAD"
+          else
+            echo "Previous tag: $PREV_TAG"
+            RANGE="${PREV_TAG}..${TAG_NAME}"
+          fi
+
+          # ── Collect commits (hash + subject) ───────────────────────
+          COMMITS=$(git log "$RANGE" --pretty=format:"%H %s" --no-merges)
+
+          if [ -z "$COMMITS" ]; then
+            echo "No commits found in range."
+            exit 0
+          fi
+
+          # ── Categorize ─────────────────────────────────────────────
+          FEATURES=""
+          FIXES=""
+          DOCS=""
+          UI_UX=""
+          PERF=""
+          MAINTENANCE=""
+          OTHER=""
+
+          while IFS= read -r line; do
+            SHA="${line%% *}"
+            SHORT_SHA="${SHA:0:7}"
+            MSG="${line#* }"
+
+            # Normalize: lowercase for matching, preserve original for display
+            MSG_LOWER=$(echo "$MSG" | tr '[:upper:]' '[:lower:]')
+            # Strip conventional-commit prefix for cleaner display
+            DISPLAY_MSG=$(echo "$MSG" | sed -E 's/^(feat|feature|fix|bugfix|hotfix|docs|doc|documentation|ui|ux|design|perf|performance|refactor|chore|build|ci|style|test)(\(.+\))?[:][ ]*//')
+            ENTRY="- ${DISPLAY_MSG} (\`${SHORT_SHA}\`)"
+
+            case "$MSG_LOWER" in
+              feat:*|feat\(*|feature:*|feature\(*)
+                FEATURES="${FEATURES}${ENTRY}\n" ;;
+              fix:*|fix\(*|bugfix:*|bugfix\(*|hotfix:*|hotfix\(*)
+                FIXES="${FIXES}${ENTRY}\n" ;;
+              docs:*|docs\(*|doc:*|doc\(*|documentation:*)
+                DOCS="${DOCS}${ENTRY}\n" ;;
+              ui:*|ui\(*|ux:*|ux\(*|design:*|design\(*)
+                UI_UX="${UI_UX}${ENTRY}\n" ;;
+              perf:*|perf\(*|performance:*|performance\(*)
+                PERF="${PERF}${ENTRY}\n" ;;
+              refactor:*|refactor\(*|chore:*|chore\(*|build:*|build\(*|ci:*|ci\(*|style:*|style\(*|test:*|test\(*)
+                MAINTENANCE="${MAINTENANCE}${ENTRY}\n" ;;
+              *)
+                # Keyword fallback for non-prefixed commits
+                if echo "$MSG_LOWER" | grep -qE '(add|new|feature|implement|introduce)'; then
+                  FEATURES="${FEATURES}${ENTRY}\n"
+                elif echo "$MSG_LOWER" | grep -qE '(fix|bug|patch|resolve|crash|issue)'; then
+                  FIXES="${FIXES}${ENTRY}\n"
+                elif echo "$MSG_LOWER" | grep -qE '(doc|readme|comment|guide)'; then
+                  DOCS="${DOCS}${ENTRY}\n"
+                elif echo "$MSG_LOWER" | grep -qE '(ui|ux|layout|design|theme|icon|animation)'; then
+                  UI_UX="${UI_UX}${ENTRY}\n"
+                elif echo "$MSG_LOWER" | grep -qE '(perf|speed|fast|optim|cache)'; then
+                  PERF="${PERF}${ENTRY}\n"
+                elif echo "$MSG_LOWER" | grep -qE '(refactor|clean|rename|move|reorgan|chore|bump|update dep|maint)'; then
+                  MAINTENANCE="${MAINTENANCE}${ENTRY}\n"
+                else
+                  OTHER="${OTHER}${ENTRY}\n"
+                fi
+                ;;
+            esac
+          done <<< "$COMMITS"
+
+          # ── Assemble the body ──────────────────────────────────────
+          BODY=""
+
+          append_section() {
+            local title="$1" content="$2"
+            if [ -n "$content" ]; then
+              BODY="${BODY}## ${title}\n\n${content}\n"
+            fi
+          }
+
+          append_section "🚀 New Features"            "$FEATURES"
+          append_section "🐛 Bug Fixes"                "$FIXES"
+          append_section "🎨 UI/UX Improvements"       "$UI_UX"
+          append_section "⚡ Performance Improvements"  "$PERF"
+          append_section "📚 Documentation"             "$DOCS"
+          append_section "🔧 Maintenance"               "$MAINTENANCE"
+          append_section "📦 Other Changes"             "$OTHER"
+
+          if [ -z "$BODY" ]; then
+            echo "Nothing to write."
+            exit 0
+          fi
+
+          # Add compare link footer
+          if [ -n "$PREV_TAG" ]; then
+            REPO_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}"
+            BODY="${BODY}---\n**Full diff:** [${PREV_TAG}...${TAG_NAME}](${REPO_URL}/compare/${PREV_TAG}...${TAG_NAME})\n"
+          fi
+
+          # ── Update the release body via GitHub API ─────────────────
+          # Write body to a temp file to avoid shell escaping issues
+          echo -e "$BODY" > /tmp/release_body.md
+          gh release edit "$TAG_NAME" --notes-file /tmp/release_body.md
+          echo "✅ Release notes updated for $TAG_NAME"
