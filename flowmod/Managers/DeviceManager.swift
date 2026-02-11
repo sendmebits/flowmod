@@ -26,6 +26,8 @@ class DeviceManager {
         let isKeyboard: Bool
         let isMouse: Bool
         let isAppleDevice: Bool
+        /// IORegistryEntry ID for this device; used to match CGEvent source (undocumented field 87).
+        let registryID: UInt64
         
         var displayName: String {
             if !productName.isEmpty {
@@ -45,8 +47,19 @@ class DeviceManager {
             lhs.productName == rhs.productName &&
             lhs.isKeyboard == rhs.isKeyboard &&
             lhs.isMouse == rhs.isMouse &&
-            lhs.isAppleDevice == rhs.isAppleDevice
+            lhs.isAppleDevice == rhs.isAppleDevice &&
+            lhs.registryID == rhs.registryID
         }
+    }
+    
+    /// Registry entry IDs of keyboards we treat as built-in (Apple keyboards).
+    /// Used with CGEvent field 87 to avoid applying mappings to built-in when the toggle is off.
+    var builtInKeyboardRegistryIDs: Set<UInt64> {
+        connectedDevices
+            .filter { $0.isKeyboard && $0.isAppleDevice }
+            .map(\.registryID)
+            .filter { $0 != 0 }
+            .reduce(into: Set()) { $0.insert($1) }
     }
     
     private init() {
@@ -153,6 +166,13 @@ class DeviceManager {
         // Skip if neither mouse nor keyboard
         guard isMouse || isKeyboard else { return nil }
         
+        // Registry entry ID for matching to CGEvent source (undocumented field 87)
+        var registryID: UInt64 = 0
+        let service = IOHIDDeviceGetService(device)
+        if service != 0 {
+            IORegistryEntryGetRegistryEntryID(service, &registryID)
+        }
+        
         return HIDDevice(
             vendorID: vendorID,
             productID: productID,
@@ -160,7 +180,8 @@ class DeviceManager {
             productName: productName,
             isKeyboard: isKeyboard,
             isMouse: isMouse,
-            isAppleDevice: isAppleDevice
+            isAppleDevice: isAppleDevice,
+            registryID: registryID
         )
     }
     

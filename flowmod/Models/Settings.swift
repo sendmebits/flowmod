@@ -83,6 +83,12 @@ class Settings {
         didSet { if !isLoading { saveKeyboardMappings() } }
     }
     
+    /// When true, keyboard mappings apply to the built-in MacBook keyboard.
+    /// When false (default), mappings apply only when an external keyboard is connected.
+    var applyKeyboardMappingsToBuiltInKeyboard: Bool = false {
+        didSet { if !isLoading { UserDefaults.standard.set(applyKeyboardMappingsToBuiltInKeyboard, forKey: "applyKeyboardMappingsToBuiltInKeyboard") } }
+    }
+    
     // MARK: - Excluded Apps
     var excludedApps: [ExcludedApp] = [] {
         didSet { if !isLoading { saveExcludedApps() } }
@@ -216,6 +222,7 @@ class Settings {
         
         assumeExternalMouse = UserDefaults.standard.bool(forKey: "assumeExternalMouse")
         assumeExternalKeyboard = UserDefaults.standard.bool(forKey: "assumeExternalKeyboard")
+        applyKeyboardMappingsToBuiltInKeyboard = UserDefaults.standard.bool(forKey: "applyKeyboardMappingsToBuiltInKeyboard")
         debugLogging = UserDefaults.standard.bool(forKey: "debugLogging")
         
         loadCustomMouseButtonMappings()

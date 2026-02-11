@@ -27,7 +27,6 @@ This file guides AI agents (Cursor, Copilot, etc.) working on the FlowMod codeba
 
 | Purpose              | Path |
 |----------------------|------|
-| Copilot instructions | `flowmod/.github/copilot-instructions.md` |
 | App entry & menu bar | `flowmod/FlowModApp.swift` |
 | Event tap & mapping  | `flowmod/Managers/InputInterceptor.swift` |
 | HID device detection | `flowmod/Managers/DeviceManager.swift` |

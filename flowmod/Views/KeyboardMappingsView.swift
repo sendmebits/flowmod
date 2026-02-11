@@ -27,6 +27,32 @@ struct KeyboardMappingsView: View {
                 Text("Create custom key mappings for built-in and external keyboards")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                
+                GroupBox {
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack {
+                            Image(systemName: "keyboard.badge.ellipsis")
+                                .font(.body)
+                                .foregroundStyle(Color.accentColor)
+                                .frame(width: 24)
+                            
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Apply keyboard mappings to built-in keyboard")
+                                    .font(.subheadline)
+                                Text("When off, mappings apply only to external keyboards")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            
+                            Spacer()
+                            
+                            Toggle("", isOn: $settings.applyKeyboardMappingsToBuiltInKeyboard)
+                                .toggleStyle(.switch)
+                                .labelsHidden()
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
             
                 GroupBox {
                 if settings.keyboardMappings.isEmpty {

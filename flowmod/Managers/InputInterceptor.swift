@@ -1066,34 +1066,26 @@ class InputInterceptor {
     private func handleKeyEvent(_ event: CGEvent, isDown: Bool) -> CGEvent? {
         // Apply active modifier-to-modifier swaps to the event's flags.
         // This ensures that e.g. pressing C while remapped-Command is held
-        // produces Option+C (when Command→Option is active), not Command+C.
-        if !activeModifierSwaps.isEmpty {
-            var flags = event.flags
-            var flagsToRemove = CGEventFlags()
-            var flagsToAdd = CGEventFlags()
-            
-            for (_, swap) in activeModifierSwaps {
-                if flags.contains(swap.sourceFlag) {
-                    flagsToRemove.insert(swap.sourceFlag)
-                    flagsToAdd.insert(swap.targetFlag)
-                }
-            }
-            
-            if !flagsToRemove.isEmpty || !flagsToAdd.isEmpty {
-                flags.subtract(flagsToRemove)
-                flags.formUnion(flagsToAdd)
-                event.flags = flags
-            }
-        }
+        // produces Cmd+C (when Option→Command is active), not Option+C.
+        applyActiveSwapsToFlags(event)
         
         let keyCode = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
         let modifiers = event.flags.rawValue
         
-        // Check if external keyboard is connected (or assumed)
+        // Undocumented CGEventField 87: registry entry ID of the sending HID device.
+        // Used to apply mappings only to external keyboard when "apply to built-in" is off.
+        let eventRegistryID = UInt64(bitPattern: event.getIntegerValueField(CGEventField(rawValue: 87)!))
+        
+        // Check if we should apply mappings: only for external when toggle off, or for built-in when toggle on.
         // Use cached frontmost app bundle ID instead of querying NSWorkspace per-event
         let cachedBundleID = cachedFrontmostBundleID
-        let (hasExternalKeyboard, isExcludedApp, action): (Bool, Bool, KeyboardAction?) = onMain {
-            let hasKeyboard = settings?.assumeExternalKeyboard ?? false || (deviceManager?.externalKeyboardConnected ?? false)
+        let (shouldApplyMappings, isExcludedApp, action): (Bool, Bool, KeyboardAction?) = onMain {
+            let hasExternalKeyboard = settings?.assumeExternalKeyboard ?? false || (deviceManager?.externalKeyboardConnected ?? false)
+            let applyToBuiltIn = settings?.applyKeyboardMappingsToBuiltInKeyboard ?? false
+            let builtInIDs = deviceManager?.builtInKeyboardRegistryIDs ?? []
+            // Event from built-in if its registry ID is in our Apple-keyboard set, or unknown (0) — treat unknown as built-in to avoid wrongly remapping
+            let isBuiltIn = eventRegistryID == 0 || builtInIDs.contains(eventRegistryID)
+            let shouldApply = (isBuiltIn && applyToBuiltIn) || (!isBuiltIn && hasExternalKeyboard)
             
             // Check if frontmost app is excluded (using cached bundle ID)
             let excluded: Bool
@@ -1104,11 +1096,11 @@ class InputInterceptor {
             }
             
             let keyAction = settings?.getKeyboardAction(for: keyCode, modifiers: modifiers)
-            return (hasKeyboard, excluded, keyAction)
+            return (shouldApply, excluded, keyAction)
         }
         
-        // Pass through if no external keyboard or app is excluded
-        guard hasExternalKeyboard && !isExcludedApp else { return event }
+        // Pass through if mappings don't apply to this keyboard or app is excluded
+        guard shouldApplyMappings && !isExcludedApp else { return event }
         
         // Pass through if no mapping
         guard let targetAction = action, targetAction != .none else { return event }
@@ -1125,6 +1117,32 @@ class InputInterceptor {
     
     // MARK: - Modifier Key (flagsChanged) Handling
     
+    /// Rewrites the flags on a CGEvent to reflect active modifier-to-modifier swaps.
+    /// For example, if Command→Option is active, any event carrying the physical
+    /// Command flag will have it replaced with the Option flag.  This must be applied
+    /// to **every** flagsChanged event that passes through (not only the remapped key
+    /// itself) so that the system-level modifier state stays consistent.
+    private func applyActiveSwapsToFlags(_ event: CGEvent) {
+        guard !activeModifierSwaps.isEmpty else { return }
+        
+        var flags = event.flags
+        var flagsToRemove = CGEventFlags()
+        var flagsToAdd = CGEventFlags()
+        
+        for (_, swap) in activeModifierSwaps {
+            if flags.contains(swap.sourceFlag) {
+                flagsToRemove.insert(swap.sourceFlag)
+                flagsToAdd.insert(swap.targetFlag)
+            }
+        }
+        
+        if !flagsToRemove.isEmpty || !flagsToAdd.isEmpty {
+            flags.subtract(flagsToRemove)
+            flags.formUnion(flagsToAdd)
+            event.flags = flags
+        }
+    }
+    
     private func handleFlagsChanged(_ event: CGEvent) -> CGEvent? {
         let keyCode = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
         
@@ -1138,24 +1156,11 @@ class InputInterceptor {
         if !isPressed {
             // Modifier-to-modifier: transform the release event
             if let swap = activeModifierSwaps.removeValue(forKey: keyCode) {
-                var newFlags = flags
-                var flagsToRemove = CGEventFlags()
-                var flagsToAdd = CGEventFlags()
-                
-                // Apply remaining active modifier swaps to the flags
-                // (other remapped modifiers may still be held)
-                for (otherKeyCode, otherSwap) in activeModifierSwaps where otherKeyCode != keyCode {
-                    if newFlags.contains(otherSwap.sourceFlag) {
-                        flagsToRemove.insert(otherSwap.sourceFlag)
-                        flagsToAdd.insert(otherSwap.targetFlag)
-                    }
-                }
-                
-                newFlags.subtract(flagsToRemove)
-                newFlags.formUnion(flagsToAdd)
-                event.flags = newFlags
+                // Rewrite the event's keyCode to the target modifier
                 event.setIntegerValueField(.keyboardEventKeycode, value: Int64(swap.targetKeyCode))
                 event.setIntegerValueField(.eventSourceUserData, value: InputInterceptor.syntheticEventMarker)
+                // Rewrite flags so remaining active swaps are reflected
+                applyActiveSwapsToFlags(event)
                 return event
             }
             
@@ -1164,6 +1169,8 @@ class InputInterceptor {
                 return nil
             }
             
+            // Not a remapped key, but other swaps may be active — fix up flags
+            applyActiveSwapsToFlags(event)
             return event
         }
         
@@ -1180,9 +1187,16 @@ class InputInterceptor {
             otherModifiers = otherModifiers & ~swap.sourceFlag.rawValue
         }
         
+        // Same device check as handleKeyEvent (field 87 = event source registry ID)
+        let eventRegistryID = UInt64(bitPattern: event.getIntegerValueField(CGEventField(rawValue: 87)!))
+        
         let cachedBundleID = cachedFrontmostBundleID
-        let (hasExternalKeyboard, isExcludedApp, action): (Bool, Bool, KeyboardAction?) = onMain {
-            let hasKeyboard = settings?.assumeExternalKeyboard ?? false || (deviceManager?.externalKeyboardConnected ?? false)
+        let (shouldApplyMappings, isExcludedApp, action): (Bool, Bool, KeyboardAction?) = onMain {
+            let hasExternalKeyboard = settings?.assumeExternalKeyboard ?? false || (deviceManager?.externalKeyboardConnected ?? false)
+            let applyToBuiltIn = settings?.applyKeyboardMappingsToBuiltInKeyboard ?? false
+            let builtInIDs = deviceManager?.builtInKeyboardRegistryIDs ?? []
+            let isBuiltIn = eventRegistryID == 0 || builtInIDs.contains(eventRegistryID)
+            let shouldApply = (isBuiltIn && applyToBuiltIn) || (!isBuiltIn && hasExternalKeyboard)
             let excluded: Bool
             if let bundleID = cachedBundleID {
                 excluded = settings?.isAppExcluded(bundleID) ?? false
@@ -1190,11 +1204,20 @@ class InputInterceptor {
                 excluded = false
             }
             let keyAction = settings?.getKeyboardAction(for: keyCode, modifiers: otherModifiers)
-            return (hasKeyboard, excluded, keyAction)
+            return (shouldApply, excluded, keyAction)
         }
         
-        guard hasExternalKeyboard && !isExcludedApp else { return event }
-        guard let targetAction = action, targetAction != .none else { return event }
+        // No mapping applies — but we still need to fix flags for active swaps
+        // so that e.g. pressing Shift while a remapped Command is held sends
+        // the correct modifier state to the system.
+        guard shouldApplyMappings && !isExcludedApp else {
+            applyActiveSwapsToFlags(event)
+            return event
+        }
+        guard let targetAction = action, targetAction != .none else {
+            applyActiveSwapsToFlags(event)
+            return event
+        }
         
         // Check if the target is a modifier key (modifier-to-modifier remapping)
         // This makes the source modifier continuously act as the target modifier
@@ -1202,32 +1225,18 @@ class InputInterceptor {
            targetCombo.modifiers == 0,
            let targetModifierFlag = cgEventFlagForModifierKeyCode(targetCombo.keyCode) {
             
-            // Transform the event in place: swap source modifier flag with target
-            var newFlags = flags
-            var flagsToRemove: CGEventFlags = [sourceModifierFlag]
-            var flagsToAdd: CGEventFlags = [targetModifierFlag]
-            
-            // Also apply all existing active swaps to the flags
-            // (handles bidirectional swaps like Command↔Option)
-            for (_, swap) in activeModifierSwaps {
-                if newFlags.contains(swap.sourceFlag) {
-                    flagsToRemove.insert(swap.sourceFlag)
-                    flagsToAdd.insert(swap.targetFlag)
-                }
-            }
-            
-            newFlags.subtract(flagsToRemove)
-            newFlags.formUnion(flagsToAdd)
-            event.flags = newFlags
-            event.setIntegerValueField(.keyboardEventKeycode, value: Int64(targetCombo.keyCode))
-            event.setIntegerValueField(.eventSourceUserData, value: InputInterceptor.syntheticEventMarker)
-            
-            // Track the active swap for keyDown/keyUp flag transformation
+            // Track the active swap BEFORE applying so applyActiveSwapsToFlags
+            // includes this new swap together with any existing ones
             activeModifierSwaps[keyCode] = (
                 sourceFlag: sourceModifierFlag,
                 targetKeyCode: targetCombo.keyCode,
                 targetFlag: targetModifierFlag
             )
+            
+            // Rewrite keyCode and flags in one pass
+            event.setIntegerValueField(.keyboardEventKeycode, value: Int64(targetCombo.keyCode))
+            event.setIntegerValueField(.eventSourceUserData, value: InputInterceptor.syntheticEventMarker)
+            applyActiveSwapsToFlags(event)
             
             return event  // Pass through the transformed event
         }
