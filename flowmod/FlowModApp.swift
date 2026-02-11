@@ -64,6 +64,8 @@ struct FlowModApp: App {
                         deviceManager: DeviceManager.shared
                     )
                 }
+                // Check for updates on launch (respects auto-check setting and 24h interval)
+                UpdateManager.shared.checkIfNeeded()
             }
         }
     }

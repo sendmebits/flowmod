@@ -5,6 +5,7 @@ import ServiceManagement
 struct GeneralSettingsView: View {
     @Bindable var settings: Settings
     var deviceManager: DeviceManager
+    var updateManager = UpdateManager.shared
     
     @State private var launchAtLoginEnabled = false
     @State private var showAdvanced = false
@@ -54,6 +55,9 @@ struct GeneralSettingsView: View {
                 .padding(.vertical, 4)
             }
             
+                // Updates
+                updatesSection
+            
             // Bottom buttons
             HStack {
                 Button {
@@ -101,6 +105,116 @@ struct GeneralSettingsView: View {
                 // Revert UI state
                 launchAtLoginEnabled = !enabled
             }
+        }
+    }
+    
+    private var updatesSection: some View {
+        GroupBox {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Image(systemName: "arrow.triangle.2.circlepath")
+                        .font(.title2)
+                        .foregroundStyle(Color.accentColor)
+                        .frame(width: 32)
+                    
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Updates")
+                            .font(.headline)
+                        Text("Checks once per day for new releases on GitHub")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    
+                    Spacer()
+                    
+                    Toggle("", isOn: Binding(
+                        get: { updateManager.autoCheckForUpdates },
+                        set: { updateManager.autoCheckForUpdates = $0 }
+                    ))
+                    .toggleStyle(.switch)
+                    .labelsHidden()
+                }
+                
+                Divider()
+                
+                HStack {
+                    Button {
+                        Task {
+                            await updateManager.checkForUpdates()
+                        }
+                    } label: {
+                        Label("Check for Updates", systemImage: "arrow.clockwise")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(updateManager.isChecking || updateManager.isDownloading)
+                    
+                    if updateManager.isChecking {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("Checking...")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    
+                    Spacer()
+                }
+                
+                // Update available banner
+                if updateManager.updateAvailable, let version = updateManager.latestVersion {
+                    HStack(spacing: 8) {
+                        Image(systemName: "gift.fill")
+                            .foregroundStyle(.green)
+                        
+                        Text("Version \(version) is available!")
+                            .font(.callout)
+                            .fontWeight(.medium)
+                        
+                        Spacer()
+                        
+                        if updateManager.downloadURL != nil {
+                            Button {
+                                Task {
+                                    await updateManager.downloadAndInstall()
+                                }
+                            } label: {
+                                Label("Download & Install", systemImage: "arrow.down.circle.fill")
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .controlSize(.small)
+                            .disabled(updateManager.isDownloading)
+                        }
+                    }
+                    .padding(8)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(Color.green.opacity(0.08))
+                    )
+                }
+                
+                // Download progress
+                if updateManager.isDownloading {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ProgressView(value: updateManager.downloadProgress)
+                        Text("Downloading update... \(Int(updateManager.downloadProgress * 100))%")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                
+                // Error message
+                if let error = updateManager.errorMessage {
+                    HStack(spacing: 4) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.yellow)
+                            .font(.caption)
+                        Text(error)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .padding(.vertical, 4)
         }
     }
     

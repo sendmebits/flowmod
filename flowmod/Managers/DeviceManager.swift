@@ -52,15 +52,12 @@ class DeviceManager {
         }
     }
     
-    /// Registry entry IDs of keyboards we treat as built-in (Apple keyboards).
-    /// Used with CGEvent field 87 to avoid applying mappings to built-in when the toggle is off.
-    var builtInKeyboardRegistryIDs: Set<UInt64> {
-        connectedDevices
-            .filter { $0.isKeyboard && $0.isAppleDevice }
-            .map(\.registryID)
-            .filter { $0 != 0 }
-            .reduce(into: Set()) { $0.insert($1) }
-    }
+    /// Whether the most recent keyboard HID event came from an Apple (built-in) device.
+    /// Updated by the IOHIDManager input value callback (fires on main run loop BEFORE
+    /// the CGEvent tap), read by InputInterceptor's event tap (also on main run loop).
+    /// Both run on the same thread so no data race occurs.
+    @ObservationIgnored
+    nonisolated(unsafe) var lastKeyEventFromAppleKeyboard: Bool = true
     
     private init() {
         setupHIDManager()
@@ -115,6 +112,30 @@ class DeviceManager {
         let selfPtr = Unmanaged.passUnretained(self).toOpaque()
         IOHIDManagerRegisterDeviceMatchingCallback(manager, matchCallback, selfPtr)
         IOHIDManagerRegisterDeviceRemovalCallback(manager, removeCallback, selfPtr)
+        
+        // Register input value callback to track which keyboard device generates each event.
+        // This fires on the main run loop BEFORE the session-level CGEvent tap, allowing
+        // InputInterceptor to know per-event whether the source is built-in or external.
+        let inputCallback: IOHIDValueCallback = { context, result, sender, value in
+            guard let context = context else { return }
+            
+            let element = IOHIDValueGetElement(value)
+            // Only track keyboard/keypad events (filter out mouse movement, consumer controls, etc.)
+            guard IOHIDElementGetUsagePage(element) == UInt32(kHIDPage_KeyboardOrKeypad) else { return }
+            
+            let device = IOHIDElementGetDevice(element)
+            let vendorID = IOHIDDeviceGetProperty(device, kIOHIDVendorIDKey as CFString) as? Int ?? 0
+            let productName = IOHIDDeviceGetProperty(device, kIOHIDProductKey as CFString) as? String ?? ""
+            let vendorName = IOHIDDeviceGetProperty(device, kIOHIDManufacturerKey as CFString) as? String ?? ""
+            
+            let isApple = vendorID == 0x05AC ||
+                productName.lowercased().contains("apple") ||
+                vendorName.lowercased().contains("apple")
+            
+            let dm = Unmanaged<DeviceManager>.fromOpaque(context).takeUnretainedValue()
+            dm.lastKeyEventFromAppleKeyboard = isApple
+        }
+        IOHIDManagerRegisterInputValueCallback(manager, inputCallback, selfPtr)
         
         let result = IOHIDManagerOpen(manager, IOOptionBits(kIOHIDOptionsTypeNone))
         if result != kIOReturnSuccess {

@@ -1072,20 +1072,19 @@ class InputInterceptor {
         let keyCode = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
         let modifiers = event.flags.rawValue
         
-        // Undocumented CGEventField 87: registry entry ID of the sending HID device.
-        // Used to apply mappings only to external keyboard when "apply to built-in" is off.
-        let eventRegistryID = UInt64(bitPattern: event.getIntegerValueField(CGEventField(rawValue: 87)!))
+        // Determine if this event is from the built-in (Apple) keyboard.
+        // DeviceManager's IOHIDManager input value callback fires on the main run loop
+        // BEFORE this CGEvent tap, updating lastKeyEventFromAppleKeyboard per-event.
+        let isFromAppleKeyboard = deviceManager?.lastKeyEventFromAppleKeyboard ?? true
         
-        // Check if we should apply mappings: only for external when toggle off, or for built-in when toggle on.
-        // Use cached frontmost app bundle ID instead of querying NSWorkspace per-event
+        // Check if we should apply mappings based on which keyboard sent the event.
         let cachedBundleID = cachedFrontmostBundleID
         let (shouldApplyMappings, isExcludedApp, action): (Bool, Bool, KeyboardAction?) = onMain {
-            let hasExternalKeyboard = settings?.assumeExternalKeyboard ?? false || (deviceManager?.externalKeyboardConnected ?? false)
+            let assumeExternal = settings?.assumeExternalKeyboard ?? false
             let applyToBuiltIn = settings?.applyKeyboardMappingsToBuiltInKeyboard ?? false
-            let builtInIDs = deviceManager?.builtInKeyboardRegistryIDs ?? []
-            // Event from built-in if its registry ID is in our Apple-keyboard set, or unknown (0) — treat unknown as built-in to avoid wrongly remapping
-            let isBuiltIn = eventRegistryID == 0 || builtInIDs.contains(eventRegistryID)
-            let shouldApply = (isBuiltIn && applyToBuiltIn) || (!isBuiltIn && hasExternalKeyboard)
+            
+            // assumeExternalKeyboard overrides detection (for keyboards IOHIDManager can't see)
+            let shouldApply = assumeExternal || (isFromAppleKeyboard ? applyToBuiltIn : true)
             
             // Check if frontmost app is excluded (using cached bundle ID)
             let excluded: Bool
@@ -1187,16 +1186,14 @@ class InputInterceptor {
             otherModifiers = otherModifiers & ~swap.sourceFlag.rawValue
         }
         
-        // Same device check as handleKeyEvent (field 87 = event source registry ID)
-        let eventRegistryID = UInt64(bitPattern: event.getIntegerValueField(CGEventField(rawValue: 87)!))
+        // Same per-event device check as handleKeyEvent
+        let isFromAppleKeyboard = deviceManager?.lastKeyEventFromAppleKeyboard ?? true
         
         let cachedBundleID = cachedFrontmostBundleID
         let (shouldApplyMappings, isExcludedApp, action): (Bool, Bool, KeyboardAction?) = onMain {
-            let hasExternalKeyboard = settings?.assumeExternalKeyboard ?? false || (deviceManager?.externalKeyboardConnected ?? false)
+            let assumeExternal = settings?.assumeExternalKeyboard ?? false
             let applyToBuiltIn = settings?.applyKeyboardMappingsToBuiltInKeyboard ?? false
-            let builtInIDs = deviceManager?.builtInKeyboardRegistryIDs ?? []
-            let isBuiltIn = eventRegistryID == 0 || builtInIDs.contains(eventRegistryID)
-            let shouldApply = (isBuiltIn && applyToBuiltIn) || (!isBuiltIn && hasExternalKeyboard)
+            let shouldApply = assumeExternal || (isFromAppleKeyboard ? applyToBuiltIn : true)
             let excluded: Bool
             if let bundleID = cachedBundleID {
                 excluded = settings?.isAppExcluded(bundleID) ?? false

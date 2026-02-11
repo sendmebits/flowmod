@@ -50,7 +50,6 @@ FlowMod intercepts input events at a low level (CGEvent taps + IOKit HID) to add
 - macOS 14+
 - Accessibility permission (required for event interception)
 
-
 ---
 
 <sub>Built because macOS treats non-Apple input devices as second-class citizens.</sub>
