@@ -8,7 +8,11 @@
 
 A macOS menu bar app that makes external mice and keyboards actually feel good on a Mac.
 
-**[⬇ Download FlowMod (latest)](https://github.com/sendmebits/flowmod/releases/latest/download/flowmod.zip)**
+<p align="center">
+  <a href="https://github.com/sendmebits/flowmod/releases/latest/download/flowmod.zip">
+    <img src="https://img.shields.io/badge/Download-FlowMod%20(latest)-2ea043?style=for-the-badge&logo=apple&logoColor=white" alt="Download FlowMod" />
+  </a>
+</p>
 
 FlowMod intercepts input events at a low level (CGEvent taps + IOKit HID) to add features that macOS doesn't provide for non-Apple peripherals — smooth scrolling, natural scroll direction per-device, button remapping, trackpad-style gestures from a mouse, and keyboard remapping.
 
