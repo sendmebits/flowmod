@@ -33,11 +33,15 @@ class UpdateManager {
     var isDownloading: Bool = false
     var downloadProgress: Double = 0
     var errorMessage: String?
+    /// Shown when the app is up to date (after a check or when throttled to avoid repeated GitHub requests).
+    var upToDateMessage: String?
     
     // MARK: - Constants
     
     private let releasesURL = URL(string: "https://api.github.com/repos/sendmebits/flowmod/releases/latest")!
     private let checkInterval: TimeInterval = 24 * 60 * 60 // 24 hours
+    /// Minimum time between manual "Check for Updates" requests to avoid GitHub rate limiting.
+    private let manualCheckThrottleInterval: TimeInterval = 30
     
     // MARK: - Initialization
     
@@ -72,11 +76,20 @@ class UpdateManager {
     }
     
     /// Manually check for updates by hitting the GitHub Releases API.
+    /// Throttled to at most once per `manualCheckThrottleInterval` to avoid GitHub rate limiting.
     func checkForUpdates() async {
         guard !isChecking else { return }
         
+        // If we checked very recently, show up-to-date without hitting the API.
+        if let lastCheck = lastUpdateCheck, Date().timeIntervalSince(lastCheck) < manualCheckThrottleInterval {
+            upToDateMessage = "You're up to date."
+            errorMessage = nil
+            return
+        }
+        
         isChecking = true
         errorMessage = nil
+        upToDateMessage = nil
         
         defer { isChecking = false }
         
@@ -98,6 +111,7 @@ class UpdateManager {
                 latestVersion = nil
                 downloadURL = nil
                 lastUpdateCheck = Date()
+                upToDateMessage = "You're up to date."
                 return
             }
             
@@ -124,10 +138,12 @@ class UpdateManager {
                     downloadURL = nil
                 }
                 updateAvailable = true
+                upToDateMessage = nil
             } else {
                 updateAvailable = false
                 latestVersion = nil
                 downloadURL = nil
+                upToDateMessage = "You're up to date."
             }
             
             lastUpdateCheck = Date()
@@ -136,6 +152,7 @@ class UpdateManager {
             // Task cancelled, ignore
         } catch {
             errorMessage = "Failed to check for updates: \(error.localizedDescription)"
+            upToDateMessage = nil
         }
     }
     

@@ -137,7 +137,7 @@ struct GeneralSettingsView: View {
                 
                 Divider()
                 
-                HStack {
+                HStack(spacing: 10) {
                     Button {
                         Task {
                             await updateManager.checkForUpdates()
@@ -153,6 +153,13 @@ struct GeneralSettingsView: View {
                         ProgressView()
                             .controlSize(.small)
                         Text("Checking...")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else if let message = updateManager.upToDateMessage {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(.secondary)
+                            .font(.caption)
+                        Text(message)
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }

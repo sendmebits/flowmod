@@ -356,7 +356,12 @@ class InputInterceptor {
             return (reverse, settings.smoothScrolling, settings.shiftHorizontalScroll, settings.optionPrecisionScroll, settings.precisionScrollMultiplier, settings.controlFastScroll, settings.fastScrollMultiplier, settings.commandZoomScroll)
         }
         
-        // Check modifier keys
+        // Apply active modifier-to-modifier swaps so scroll modifiers
+        // respect keyboard remappings (e.g., Command remapped to Option
+        // should trigger precision scroll, not zoom).
+        applyActiveSwapsToFlags(event)
+        
+        // Check modifier keys (after applying remapping swaps)
         let flags = event.flags
         let shiftHeld = flags.contains(.maskShift)
         let optionHeld = flags.contains(.maskAlternate)
