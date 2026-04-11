@@ -15,7 +15,7 @@ struct SettingsView: View {
             
             // Tab content using native TabView
             TabView {
-                ScrollSettingsView(settings: settings, deviceManager: deviceManager)
+                ScrollSettingsView(settings: settings)
                     .tabItem {
                         Label("Scroll", systemImage: "scroll")
                     }

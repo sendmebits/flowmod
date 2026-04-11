@@ -1,5 +1,4 @@
 import SwiftUI
-import Carbon.HIToolbox
 
 /// A sheet for recording a keyboard shortcut
 struct KeyRecorderSheet: View {
@@ -226,7 +225,6 @@ struct MouseButtonRecorderSheet: View {
     let existingButtonNumbers: Set<Int64>  // Button numbers that already have mappings
     let onComplete: (MouseButtonRecordResult?) -> Void
     
-    @State private var recordedButton: Int64?
     @State private var recordResult: MouseButtonRecordResult?
     @State private var isRecording = true
     @State private var mouseMonitor: Any?
@@ -306,7 +304,6 @@ struct MouseButtonRecorderSheet: View {
                 
                 if !isRecording {
                     Button("Try Again") {
-                        recordedButton = nil
                         recordResult = nil
                         isRecording = true
                         startRecording()
@@ -353,12 +350,11 @@ struct MouseButtonRecorderSheet: View {
     private func handleMouseEvent(_ event: NSEvent) -> NSEvent? {
         let buttonNumber = Int64(event.buttonNumber)
         
-        recordedButton = buttonNumber
         isRecording = false
         cleanup()
         
         // Check if it's a primary button (left/right click)
-        if MouseButton.isPrimaryButton(buttonNumber) {
+        if buttonNumber == 0 || buttonNumber == 1 {
             recordResult = .primaryButton
             return nil
         }

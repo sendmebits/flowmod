@@ -3,7 +3,6 @@ import SwiftUI
 /// Settings for scroll reversal
 struct ScrollSettingsView: View {
     @Bindable var settings: Settings
-    var deviceManager: DeviceManager
     
     var body: some View {
         ScrollView {
@@ -181,7 +180,7 @@ struct ScrollSettingsView: View {
 }
 
 #Preview {
-    ScrollSettingsView(settings: Settings.shared, deviceManager: DeviceManager.shared)
+    ScrollSettingsView(settings: Settings.shared)
         .padding()
         .frame(width: 460, height: 400)
 }

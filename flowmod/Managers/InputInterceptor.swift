@@ -39,7 +39,6 @@ class InputInterceptor {
     
     // Smooth scrolling state - physics engine for trackpad-like feel
     private var smoothScrollVelocityY: Double = 0
-    private var smoothScrollVelocityX: Double = 0
     private var displayLink: CADisplayLink?
     private var smoothScrollPhase: SmoothScrollPhase = .idle
     private let smoothScrollLock = NSLock()
@@ -560,7 +559,7 @@ class InputInterceptor {
         smoothScrollLock.lock()
         
         var deltaY: Double = 0
-        var deltaX: Double = 0
+        let deltaX: Double = 0
         var shouldSendGestureEnded = false
         
         // Check if we should transition from animating to momentum
@@ -629,25 +628,13 @@ class InputInterceptor {
             }
         }
         
-        // Handle X velocity similarly (for any residual horizontal momentum)
-        if abs(smoothScrollVelocityX) > 0.1 {
-            deltaX = smoothScrollVelocityX * dt
-            let dragX = pow(abs(smoothScrollVelocityX), dragExp) * dragCoeff * dt
-            if smoothScrollVelocityX > 0 {
-                smoothScrollVelocityX = max(0, smoothScrollVelocityX - dragX)
-            } else {
-                smoothScrollVelocityX = min(0, smoothScrollVelocityX + dragX)
-            }
-        }
-        
         let velocityY = smoothScrollVelocityY
-        let velocityX = smoothScrollVelocityX
         let phase = smoothScrollPhase
         
         smoothScrollLock.unlock()
         
         // Stop if velocity is below stop speed (only in momentum phase)
-        if phase == .momentum && abs(velocityY) < stopSpeed && abs(velocityX) < stopSpeed {
+        if phase == .momentum && abs(velocityY) < stopSpeed {
             // Post momentum end (momentumPhase=3, scrollPhase=0) then scroll ended (scrollPhase=4)
             // This sequence signals to apps that momentum has ended, triggering elastic bounce
             postSmoothScrollEvent(deltaY: 0, deltaX: 0, phase: nil, momentumPhase: 3)
@@ -655,7 +642,6 @@ class InputInterceptor {
             
             smoothScrollLock.lock()
             smoothScrollVelocityY = 0
-            smoothScrollVelocityX = 0
             targetScrollDistance = 0
             alreadyScrolledDistance = 0
             smoothScrollPhase = .idle

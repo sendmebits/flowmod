@@ -99,38 +99,6 @@ enum MouseAction: Codable, Equatable, Hashable, Identifiable, CaseIterable {
     }
 }
 
-/// Mouse buttons that can be remapped
-enum MouseButton: String, Codable, CaseIterable, Identifiable {
-    case back = "Back Button (Mouse 4)"
-    case forward = "Forward Button (Mouse 5)"
-    case middleClick = "Middle Click"
-    
-    var id: String { rawValue }
-    
-    var icon: String {
-        switch self {
-        case .back: return "chevron.left.circle"
-        case .forward: return "chevron.right.circle"
-        case .middleClick: return "circle.circle"
-        }
-    }
-    
-    var buttonNumber: Int64 {
-        switch self {
-        case .back: return 3
-        case .forward: return 4
-        case .middleClick: return 2
-        }
-    }
-    
-    /// Check if a button number is a primary button (left/right click)
-    static func isPrimaryButton(_ buttonNumber: Int64) -> Bool {
-        return buttonNumber == 0 || buttonNumber == 1  // Left click = 0, Right click = 1
-    }
-    
-
-}
-
 /// A custom mouse button mapping for buttons beyond the built-in ones
 struct CustomMouseButtonMapping: Codable, Identifiable, Equatable {
     var id = UUID()

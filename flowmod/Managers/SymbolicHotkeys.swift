@@ -1,7 +1,6 @@
 import Foundation
 import CoreGraphics
 import Carbon.HIToolbox
-import AppKit
 
 /// Wrapper for macOS private CGS Symbolic Hotkeys API
 /// These APIs allow triggering system-level actions like Mission Control, Spaces switching, etc.
@@ -12,13 +11,10 @@ import AppKit
 struct CGSModifierFlags: OptionSet {
     let rawValue: UInt32
     
-    static let alphaShift = CGSModifierFlags(rawValue: 1 << 16)  // Caps Lock
     static let shift = CGSModifierFlags(rawValue: 1 << 17)
     static let control = CGSModifierFlags(rawValue: 1 << 18)
     static let alternate = CGSModifierFlags(rawValue: 1 << 19)  // Option
     static let command = CGSModifierFlags(rawValue: 1 << 20)
-    static let numericPad = CGSModifierFlags(rawValue: 1 << 21)
-    static let help = CGSModifierFlags(rawValue: 1 << 22)
     static let function = CGSModifierFlags(rawValue: 1 << 23)
 }
 
@@ -47,31 +43,13 @@ func CGSGetSymbolicHotKeyValue(
 /// Enum representing macOS system-level symbolic hotkeys
 /// Values correspond to the symbolic hotkey IDs used by the CGS API
 enum SymbolicHotKey: UInt32 {
-    // Dock/Exposé
     case exposeAllWindows = 32          // Mission Control
-    case exposeAllWindowsSlow = 34
     case applicationWindows = 33         // App Exposé
-    case applicationWindowsSlow = 35
     case exposeDesktop = 36             // Show Desktop
-    case exposeDesktopSlow = 37
-    
-    // Spaces
     case spaces = 75
-    case spacesSlow = 76
     case moveLeftASpace = 79            // Move left a space
-    case moveLeftASpaceSlow = 80
     case moveRightASpace = 81           // Move right a space
-    case moveRightASpaceSlow = 82
-    case spaceDown = 83
-    case spaceDownSlow = 84
-    case spaceUp = 85
-    case spaceUpSlow = 86
-    
-    // Other
     case launchpad = 160
-    case showNotificationCenter = 163
-    case spotlightSearch = 64
-    case lookUpWordInDictionary = 70
 }
 
 /// Marker for synthetic events to avoid re-processing by InputInterceptor
