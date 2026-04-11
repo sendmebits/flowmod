@@ -14,7 +14,9 @@ A macOS menu bar app that makes external mice actually feel good on a Mac.
   </a>
 </p>
 
-FlowMod intercepts input events at a low level (CGEvent taps + IOKit HID) to add features that macOS doesn't provide for non-Apple mouse peripherals — smooth scrolling, natural scroll direction per-device, button remapping, and trackpad-style gestures from a mouse.
+**FlowMod** brings the features macOS leaves out for non-Apple mice, smooth scrolling, per-device natural scroll direction, button remapping, and trackpad-style gestures from your mouse.
+
+FlowMod is **free and open source**, with **no paywalls** and **no tracking.**
 
 ---
 
@@ -43,12 +45,6 @@ FlowMod intercepts input events at a low level (CGEvent taps + IOKit HID) to add
 
 - macOS 14+
 - **Accessibility** permission (required for event interception). After installing, enable FlowMod under **System Settings → Privacy & Security → Accessibility**, then quit and reopen the app if it doesn’t pick up permission immediately.
-
----
-
-### License
-
-[MIT](LICENSE)
 
 ---
 
