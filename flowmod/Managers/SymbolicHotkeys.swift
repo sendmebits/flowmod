@@ -1,6 +1,5 @@
 import Foundation
 import CoreGraphics
-import Carbon.HIToolbox
 
 /// Wrapper for macOS private CGS Symbolic Hotkeys API
 /// These APIs allow triggering system-level actions like Mission Control, Spaces switching, etc.
@@ -43,13 +42,9 @@ func CGSGetSymbolicHotKeyValue(
 /// Enum representing macOS system-level symbolic hotkeys
 /// Values correspond to the symbolic hotkey IDs used by the CGS API
 enum SymbolicHotKey: UInt32 {
-    case exposeAllWindows = 32          // Mission Control
     case applicationWindows = 33         // App Exposé
-    case exposeDesktop = 36             // Show Desktop
-    case spaces = 75
     case moveLeftASpace = 79            // Move left a space
     case moveRightASpace = 81           // Move right a space
-    case launchpad = 160
 }
 
 /// Marker for synthetic events to avoid re-processing by InputInterceptor
@@ -153,47 +148,12 @@ struct SymbolicHotkeys {
     /// Fallback method using dedicated key codes
     private static func fallbackPost(_ hotkey: SymbolicHotKey) {
         switch hotkey {
-        case .exposeAllWindows:
-            // Mission Control - dedicated key 0xA0
-            postDedicatedKey(0xA0)
-            
         case .applicationWindows:
             // App Exposé - dedicated key 0xA1
             postDedicatedKey(0xA1)
             
-        case .exposeDesktop:
-            // Show Desktop - F11
-            postKeyEventWithModifiers(keyCode: UInt16(kVK_F11), modifiers: .maskSecondaryFn)
-            
-        case .launchpad:
-            // Launchpad - dedicated key 0x83
-            postDedicatedKey(0x83)
-            
         default:
             print("[SymbolicHotkeys] No fallback for hotkey \(hotkey)")
-        }
-    }
-    
-    /// Post a key event with modifier flags using CGEvent
-    private static func postKeyEventWithModifiers(keyCode: UInt16, modifiers: CGEventFlags) {
-        let source = CGEventSource(stateID: .hidSystemState)
-        
-        guard let keyDown = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: true) else {
-            return
-        }
-        keyDown.flags = modifiers
-        keyDown.setIntegerValueField(.eventSourceUserData, value: syntheticEventMarker)
-        keyDown.post(tap: .cghidEventTap)
-        
-        // Post key-up asynchronously to avoid blocking the main thread
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-            let source = CGEventSource(stateID: .hidSystemState)
-            guard let keyUp = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: false) else {
-                return
-            }
-            keyUp.flags = modifiers
-            keyUp.setIntegerValueField(.eventSourceUserData, value: syntheticEventMarker)
-            keyUp.post(tap: .cghidEventTap)
         }
     }
     

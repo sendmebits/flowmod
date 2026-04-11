@@ -865,7 +865,7 @@ class InputInterceptor {
         let deltaY = currentPoint.y - middleButtonStartPoint.y
         
         let (threshold, useContinuous): (Double, Bool) = onMain {
-            (settings?.dragThreshold ?? 40, settings?.continuousGestures ?? true)
+            (settings?.dragThreshold ?? 10, settings?.continuousGestures ?? true)
         }
         
         // For continuous mode, determine axis early with a smaller dead zone
@@ -897,7 +897,7 @@ class InputInterceptor {
                             self.settings?.getAction(for: initialDirection) ?? .none
                         }
                         
-                        let swipeType = dockSwipeType(for: initialDirection, action: action)
+                        let swipeType = dockSwipeType(for: action)
                         
                         // Calculate initial delta from accumulated movement
                         let initialDelta: Double
@@ -1180,8 +1180,8 @@ class InputInterceptor {
         }
     }
     
-    /// Determine the DockSwipe type for a drag direction and its mapped action.
-    private func dockSwipeType(for direction: DragDirection, action: MouseAction) -> DockSwipeSimulator.SwipeType {
+    /// Determine the DockSwipe type for a mapped action.
+    private func dockSwipeType(for action: MouseAction) -> DockSwipeSimulator.SwipeType {
         switch action {
         case .switchSpaceLeft, .switchSpaceRight:
             return .horizontal

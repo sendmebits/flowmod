@@ -89,7 +89,7 @@ class Settings {
         didSet { if !isLoading { UserDefaults.standard.set(launchAtLogin, forKey: "launchAtLogin") } }
     }
     
-    var dragThreshold: Double = 40.0 {
+    var dragThreshold: Double = 10.0 {
         didSet { if !isLoading { UserDefaults.standard.set(dragThreshold, forKey: "dragThreshold") } }
     }
     

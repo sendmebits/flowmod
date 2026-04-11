@@ -49,7 +49,7 @@ class DockSwipeSimulator {
     private var originOffset: Double = 0
     private var lastDelta: Double = 0
     private var invertedFromDevice: Bool = false
-    private var dragThreshold: Double = 40
+    private var dragThreshold: Double = 10
     
     /// Cached space count for the duration of a gesture (avoids per-event CGS API calls)
     private var cachedSpaceCount: Int = 2
@@ -131,7 +131,7 @@ class DockSwipeSimulator {
     ///   - delta: Initial delta in DockSwipe units
     ///   - dragThreshold: User-configured drag sensitivity in pixels
     ///   - invertedFromDevice: Whether natural scrolling direction is active
-    func begin(type: SwipeType, delta: Double, dragThreshold: Double = 40, invertedFromDevice: Bool = false) {
+    func begin(type: SwipeType, delta: Double, dragThreshold: Double = 10, invertedFromDevice: Bool = false) {
         cancelRetryTimers()
         
         self.currentType = type
