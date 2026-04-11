@@ -10,7 +10,6 @@ struct GeneralSettingsView: View {
     @State private var launchAtLoginEnabled = false
     @State private var showAdvanced = false
     @State private var showMousePopover = false
-    @State private var showKeyboardPopover = false
     
     /// Get the app version from Bundle info
     private var appVersionString: String {
@@ -51,32 +50,32 @@ struct GeneralSettingsView: View {
                         .onChange(of: launchAtLoginEnabled) { _, newValue in
                             setLaunchAtLogin(newValue)
                         }
+                    }
                 }
                 .padding(.vertical, 4)
-            }
-            
+                
                 // Updates
                 updatesSection
-            
-            // Bottom buttons
-            HStack {
-                Button {
-                    showAdvanced = true
-                } label: {
-                    Label("Advanced", systemImage: "gearshape.2")
-                }
-                .buttonStyle(.bordered)
                 
-                Spacer()
-                
-                Button("Quit FlowMod") {
-                    NSApplication.shared.terminate(nil)
+                // Bottom buttons
+                HStack {
+                    Button {
+                        showAdvanced = true
+                    } label: {
+                        Label("Advanced", systemImage: "gearshape.2")
+                    }
+                    .buttonStyle(.bordered)
+                    
+                    Spacer()
+                    
+                    Button("Quit FlowMod") {
+                        NSApplication.shared.terminate(nil)
+                    }
+                    .buttonStyle(.bordered)
                 }
-                .buttonStyle(.bordered)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        }
         .onAppear {
             checkLaunchAtLoginStatus()
         }
@@ -251,14 +250,6 @@ struct GeneralSettingsView: View {
                     devices: deviceManager.connectedDevices.filter { $0.isMouse && !$0.isAppleDevice },
                     showPopover: $showMousePopover
                 )
-                
-                devicePill(
-                    connected: deviceManager.externalKeyboardConnected,
-                    icon: "keyboard",
-                    label: "Keyboard",
-                    devices: deviceManager.connectedDevices.filter { $0.isKeyboard && !$0.isAppleDevice },
-                    showPopover: $showKeyboardPopover
-                )
             }
         }
         .frame(maxWidth: .infinity)
@@ -367,10 +358,7 @@ struct AdvancedSettingsSheet: View {
                     Toggle("Assume external mouse is connected", isOn: $settings.assumeExternalMouse)
                         .font(.callout)
                     
-                    Toggle("Assume external keyboard is connected", isOn: $settings.assumeExternalKeyboard)
-                        .font(.callout)
-                    
-                    Text("Enable these if your Bluetooth mouse or keyboard isn't being detected automatically.")
+                    Text("Enable this if your Bluetooth mouse isn't being detected automatically.")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
@@ -381,7 +369,7 @@ struct AdvancedSettingsSheet: View {
             Spacer()
         }
         .padding()
-        .frame(width: 400, height: 350)
+        .frame(width: 400, height: 300)
     }
 }
 

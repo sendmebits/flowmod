@@ -6,10 +6,9 @@ This file guides AI agents (Cursor, Copilot, etc.) working on the FlowMod codeba
 
 ## Project at a Glance
 
-- **What it is:** macOS menu bar app that customizes external mouse and keyboard via low-level HID/CGEvent interception.
+- **What it is:** macOS menu bar app that customizes external mouse behavior (scroll, buttons, middle-drag gestures) via low-level HID/CGEvent interception. Mouse actions may synthesize keyboard shortcuts (e.g. copy/paste); the app does not remap physical keyboard input.
 - **Stack:** Swift, SwiftUI, AppKit, IOKit, CGEvent.
 - **Layout:** `flowmod/` is the main app target; Xcode project at `flowmod.xcodeproj/`.
-
 
 ---
 
@@ -25,14 +24,16 @@ This file guides AI agents (Cursor, Copilot, etc.) working on the FlowMod codeba
 
 ## Key Paths
 
-| Purpose              | Path |
-|----------------------|------|
-| App entry & menu bar | `flowmod/FlowModApp.swift` |
-| Event tap & mapping  | `flowmod/Managers/InputInterceptor.swift` |
-| HID device detection | `flowmod/Managers/DeviceManager.swift` |
-| Settings model       | `flowmod/Models/Settings.swift` |
-| Key/combo models     | `flowmod/Models/KeyCombo.swift`, `flowmod/Models/KeyboardMapping.swift` |
-| Settings UI          | `flowmod/Views/SettingsView.swift` |
+
+| Purpose              | Path                                                         |
+| -------------------- | ------------------------------------------------------------ |
+| App entry & menu bar | `flowmod/FlowModApp.swift`                                   |
+| Event tap & mapping  | `flowmod/Managers/InputInterceptor.swift`                    |
+| HID device detection | `flowmod/Managers/DeviceManager.swift`                       |
+| Settings model       | `flowmod/Models/Settings.swift`                              |
+| Shortcut combo model | `flowmod/Models/KeyCombo.swift` (for custom mouse shortcuts) |
+| Settings UI          | `flowmod/Views/SettingsView.swift`                           |
+
 
 ---
 

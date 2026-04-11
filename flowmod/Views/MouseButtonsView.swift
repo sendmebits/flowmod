@@ -1,9 +1,14 @@
 import SwiftUI
 
+/// Identifiable wrapper for `sheet(item:)` (avoids retroactive `UUID: Identifiable` on Foundation types).
+private struct CustomShortcutSheetItem: Identifiable {
+    let id: UUID
+}
+
 /// Settings for mouse button remapping
 struct MouseButtonsView: View {
     @Bindable var settings: Settings
-    @State private var showingCustomShortcutForButton: UUID?
+    @State private var customShortcutSheetItem: CustomShortcutSheetItem?
     @State private var showingButtonRecorder = false
     
     var body: some View {
@@ -63,13 +68,13 @@ struct MouseButtonsView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .sheet(item: $showingCustomShortcutForButton) { mappingId in
+        .sheet(item: $customShortcutSheetItem) { item in
             KeyRecorderSheet(title: "Record Shortcut") { combo in
                 if let combo = combo,
-                   let index = settings.customMouseButtonMappings.firstIndex(where: { $0.id == mappingId }) {
+                   let index = settings.customMouseButtonMappings.firstIndex(where: { $0.id == item.id }) {
                     settings.customMouseButtonMappings[index].action = .customShortcut(combo)
                 }
-                showingCustomShortcutForButton = nil
+                customShortcutSheetItem = nil
             }
         }
         .sheet(isPresented: $showingButtonRecorder) {
@@ -126,7 +131,7 @@ struct MouseButtonsView: View {
             Divider()
             
             Button {
-                showingCustomShortcutForButton = mapping.id
+                customShortcutSheetItem = CustomShortcutSheetItem(id: mapping.id)
             } label: {
                 Label("Custom Shortcut...", systemImage: "keyboard")
             }

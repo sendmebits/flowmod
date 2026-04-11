@@ -126,32 +126,3 @@ struct KeyCombo: Codable, Equatable, Hashable {
         return nil
     }
 }
-
-/// Common source keys for generic keyboards
-enum SourceKey: String, CaseIterable, Codable, Identifiable {
-    case none = "None"
-    case home = "Home"
-    case end = "End"
-    case insert = "Insert"
-    case deleteForward = "Delete ⌦"
-    case pageUp = "Page Up"
-    case pageDown = "Page Down"
-    case printScreen = "Print Screen"
-    case custom = "Record Key..."
-    
-    var id: String { rawValue }
-    
-    var keyCode: UInt16? {
-        switch self {
-        case .none: return nil
-        case .home: return 0x73
-        case .end: return 0x77
-        case .insert: return 0x72
-        case .deleteForward: return 0x75
-        case .pageUp: return 0x74
-        case .pageDown: return 0x79
-        case .printScreen: return 0x69
-        case .custom: return nil
-        }
-    }
-}

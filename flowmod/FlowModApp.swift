@@ -28,7 +28,6 @@ struct FlowModApp: App {
         } label: {
             let isActive = permissionManager.hasAccessibilityPermission
                 && inputInterceptor.isRunning
-                && (settings.mouseEnabled || settings.keyboardEnabled)
             Image(nsImage: Self.menuBarImage(active: isActive, updateAvailable: updateManager.updateAvailable))
         }
         .menuBarExtraStyle(.menu)
@@ -163,11 +162,6 @@ struct MenuBarContent: View {
     var inputInterceptor: InputInterceptor
 
     var body: some View {
-        Toggle("Mouse", isOn: $settings.mouseEnabled)
-        Toggle("Keyboard", isOn: $settings.keyboardEnabled)
-
-        Divider()
-
         SettingsLink {
             Text("Settings...")
         }

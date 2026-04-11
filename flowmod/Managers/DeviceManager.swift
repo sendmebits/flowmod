@@ -3,14 +3,13 @@ import IOKit
 import IOKit.hid
 import Observation
 
-/// Manages detection of external HID devices (mice and keyboards)
+/// Manages detection of external HID pointer devices (mice)
 @MainActor
 @Observable
 class DeviceManager {
     static let shared = DeviceManager()
     
     private(set) var externalMouseConnected = false
-    private(set) var externalKeyboardConnected = false
     private(set) var connectedDevices: [HIDDevice] = []
     
     private var hidManager: IOHIDManager?
@@ -23,7 +22,6 @@ class DeviceManager {
         let productID: Int
         let vendorName: String
         let productName: String
-        let isKeyboard: Bool
         let isMouse: Bool
         let isAppleDevice: Bool
         /// IORegistryEntry ID for this device; used to match CGEvent source (undocumented field 87).
@@ -45,19 +43,11 @@ class DeviceManager {
             lhs.productID == rhs.productID &&
             lhs.vendorName == rhs.vendorName &&
             lhs.productName == rhs.productName &&
-            lhs.isKeyboard == rhs.isKeyboard &&
             lhs.isMouse == rhs.isMouse &&
             lhs.isAppleDevice == rhs.isAppleDevice &&
             lhs.registryID == rhs.registryID
         }
     }
-    
-    /// Whether the most recent keyboard HID event came from an Apple (built-in) device.
-    /// Updated by the IOHIDManager input value callback (fires on main run loop BEFORE
-    /// the CGEvent tap), read by InputInterceptor's event tap (also on main run loop).
-    /// Both run on the same thread so no data race occurs.
-    @ObservationIgnored
-    nonisolated(unsafe) var lastKeyEventFromAppleKeyboard: Bool = true
     
     private init() {
         setupHIDManager()
@@ -77,7 +67,7 @@ class DeviceManager {
             return
         }
         
-        // Match mice, keyboards, and pointer devices
+        // Match mice and pointer devices
         let mouseMatch: [String: Any] = [
             kIOHIDDeviceUsagePageKey: kHIDPage_GenericDesktop,
             kIOHIDDeviceUsageKey: kHIDUsage_GD_Mouse
@@ -88,17 +78,11 @@ class DeviceManager {
             kIOHIDDeviceUsageKey: kHIDUsage_GD_Pointer
         ]
         
-        let keyboardMatch: [String: Any] = [
-            kIOHIDDeviceUsagePageKey: kHIDPage_GenericDesktop,
-            kIOHIDDeviceUsageKey: kHIDUsage_GD_Keyboard
-        ]
-        
-        let matchingArray = [mouseMatch, pointerMatch, keyboardMatch] as CFArray
+        let matchingArray = [mouseMatch, pointerMatch] as CFArray
         IOHIDManagerSetDeviceMatchingMultiple(manager, matchingArray)
         
         IOHIDManagerScheduleWithRunLoop(manager, CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue)
         
-        // Register callbacks for immediate device connect/disconnect detection
         let matchCallback: IOHIDDeviceCallback = { context, result, sender, device in
             guard let context = context else { return }
             let dm = Unmanaged<DeviceManager>.fromOpaque(context).takeUnretainedValue()
@@ -113,36 +97,11 @@ class DeviceManager {
         IOHIDManagerRegisterDeviceMatchingCallback(manager, matchCallback, selfPtr)
         IOHIDManagerRegisterDeviceRemovalCallback(manager, removeCallback, selfPtr)
         
-        // Register input value callback to track which keyboard device generates each event.
-        // This fires on the main run loop BEFORE the session-level CGEvent tap, allowing
-        // InputInterceptor to know per-event whether the source is built-in or external.
-        let inputCallback: IOHIDValueCallback = { context, result, sender, value in
-            guard let context = context else { return }
-            
-            let element = IOHIDValueGetElement(value)
-            // Only track keyboard/keypad events (filter out mouse movement, consumer controls, etc.)
-            guard IOHIDElementGetUsagePage(element) == UInt32(kHIDPage_KeyboardOrKeypad) else { return }
-            
-            let device = IOHIDElementGetDevice(element)
-            let vendorID = IOHIDDeviceGetProperty(device, kIOHIDVendorIDKey as CFString) as? Int ?? 0
-            let productName = IOHIDDeviceGetProperty(device, kIOHIDProductKey as CFString) as? String ?? ""
-            let vendorName = IOHIDDeviceGetProperty(device, kIOHIDManufacturerKey as CFString) as? String ?? ""
-            
-            let isApple = vendorID == 0x05AC ||
-                productName.lowercased().contains("apple") ||
-                vendorName.lowercased().contains("apple")
-            
-            let dm = Unmanaged<DeviceManager>.fromOpaque(context).takeUnretainedValue()
-            dm.lastKeyEventFromAppleKeyboard = isApple
-        }
-        IOHIDManagerRegisterInputValueCallback(manager, inputCallback, selfPtr)
-        
         let result = IOHIDManagerOpen(manager, IOOptionBits(kIOHIDOptionsTypeNone))
         if result != kIOReturnSuccess {
             print("Failed to open HID Manager: \(result)")
         }
         
-        // Initial device scan
         refreshDevices()
     }
     
@@ -159,7 +118,6 @@ class DeviceManager {
             return createHIDDevice(from: device)
         }
         
-        // Only assign if content actually changed (avoids unnecessary @Observable notifications)
         if newDevices != connectedDevices {
             connectedDevices = newDevices
             updateConnectionState()
@@ -175,19 +133,14 @@ class DeviceManager {
         let usagePage = IOHIDDeviceGetProperty(device, kIOHIDPrimaryUsagePageKey as CFString) as? Int ?? 0
         let usage = IOHIDDeviceGetProperty(device, kIOHIDPrimaryUsageKey as CFString) as? Int ?? 0
         
-        // Mice can report as Mouse or Pointer usage
         let isMouse = usagePage == kHIDPage_GenericDesktop && (usage == kHIDUsage_GD_Mouse || usage == kHIDUsage_GD_Pointer)
-        let isKeyboard = usagePage == kHIDPage_GenericDesktop && usage == kHIDUsage_GD_Keyboard
         
-        // Check if Apple device by vendor ID or by name containing "Apple"
-        let isAppleDevice = vendorID == appleVendorID || 
+        guard isMouse else { return nil }
+        
+        let isAppleDevice = vendorID == appleVendorID ||
             productName.lowercased().contains("apple") ||
             vendorName.lowercased().contains("apple")
         
-        // Skip if neither mouse nor keyboard
-        guard isMouse || isKeyboard else { return nil }
-        
-        // Registry entry ID for matching to CGEvent source (undocumented field 87)
         var registryID: UInt64 = 0
         let service = IOHIDDeviceGetService(device)
         if service != 0 {
@@ -199,7 +152,6 @@ class DeviceManager {
             productID: productID,
             vendorName: vendorName,
             productName: productName,
-            isKeyboard: isKeyboard,
             isMouse: isMouse,
             isAppleDevice: isAppleDevice,
             registryID: registryID
@@ -208,17 +160,11 @@ class DeviceManager {
     
     private func updateConnectionState() {
         let prevMouse = externalMouseConnected
-        let prevKeyboard = externalKeyboardConnected
         
         externalMouseConnected = connectedDevices.contains { $0.isMouse && !$0.isAppleDevice }
-        externalKeyboardConnected = connectedDevices.contains { $0.isKeyboard && !$0.isAppleDevice }
         
-        // Log state changes
         if externalMouseConnected != prevMouse {
             LogManager.shared.log("External mouse: \(externalMouseConnected ? "connected" : "disconnected")", category: "Device")
-        }
-        if externalKeyboardConnected != prevKeyboard {
-            LogManager.shared.log("External keyboard: \(externalKeyboardConnected ? "connected" : "disconnected")", category: "Device")
         }
     }
 }

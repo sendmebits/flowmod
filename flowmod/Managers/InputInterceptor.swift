@@ -4,7 +4,7 @@ import AppKit
 import Observation
 import QuartzCore
 
-/// Intercepts and modifies mouse and keyboard events
+/// Intercepts and modifies mouse events (scroll, buttons, gestures)
 @Observable
 class InputInterceptor {
     static let shared = InputInterceptor()
@@ -77,33 +77,9 @@ class InputInterceptor {
     private var settings: Settings?
     private var deviceManager: DeviceManager?
     
-    // Cached frontmost app bundle ID (updated via notification, not queried per-event)
-    private var cachedFrontmostBundleID: String?
-    
     // Command+Scroll zoom gesture state
     private var zoomGestureActive = false
     private var zoomEndTimer: DispatchWorkItem?
-    
-    // When true, all keyboard/modifier events pass through without remapping.
-    // Used during key recording so existing mappings don't interfere.
-    var recordingPassthrough = false {
-        didSet {
-            if recordingPassthrough {
-                // Clear modifier state since events will pass through unprocessed
-                // during recording — prevents stale swap state on resume
-                activeModifierSwaps.removeAll()
-                suppressedModifierKeyCodes.removeAll()
-            }
-        }
-    }
-    
-    // Modifier-to-modifier remapping state: tracks active modifier swaps
-    // (e.g., physical Command acting as Option while held). Keyed by source hardware keyCode.
-    private var activeModifierSwaps: [UInt16: (sourceFlag: CGEventFlags, targetKeyCode: UInt16, targetFlag: CGEventFlags)] = [:]
-    
-    // Tracks modifier keys suppressed by non-modifier one-shot actions
-    // so we can also suppress their release events
-    private var suppressedModifierKeyCodes: Set<UInt16> = []
     
     // Marker for synthetic events we post ourselves (to avoid re-processing)
     private static let syntheticEventMarker: Int64 = 0x464C4F574D4F44  // "FLOWMOD" in hex
@@ -121,12 +97,6 @@ class InputInterceptor {
         }
     }
     
-    @objc private func frontmostAppDidChange(_ notification: Notification) {
-        if let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication {
-            cachedFrontmostBundleID = app.bundleIdentifier
-        }
-    }
-    
     @MainActor
     func start(settings: Settings, deviceManager: DeviceManager) {
         guard !isRunning else { return }
@@ -134,24 +104,12 @@ class InputInterceptor {
         self.settings = settings
         self.deviceManager = deviceManager
         
-        // Cache frontmost app and observe changes (avoids querying per-event)
-        cachedFrontmostBundleID = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
-        NSWorkspace.shared.notificationCenter.addObserver(
-            self,
-            selector: #selector(frontmostAppDidChange(_:)),
-            name: NSWorkspace.didActivateApplicationNotification,
-            object: nil
-        )
-        
         // Define which events we want to tap
         let eventMask: CGEventMask = (
             (1 << CGEventType.scrollWheel.rawValue) |
             (1 << CGEventType.otherMouseDown.rawValue) |
             (1 << CGEventType.otherMouseUp.rawValue) |
-            (1 << CGEventType.otherMouseDragged.rawValue) |
-            (1 << CGEventType.keyDown.rawValue) |
-            (1 << CGEventType.keyUp.rawValue) |
-            (1 << CGEventType.flagsChanged.rawValue)
+            (1 << CGEventType.otherMouseDragged.rawValue)
         )
         
         // Create event tap with inline closure that can be converted to C function pointer
@@ -267,10 +225,6 @@ class InputInterceptor {
         // Stop smooth scrolling display link
         stopDisplayLink()
         
-        // Remove workspace observer
-        NSWorkspace.shared.notificationCenter.removeObserver(self)
-        cachedFrontmostBundleID = nil
-        
         // Cancel any active continuous gesture
         if continuousGestureActive {
             continuousGestureActive = false
@@ -313,10 +267,7 @@ class InputInterceptor {
             return event
         }
 
-        // Check master toggles (read on main thread)
-        let (mouseEnabled, keyboardEnabled) = onMain {
-            (settings?.mouseEnabled ?? true, settings?.keyboardEnabled ?? true)
-        }
+        let mouseEnabled = onMain { settings?.mouseEnabled ?? true }
 
         switch type {
         case .scrollWheel:
@@ -331,15 +282,6 @@ class InputInterceptor {
         case .otherMouseDragged:
             guard mouseEnabled else { return event }
             return handleOtherMouseDragged(event)
-        case .keyDown:
-            guard keyboardEnabled && !recordingPassthrough else { return event }
-            return handleKeyDown(event)
-        case .keyUp:
-            guard keyboardEnabled && !recordingPassthrough else { return event }
-            return handleKeyUp(event)
-        case .flagsChanged:
-            guard keyboardEnabled && !recordingPassthrough else { return event }
-            return handleFlagsChanged(event)
         default:
             return event
         }
@@ -356,12 +298,6 @@ class InputInterceptor {
             return (reverse, settings.smoothScrolling, settings.shiftHorizontalScroll, settings.optionPrecisionScroll, settings.precisionScrollMultiplier, settings.controlFastScroll, settings.fastScrollMultiplier, settings.commandZoomScroll)
         }
         
-        // Apply active modifier-to-modifier swaps so scroll modifiers
-        // respect keyboard remappings (e.g., Command remapped to Option
-        // should trigger precision scroll, not zoom).
-        applyActiveSwapsToFlags(event)
-        
-        // Check modifier keys (after applying remapping swaps)
         let flags = event.flags
         let shiftHeld = flags.contains(.maskShift)
         let optionHeld = flags.contains(.maskAlternate)
@@ -410,7 +346,8 @@ class InputInterceptor {
         if commandHeld && commandZoom && isMouseScroll {
             // End any active zoom from a previous modifier release that hasn't timed out
             let scrollDelta = deltaY != 0 ? deltaY : deltaX
-            let magnification = Double(scrollDelta) / 50.0
+            // Negate so wheel direction matches typical “scroll up = zoom in” expectation for external mice.
+            let magnification = -Double(scrollDelta) / 50.0
             
             if !zoomGestureActive {
                 zoomGestureActive = true
@@ -1058,210 +995,6 @@ class InputInterceptor {
         return nil  // Suppress the original mouse button event
     }
     
-    // MARK: - Keyboard Handling
-    
-    private func handleKeyDown(_ event: CGEvent) -> CGEvent? {
-        return handleKeyEvent(event, isDown: true)
-    }
-    
-    private func handleKeyUp(_ event: CGEvent) -> CGEvent? {
-        return handleKeyEvent(event, isDown: false)
-    }
-    
-    private func handleKeyEvent(_ event: CGEvent, isDown: Bool) -> CGEvent? {
-        // Apply active modifier-to-modifier swaps to the event's flags.
-        // This ensures that e.g. pressing C while remapped-Command is held
-        // produces Cmd+C (when Option→Command is active), not Option+C.
-        applyActiveSwapsToFlags(event)
-        
-        let keyCode = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
-        let modifiers = event.flags.rawValue
-        
-        // Determine if this event is from the built-in (Apple) keyboard.
-        // DeviceManager's IOHIDManager input value callback fires on the main run loop
-        // BEFORE this CGEvent tap, updating lastKeyEventFromAppleKeyboard per-event.
-        let isFromAppleKeyboard = deviceManager?.lastKeyEventFromAppleKeyboard ?? true
-        
-        // Check if we should apply mappings based on which keyboard sent the event.
-        let cachedBundleID = cachedFrontmostBundleID
-        let (shouldApplyMappings, isExcludedApp, action): (Bool, Bool, KeyboardAction?) = onMain {
-            let assumeExternal = settings?.assumeExternalKeyboard ?? false
-            let applyToBuiltIn = settings?.applyKeyboardMappingsToBuiltInKeyboard ?? false
-            
-            // assumeExternalKeyboard overrides detection (for keyboards IOHIDManager can't see)
-            let shouldApply = assumeExternal || (isFromAppleKeyboard ? applyToBuiltIn : true)
-            
-            // Check if frontmost app is excluded (using cached bundle ID)
-            let excluded: Bool
-            if let bundleID = cachedBundleID {
-                excluded = settings?.isAppExcluded(bundleID) ?? false
-            } else {
-                excluded = false
-            }
-            
-            let keyAction = settings?.getKeyboardAction(for: keyCode, modifiers: modifiers)
-            return (shouldApply, excluded, keyAction)
-        }
-        
-        // Pass through if mappings don't apply to this keyboard or app is excluded
-        guard shouldApplyMappings && !isExcludedApp else { return event }
-        
-        // Pass through if no mapping
-        guard let targetAction = action, targetAction != .none else { return event }
-        
-        // Execute the remapped action
-        if isDown {
-            if let combo = targetAction.keyCombo {
-                sendKeyCombo(combo)
-            }
-        }
-        
-        return nil  // Suppress original event
-    }
-    
-    // MARK: - Modifier Key (flagsChanged) Handling
-    
-    /// Rewrites the flags on a CGEvent to reflect active modifier-to-modifier swaps.
-    /// For example, if Command→Option is active, any event carrying the physical
-    /// Command flag will have it replaced with the Option flag.  This must be applied
-    /// to **every** flagsChanged event that passes through (not only the remapped key
-    /// itself) so that the system-level modifier state stays consistent.
-    private func applyActiveSwapsToFlags(_ event: CGEvent) {
-        guard !activeModifierSwaps.isEmpty else { return }
-        
-        var flags = event.flags
-        var flagsToRemove = CGEventFlags()
-        var flagsToAdd = CGEventFlags()
-        
-        for (_, swap) in activeModifierSwaps {
-            if flags.contains(swap.sourceFlag) {
-                flagsToRemove.insert(swap.sourceFlag)
-                flagsToAdd.insert(swap.targetFlag)
-            }
-        }
-        
-        if !flagsToRemove.isEmpty || !flagsToAdd.isEmpty {
-            flags.subtract(flagsToRemove)
-            flags.formUnion(flagsToAdd)
-            event.flags = flags
-        }
-    }
-    
-    private func handleFlagsChanged(_ event: CGEvent) -> CGEvent? {
-        let keyCode = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
-        
-        // Only handle known modifier key codes
-        guard let sourceModifierFlag = cgEventFlagForModifierKeyCode(keyCode) else { return event }
-        
-        let flags = event.flags
-        let isPressed = flags.contains(sourceModifierFlag)
-        
-        // --- RELEASE ---
-        if !isPressed {
-            // Modifier-to-modifier: transform the release event
-            if let swap = activeModifierSwaps.removeValue(forKey: keyCode) {
-                // Rewrite the event's keyCode to the target modifier
-                event.setIntegerValueField(.keyboardEventKeycode, value: Int64(swap.targetKeyCode))
-                event.setIntegerValueField(.eventSourceUserData, value: InputInterceptor.syntheticEventMarker)
-                // Rewrite flags so remaining active swaps are reflected
-                applyActiveSwapsToFlags(event)
-                return event
-            }
-            
-            // One-shot suppression: suppress matching release
-            if suppressedModifierKeyCodes.remove(keyCode) != nil {
-                return nil
-            }
-            
-            // Not a remapped key, but other swaps may be active — fix up flags
-            applyActiveSwapsToFlags(event)
-            return event
-        }
-        
-        // --- PRESS ---
-        // Calculate "other" modifiers, excluding the current key's flag
-        // AND excluding flags from already-active modifier swaps (those are
-        // already remapped and shouldn't affect this lookup)
-        let relevantModifierMask: UInt64 = CGEventFlags.maskControl.rawValue |
-                                           CGEventFlags.maskAlternate.rawValue |
-                                           CGEventFlags.maskShift.rawValue |
-                                           CGEventFlags.maskCommand.rawValue
-        var otherModifiers = (flags.rawValue & relevantModifierMask) & ~sourceModifierFlag.rawValue
-        for (_, swap) in activeModifierSwaps {
-            otherModifiers = otherModifiers & ~swap.sourceFlag.rawValue
-        }
-        
-        // Same per-event device check as handleKeyEvent
-        let isFromAppleKeyboard = deviceManager?.lastKeyEventFromAppleKeyboard ?? true
-        
-        let cachedBundleID = cachedFrontmostBundleID
-        let (shouldApplyMappings, isExcludedApp, action): (Bool, Bool, KeyboardAction?) = onMain {
-            let assumeExternal = settings?.assumeExternalKeyboard ?? false
-            let applyToBuiltIn = settings?.applyKeyboardMappingsToBuiltInKeyboard ?? false
-            let shouldApply = assumeExternal || (isFromAppleKeyboard ? applyToBuiltIn : true)
-            let excluded: Bool
-            if let bundleID = cachedBundleID {
-                excluded = settings?.isAppExcluded(bundleID) ?? false
-            } else {
-                excluded = false
-            }
-            let keyAction = settings?.getKeyboardAction(for: keyCode, modifiers: otherModifiers)
-            return (shouldApply, excluded, keyAction)
-        }
-        
-        // No mapping applies — but we still need to fix flags for active swaps
-        // so that e.g. pressing Shift while a remapped Command is held sends
-        // the correct modifier state to the system.
-        guard shouldApplyMappings && !isExcludedApp else {
-            applyActiveSwapsToFlags(event)
-            return event
-        }
-        guard let targetAction = action, targetAction != .none else {
-            applyActiveSwapsToFlags(event)
-            return event
-        }
-        
-        // Check if the target is a modifier key (modifier-to-modifier remapping)
-        // This makes the source modifier continuously act as the target modifier
-        if case .customShortcut(let targetCombo) = targetAction,
-           targetCombo.modifiers == 0,
-           let targetModifierFlag = cgEventFlagForModifierKeyCode(targetCombo.keyCode) {
-            
-            // Track the active swap BEFORE applying so applyActiveSwapsToFlags
-            // includes this new swap together with any existing ones
-            activeModifierSwaps[keyCode] = (
-                sourceFlag: sourceModifierFlag,
-                targetKeyCode: targetCombo.keyCode,
-                targetFlag: targetModifierFlag
-            )
-            
-            // Rewrite keyCode and flags in one pass
-            event.setIntegerValueField(.keyboardEventKeycode, value: Int64(targetCombo.keyCode))
-            event.setIntegerValueField(.eventSourceUserData, value: InputInterceptor.syntheticEventMarker)
-            applyActiveSwapsToFlags(event)
-            
-            return event  // Pass through the transformed event
-        }
-        
-        // Non-modifier target: fire one-shot action
-        if let combo = targetAction.keyCombo {
-            sendKeyCombo(combo)
-        }
-        suppressedModifierKeyCodes.insert(keyCode)
-        return nil  // Suppress the original modifier press
-    }
-    
-    /// Maps a modifier key code to its corresponding CGEventFlags flag
-    private func cgEventFlagForModifierKeyCode(_ keyCode: UInt16) -> CGEventFlags? {
-        switch keyCode {
-        case 0x37, 0x36: return .maskCommand    // Left/Right Command
-        case 0x38, 0x3C: return .maskShift      // Left/Right Shift
-        case 0x3A, 0x3D: return .maskAlternate  // Left/Right Option
-        case 0x3B, 0x3E: return .maskControl    // Left/Right Control
-        default: return nil
-        }
-    }
-    
     // MARK: - Action Execution
     
     private func executeAction(_ action: MouseAction) {
@@ -1326,7 +1059,7 @@ class InputInterceptor {
     }
     
     private func sendKeyCombo(_ combo: KeyCombo) {
-        LogManager.shared.log("Sending key combo: \(combo.displayName)", category: "Keyboard")
+        LogManager.shared.log("Sending key combo: \(combo.displayName)", category: "Input")
         
         let source = CGEventSource(stateID: .hidSystemState)
         let flags = CGEventFlags(rawValue: combo.modifiers)
@@ -1367,7 +1100,7 @@ class InputInterceptor {
     // MARK: - System Triggers
     
     private func triggerMissionControl() {
-        // Use the Mission Control key (F3 on Apple keyboards, or dedicated key 0xA0)
+        // Use the Mission Control virtual key code (0xA0).
         let source = CGEventSource(stateID: .hidSystemState)
         
         // Send Mission Control key

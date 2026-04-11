@@ -30,16 +30,6 @@ struct SettingsView: View {
                         Label("Gestures", systemImage: "hand.draw")
                     }
                 
-                KeyboardMappingsView(settings: settings)
-                    .tabItem {
-                        Label("Keyboard", systemImage: "keyboard")
-                    }
-                
-                ExcludedAppsView(settings: settings)
-                    .tabItem {
-                        Label("Excluded", systemImage: "xmark.app")
-                    }
-                
                 GeneralSettingsView(settings: settings, deviceManager: deviceManager)
                     .tabItem {
                         Label("General", systemImage: "gear")

@@ -78,32 +78,11 @@ class Settings {
         didSet { if !isLoading { UserDefaults.standard.set(continuousGestures, forKey: "continuousGestures") } }
     }
     
-    // MARK: - Keyboard Mappings
-    var keyboardMappings: [KeyboardMapping] = [] {
-        didSet { if !isLoading { saveKeyboardMappings() } }
-    }
-    
-    /// When true, keyboard mappings apply to the built-in MacBook keyboard.
-    /// When false (default), mappings apply only when an external keyboard is connected.
-    var applyKeyboardMappingsToBuiltInKeyboard: Bool = false {
-        didSet { if !isLoading { UserDefaults.standard.set(applyKeyboardMappingsToBuiltInKeyboard, forKey: "applyKeyboardMappingsToBuiltInKeyboard") } }
-    }
-    
-    // MARK: - Excluded Apps
-    var excludedApps: [ExcludedApp] = [] {
-        didSet { if !isLoading { saveExcludedApps() } }
-    }
-    
     // MARK: - Master Toggles
 
     /// Master toggle for mouse interception (scroll, buttons, drag gestures)
     var mouseEnabled: Bool = true {
         didSet { if !isLoading { UserDefaults.standard.set(mouseEnabled, forKey: "mouseEnabled") } }
-    }
-
-    /// Master toggle for keyboard interception (key remapping)
-    var keyboardEnabled: Bool = true {
-        didSet { if !isLoading { UserDefaults.standard.set(keyboardEnabled, forKey: "keyboardEnabled") } }
     }
 
     // MARK: - General Settings
@@ -120,11 +99,6 @@ class Settings {
         didSet { if !isLoading { UserDefaults.standard.set(assumeExternalMouse, forKey: "assumeExternalMouse") } }
     }
     
-    /// Override device detection - assume external keyboard is always connected
-    var assumeExternalKeyboard: Bool = false {
-        didSet { if !isLoading { UserDefaults.standard.set(assumeExternalKeyboard, forKey: "assumeExternalKeyboard") } }
-    }
-    
     /// Enable debug logging
     var debugLogging: Bool = false {
         didSet { if !isLoading { UserDefaults.standard.set(debugLogging, forKey: "debugLogging") } }
@@ -138,12 +112,6 @@ class Settings {
             mouseEnabled = true
         } else {
             mouseEnabled = UserDefaults.standard.bool(forKey: "mouseEnabled")
-        }
-        
-        if UserDefaults.standard.object(forKey: "keyboardEnabled") == nil {
-            keyboardEnabled = true
-        } else {
-            keyboardEnabled = UserDefaults.standard.bool(forKey: "keyboardEnabled")
         }
         
         // Load reverseScrollEnabled from UserDefaults (default to true if not set)
@@ -221,14 +189,10 @@ class Settings {
         }
         
         assumeExternalMouse = UserDefaults.standard.bool(forKey: "assumeExternalMouse")
-        assumeExternalKeyboard = UserDefaults.standard.bool(forKey: "assumeExternalKeyboard")
-        applyKeyboardMappingsToBuiltInKeyboard = UserDefaults.standard.bool(forKey: "applyKeyboardMappingsToBuiltInKeyboard")
         debugLogging = UserDefaults.standard.bool(forKey: "debugLogging")
         
         loadCustomMouseButtonMappings()
         loadMiddleDragMappings()
-        loadKeyboardMappings()
-        loadExcludedApps()
         
         if middleDragMappings.isEmpty {
             middleDragMappings = [
@@ -239,13 +203,6 @@ class Settings {
             ]
         }
         
-        if keyboardMappings.isEmpty {
-            keyboardMappings = [
-                KeyboardMapping(sourceKey: .home, targetAction: .lineStart),
-                KeyboardMapping(sourceKey: .end, targetAction: .lineEnd)
-            ]
-        }
-        
         isLoading = false
     }
     
@@ -253,8 +210,6 @@ class Settings {
     
     private let customMouseButtonMappingsKey = "customMouseButtonMappings"
     private let middleDragMappingsKey = "middleDragMappings"
-    private let keyboardMappingsKey = "keyboardMappings"
-    private let excludedAppsKey = "excludedApps"
     
     private func saveCustomMouseButtonMappings() {
         if let data = try? JSONEncoder().encode(customMouseButtonMappings) {
@@ -282,37 +237,7 @@ class Settings {
         }
     }
     
-    private func saveKeyboardMappings() {
-        if let data = try? JSONEncoder().encode(keyboardMappings) {
-            UserDefaults.standard.set(data, forKey: keyboardMappingsKey)
-        }
-    }
-    
-    private func loadKeyboardMappings() {
-        if let data = UserDefaults.standard.data(forKey: keyboardMappingsKey),
-           let mappings = try? JSONDecoder().decode([KeyboardMapping].self, from: data) {
-            keyboardMappings = mappings
-        }
-    }
-    
-    private func saveExcludedApps() {
-        if let data = try? JSONEncoder().encode(excludedApps) {
-            UserDefaults.standard.set(data, forKey: excludedAppsKey)
-        }
-    }
-    
-    private func loadExcludedApps() {
-        if let data = UserDefaults.standard.data(forKey: excludedAppsKey),
-           let apps = try? JSONDecoder().decode([ExcludedApp].self, from: data) {
-            excludedApps = apps
-        }
-    }
-    
     // MARK: - Helpers
-    
-    func isAppExcluded(_ bundleIdentifier: String) -> Bool {
-        excludedApps.contains { $0.bundleIdentifier == bundleIdentifier }
-    }
     
     func getAction(for direction: DragDirection) -> MouseAction {
         middleDragMappings[direction] ?? .none
@@ -329,25 +254,5 @@ class Settings {
     /// Get all custom button numbers that are already mapped
     var customMappedButtonNumbers: Set<Int64> {
         Set(customMouseButtonMappings.map { $0.buttonNumber })
-    }
-    
-    func getKeyboardAction(for keyCode: UInt16, modifiers: UInt64) -> KeyboardAction? {
-        // Mask to only check relevant modifier keys (Control, Option, Shift, Command)
-        let relevantModifierMask: UInt64 = CGEventFlags.maskControl.rawValue |
-                                           CGEventFlags.maskAlternate.rawValue |
-                                           CGEventFlags.maskShift.rawValue |
-                                           CGEventFlags.maskCommand.rawValue
-        
-        let maskedInputModifiers = modifiers & relevantModifierMask
-        
-        for mapping in keyboardMappings {
-            if mapping.effectiveKeyCode == keyCode {
-                let mappingModifiers = mapping.effectiveModifiers & relevantModifierMask
-                if mappingModifiers == maskedInputModifiers {
-                    return mapping.targetAction
-                }
-            }
-        }
-        return nil
     }
 }

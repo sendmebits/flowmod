@@ -78,15 +78,10 @@ struct KeyRecorderSheet: View {
         .padding(24)
         .frame(width: 320)
         .onAppear {
-            // Pause all keyboard remapping so existing mappings don't
-            // interfere with recording (important when swapping keys)
-            InputInterceptor.shared.recordingPassthrough = true
             startRecording()
         }
         .onDisappear {
             cleanup()
-            // Resume normal keyboard remapping
-            InputInterceptor.shared.recordingPassthrough = false
         }
     }
     
