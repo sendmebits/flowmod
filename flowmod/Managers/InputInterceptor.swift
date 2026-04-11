@@ -932,7 +932,7 @@ class InputInterceptor {
                         // Freeze cursor position during gesture
                         CGAssociateMouseAndMouseCursorPosition(0)
                         
-                        dockSwipeSimulator.begin(type: swipeType, delta: initialDelta)
+                        dockSwipeSimulator.begin(type: swipeType, delta: initialDelta, dragThreshold: threshold)
                         
                         LogManager.shared.log("Continuous gesture began: \(swipeType) axis=\(continuousGestureAxis)", category: "Gesture")
                         return nil

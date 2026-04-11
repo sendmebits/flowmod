@@ -78,9 +78,9 @@ struct MiddleDragGesturesView: View {
                             .foregroundStyle(.secondary)
                     }
                     
-                    Slider(value: $settings.dragThreshold, in: 20...100, step: 5)
+                    Slider(value: $settings.dragThreshold, in: 10...100, step: 5)
                     
-                    Text("Distance you need to drag before triggering the gesture")
+                    Text("Lower values start gestures sooner and make short side swipes easier to complete")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

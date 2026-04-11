@@ -49,6 +49,7 @@ class DockSwipeSimulator {
     private var originOffset: Double = 0
     private var lastDelta: Double = 0
     private var invertedFromDevice: Bool = false
+    private var dragThreshold: Double = 40
     
     /// Cached space count for the duration of a gesture (avoids per-event CGS API calls)
     private var cachedSpaceCount: Int = 2
@@ -128,12 +129,14 @@ class DockSwipeSimulator {
     /// - Parameters:
     ///   - type: The gesture type (horizontal/vertical/pinch)
     ///   - delta: Initial delta in DockSwipe units
+    ///   - dragThreshold: User-configured drag sensitivity in pixels
     ///   - invertedFromDevice: Whether natural scrolling direction is active
-    func begin(type: SwipeType, delta: Double, invertedFromDevice: Bool = false) {
+    func begin(type: SwipeType, delta: Double, dragThreshold: Double = 40, invertedFromDevice: Bool = false) {
         cancelRetryTimers()
         
         self.currentType = type
         self.invertedFromDevice = invertedFromDevice
+        self.dragThreshold = dragThreshold
         self.originOffset = delta
         self.lastDelta = delta
         self.isActive = true
@@ -180,18 +183,7 @@ class DockSwipeSimulator {
         // they want to revert, not commit the space transition
         var shouldCancel = cancel
         if !shouldCancel {
-            // Near-origin threshold varies by gesture type:
-            // - Horizontal (Spaces): offsets are scaled by space count, so they
-            //   grow faster → higher threshold is safe
-            // - Vertical/Pinch: offset = pixels/screenHeight, naturally small →
-            //   lower threshold so short intentional flicks still commit
-            let nearOriginThreshold: Double
-            switch currentType {
-            case .horizontal:
-                nearOriginThreshold = 0.15
-            case .vertical, .pinch:
-                nearOriginThreshold = 0.05
-            }
+            let nearOriginThreshold = nearOriginThreshold(for: currentType)
             let nearOrigin = abs(originOffset) < nearOriginThreshold
             let velocityOpposesOffset = originOffset != 0 && smoothedVelocity != 0 &&
                 (originOffset > 0) != (smoothedVelocity > 0)
@@ -224,15 +216,12 @@ class DockSwipeSimulator {
             exitVelocity = 0
         } else {
             let sign = originOffset >= 0 ? 1.0 : -1.0
-            // Scale minimum velocity inversely with offset: short flicks need
-            // more "throw" momentum to convince macOS to commit, while longer
-            // drags already have enough offset and need less exit speed
-            let smallOffsetThreshold: Double = (currentType == .horizontal) ? 0.3 : 0.15
+            let smallOffsetThreshold = smallOffsetThreshold(for: currentType)
             let minCommitVelocity: Double
             if abs(originOffset) < smallOffsetThreshold {
-                minCommitVelocity = 0.06 * sign  // Gentle nudge for small drags
+                minCommitVelocity = minimumCommitVelocity(for: currentType, isSmallOffset: true) * sign
             } else {
-                minCommitVelocity = 0.03 * sign  // Minimal floor for longer drags
+                minCommitVelocity = minimumCommitVelocity(for: currentType, isSmallOffset: false) * sign
             }
             if abs(smoothedVelocity) < abs(minCommitVelocity) || (smoothedVelocity * sign) < 0 {
                 exitVelocity = minCommitVelocity
@@ -365,6 +354,50 @@ class DockSwipeSimulator {
         endRetryTimer1 = nil
         endRetryTimer2?.cancel()
         endRetryTimer2 = nil
+    }
+    
+    /// Lower drag thresholds should make short horizontal swipes easier to finish,
+    /// while higher thresholds stay conservative to avoid accidental space switches.
+    private func horizontalCommitSensitivity() -> Double {
+        let clampedThreshold = min(max(dragThreshold, 10), 100)
+        
+        if clampedThreshold <= 40 {
+            return (40 - clampedThreshold) / 30.0
+        } else {
+            return -((clampedThreshold - 40) / 60.0)
+        }
+    }
+    
+    private func nearOriginThreshold(for type: SwipeType) -> Double {
+        switch type {
+        case .horizontal:
+            let sensitivity = horizontalCommitSensitivity()
+            return 0.15 - (0.06 * sensitivity)
+        case .vertical, .pinch:
+            return 0.05
+        }
+    }
+    
+    private func smallOffsetThreshold(for type: SwipeType) -> Double {
+        switch type {
+        case .horizontal:
+            let sensitivity = horizontalCommitSensitivity()
+            return 0.30 + (0.08 * sensitivity)
+        case .vertical, .pinch:
+            return 0.15
+        }
+    }
+    
+    private func minimumCommitVelocity(for type: SwipeType, isSmallOffset: Bool) -> Double {
+        switch type {
+        case .horizontal:
+            let sensitivity = horizontalCommitSensitivity()
+            let baseVelocity = isSmallOffset ? 0.06 : 0.03
+            let adjustment = isSmallOffset ? 0.02 : 0.01
+            return max(0.015, baseVelocity + (adjustment * sensitivity))
+        case .vertical, .pinch:
+            return isSmallOffset ? 0.06 : 0.03
+        }
     }
     
     deinit {
