@@ -12,10 +12,15 @@ class PermissionManager {
     private(set) var hasAccessibilityPermission = false
     
     private var checkTimer: Timer?
+    private var currentPollInterval: TimeInterval = 5.0
+    private let minPollInterval: TimeInterval = 1.0
+    private let maxPollInterval: TimeInterval = 30.0
     
     private init() {
         checkPermission()
-        startPermissionMonitoring()
+        if !hasAccessibilityPermission {
+            startPermissionMonitoring(resetBackoff: false)
+        }
     }
     
     /// Check current accessibility permission status
@@ -35,7 +40,7 @@ class PermissionManager {
         _ = AXIsProcessTrustedWithOptions(options)
         
         // Start monitoring for permission grant
-        startPermissionMonitoring()
+        startPermissionMonitoring(resetBackoff: true)
     }
     
     /// Open System Settings to Accessibility pane
@@ -46,11 +51,19 @@ class PermissionManager {
     }
     
     /// Start polling for permission changes
-    private func startPermissionMonitoring() {
+    private func startPermissionMonitoring(resetBackoff: Bool) {
+        if resetBackoff {
+            currentPollInterval = minPollInterval
+        }
+        
         checkTimer?.invalidate()
-        checkTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+        checkTimer = Timer.scheduledTimer(withTimeInterval: currentPollInterval, repeats: false) { [weak self] _ in
             Task { @MainActor [weak self] in
-                self?.checkPermission()
+                guard let self else { return }
+                self.checkPermission()
+                guard !self.hasAccessibilityPermission else { return }
+                self.currentPollInterval = min(self.currentPollInterval * 1.8, self.maxPollInterval)
+                self.startPermissionMonitoring(resetBackoff: false)
             }
         }
     }

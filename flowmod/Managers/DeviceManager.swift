@@ -114,9 +114,25 @@ class DeviceManager {
             return
         }
         
-        let newDevices = deviceSet.compactMap { device -> HIDDevice? in
-            return createHIDDevice(from: device)
-        }
+        let newDevices = deviceSet
+            .compactMap { device -> HIDDevice? in
+                return createHIDDevice(from: device)
+            }
+            .sorted { lhs, rhs in
+                if lhs.registryID != rhs.registryID {
+                    return lhs.registryID < rhs.registryID
+                }
+                if lhs.vendorID != rhs.vendorID {
+                    return lhs.vendorID < rhs.vendorID
+                }
+                if lhs.productID != rhs.productID {
+                    return lhs.productID < rhs.productID
+                }
+                if lhs.vendorName != rhs.vendorName {
+                    return lhs.vendorName < rhs.vendorName
+                }
+                return lhs.productName < rhs.productName
+            }
         
         if newDevices != connectedDevices {
             connectedDevices = newDevices

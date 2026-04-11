@@ -84,18 +84,23 @@ struct KeyCombo: Codable, Equatable, Hashable {
     
     /// Cached keyboard layout lookup to avoid repeated TISCopyCurrentKeyboardInputSource calls
     private static var cachedKeyboardLayout: UnsafePointer<UCKeyboardLayout>?
+    private static var cachedKeyboardLayoutData: CFData?
     private static var cachedLayoutInputSourceID: String?
     
     private static func cachedCharacterForKeyCode(_ keyCode: UInt16) -> String? {
         let source = TISCopyCurrentKeyboardInputSource().takeRetainedValue()
-        let sourceID = Unmanaged.passUnretained(source).toOpaque().debugDescription
+        let sourceID = currentInputSourceID(source) ?? "unknown"
         
         // Refresh cached layout if input source changed
         if sourceID != cachedLayoutInputSourceID {
             guard let layoutData = TISGetInputSourceProperty(source, kTISPropertyUnicodeKeyLayoutData) else {
+                cachedKeyboardLayout = nil
+                cachedKeyboardLayoutData = nil
+                cachedLayoutInputSourceID = nil
                 return nil
             }
             let dataRef = unsafeBitCast(layoutData, to: CFData.self)
+            cachedKeyboardLayoutData = dataRef
             cachedKeyboardLayout = unsafeBitCast(CFDataGetBytePtr(dataRef), to: UnsafePointer<UCKeyboardLayout>.self)
             cachedLayoutInputSourceID = sourceID
         }
@@ -124,5 +129,13 @@ struct KeyCombo: Codable, Equatable, Hashable {
         }
         
         return nil
+    }
+    
+    private static func currentInputSourceID(_ source: TISInputSource) -> String? {
+        guard let property = TISGetInputSourceProperty(source, kTISPropertyInputSourceID) else {
+            return nil
+        }
+        let cfString = unsafeBitCast(property, to: CFString.self)
+        return cfString as String
     }
 }

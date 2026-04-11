@@ -76,6 +76,34 @@ class InputInterceptor {
     private var settings: Settings?
     private var deviceManager: DeviceManager?
     
+    // Lock-protected runtime config snapshot to avoid per-event main-thread sync.
+    private let runtimeConfigLock = NSLock()
+    private var runtimeConfig = RuntimeConfig.default
+    
+    private struct RuntimeConfig {
+        var mouseEnabled: Bool
+        var shouldReverse: Bool
+        var smoothScrolling: SmoothScrolling
+        var shiftHorizontal: Bool
+        var optionPrecision: Bool
+        var precisionMultiplier: Double
+        var controlFast: Bool
+        var fastMultiplier: Double
+        var commandZoom: Bool
+        
+        static let `default` = RuntimeConfig(
+            mouseEnabled: true,
+            shouldReverse: false,
+            smoothScrolling: .verySmooth,
+            shiftHorizontal: true,
+            optionPrecision: true,
+            precisionMultiplier: 0.33,
+            controlFast: true,
+            fastMultiplier: 3.0,
+            commandZoom: true
+        )
+    }
+    
     // Command+Scroll zoom gesture state
     private var zoomGestureActive = false
     private var zoomEndTimer: DispatchWorkItem?
@@ -102,6 +130,7 @@ class InputInterceptor {
         
         self.settings = settings
         self.deviceManager = deviceManager
+        startObservingRuntimeConfig()
         
         // Define which events we want to tap
         let eventMask: CGEventMask = (
@@ -121,17 +150,17 @@ class InputInterceptor {
                         CGEvent.tapEnable(tap: tap, enable: true)
                     }
                 }
-                return Unmanaged.passRetained(event)
+                return Unmanaged.passUnretained(event)
             }
             
             guard let userInfo = userInfo else {
-                return Unmanaged.passRetained(event)
+                return Unmanaged.passUnretained(event)
             }
             
             let interceptor = Unmanaged<InputInterceptor>.fromOpaque(userInfo).takeUnretainedValue()
             
             if let modifiedEvent = interceptor.handleEvent(event, type: type) {
-                return Unmanaged.passRetained(modifiedEvent)
+                return Unmanaged.passUnretained(modifiedEvent)
             }
             
             return nil  // Suppress event
@@ -176,18 +205,18 @@ class InputInterceptor {
                         CGEvent.tapEnable(tap: tap, enable: true)
                     }
                 }
-                return Unmanaged.passRetained(event)
+                return Unmanaged.passUnretained(event)
             }
             
             guard let userInfo = userInfo else {
-                return Unmanaged.passRetained(event)
+                return Unmanaged.passUnretained(event)
             }
             
             let interceptor = Unmanaged<InputInterceptor>.fromOpaque(userInfo).takeUnretainedValue()
             
             // Only process during active continuous gesture
             guard interceptor.continuousGestureActive else {
-                return Unmanaged.passRetained(event)
+                return Unmanaged.passUnretained(event)
             }
             
             // Read deltas and feed to DockSwipe simulator
@@ -223,6 +252,8 @@ class InputInterceptor {
     func stop() {
         // Stop smooth scrolling display link
         stopDisplayLink()
+        zoomEndTimer?.cancel()
+        zoomEndTimer = nil
         
         // Cancel any active continuous gesture
         if continuousGestureActive {
@@ -254,6 +285,11 @@ class InputInterceptor {
         
         eventTap = nil
         runLoopSource = nil
+        settings = nil
+        deviceManager = nil
+        runtimeConfigLock.lock()
+        runtimeConfig = .default
+        runtimeConfigLock.unlock()
         isRunning = false
         print("Input interceptor stopped")
     }
@@ -265,21 +301,21 @@ class InputInterceptor {
         if event.getIntegerValueField(.eventSourceUserData) == InputInterceptor.syntheticEventMarker {
             return event
         }
-
-        let mouseEnabled = onMain { settings?.mouseEnabled ?? true }
+        
+        let config = currentRuntimeConfig()
 
         switch type {
         case .scrollWheel:
-            guard mouseEnabled else { return event }
+            guard config.mouseEnabled else { return event }
             return handleScrollEvent(event)
         case .otherMouseDown:
-            guard mouseEnabled else { return event }
+            guard config.mouseEnabled else { return event }
             return handleOtherMouseDown(event)
         case .otherMouseUp:
-            guard mouseEnabled else { return event }
+            guard config.mouseEnabled else { return event }
             return handleOtherMouseUp(event)
         case .otherMouseDragged:
-            guard mouseEnabled else { return event }
+            guard config.mouseEnabled else { return event }
             return handleOtherMouseDragged(event)
         default:
             return event
@@ -289,13 +325,15 @@ class InputInterceptor {
     // MARK: - Scroll Handling
     
     private func handleScrollEvent(_ event: CGEvent) -> CGEvent? {
-        guard let settings = settings else { return event }
-        
-        // Get settings on main thread
-        let (shouldReverse, smoothScrolling, shiftHorizontal, optionPrecision, precisionMultiplier, controlFast, fastMultiplier, commandZoom) = onMain {
-            let reverse = settings.reverseScrollEnabled && (settings.assumeExternalMouse || (deviceManager?.externalMouseConnected ?? false))
-            return (reverse, settings.smoothScrolling, settings.shiftHorizontalScroll, settings.optionPrecisionScroll, settings.precisionScrollMultiplier, settings.controlFastScroll, settings.fastScrollMultiplier, settings.commandZoomScroll)
-        }
+        let config = currentRuntimeConfig()
+        let shouldReverse = config.shouldReverse
+        let smoothScrolling = config.smoothScrolling
+        let shiftHorizontal = config.shiftHorizontal
+        let optionPrecision = config.optionPrecision
+        let precisionMultiplier = config.precisionMultiplier
+        let controlFast = config.controlFast
+        let fastMultiplier = config.fastMultiplier
+        let commandZoom = config.commandZoom
         
         let flags = event.flags
         let shiftHeld = flags.contains(.maskShift)
@@ -1205,5 +1243,50 @@ class InputInterceptor {
             }
         }
         return actionSupportsContinuousGesture(action1) || actionSupportsContinuousGesture(action2)
+    }
+    
+    private func currentRuntimeConfig() -> RuntimeConfig {
+        runtimeConfigLock.lock()
+        let config = runtimeConfig
+        runtimeConfigLock.unlock()
+        return config
+    }
+    
+    @MainActor
+    private func startObservingRuntimeConfig() {
+        observeRuntimeConfigChanges()
+    }
+    
+    @MainActor
+    private func observeRuntimeConfigChanges() {
+        withObservationTracking {
+            guard let settings else {
+                runtimeConfigLock.lock()
+                runtimeConfig = .default
+                runtimeConfigLock.unlock()
+                return
+            }
+            
+            let reverse = settings.reverseScrollEnabled && (settings.assumeExternalMouse || (deviceManager?.externalMouseConnected ?? false))
+            let snapshot = RuntimeConfig(
+                mouseEnabled: settings.mouseEnabled,
+                shouldReverse: reverse,
+                smoothScrolling: settings.smoothScrolling,
+                shiftHorizontal: settings.shiftHorizontalScroll,
+                optionPrecision: settings.optionPrecisionScroll,
+                precisionMultiplier: settings.precisionScrollMultiplier,
+                controlFast: settings.controlFastScroll,
+                fastMultiplier: settings.fastScrollMultiplier,
+                commandZoom: settings.commandZoomScroll
+            )
+            
+            runtimeConfigLock.lock()
+            runtimeConfig = snapshot
+            runtimeConfigLock.unlock()
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.observeRuntimeConfigChanges()
+            }
+        }
     }
 }
