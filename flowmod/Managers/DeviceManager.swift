@@ -15,6 +15,10 @@ class DeviceManager {
     private var hidManager: IOHIDManager?
     private let appleVendorID: Int = 0x05AC
     private var refreshTimer: Timer?
+
+    /// Cache of CGEvent sender IDs (undocumented field 87) → matched device.
+    /// A nil value means "resolved, no match" so we don't re-walk the registry per event.
+    private var senderIDCache: [UInt64: HIDDevice?] = [:]
     
     struct HIDDevice: Identifiable, Equatable {
         let id: UUID = UUID()
@@ -136,8 +140,59 @@ class DeviceManager {
         
         if newDevices != connectedDevices {
             connectedDevices = newDevices
+            senderIDCache.removeAll()
             updateConnectionState()
         }
+    }
+
+    // MARK: - Event Sender Attribution (CGEvent field 87)
+
+    /// Resolve the device that produced a CGEvent, given the event's sender ID
+    /// (undocumented CGEvent field 87 — the IORegistry entry ID of the HID event
+    /// service that generated it). Returns nil for synthesized events (sender 0)
+    /// or when the sender can't be matched to an enumerated device.
+    func device(forEventSenderID senderID: UInt64) -> HIDDevice? {
+        guard senderID != 0 else { return nil }
+        if let cached = senderIDCache[senderID] {
+            return cached
+        }
+        let resolved = resolveDevice(forSenderID: senderID)
+        senderIDCache[senderID] = resolved
+        LogManager.shared.log("Event sender \(senderID) resolved to: \(resolved?.displayName ?? "unknown device")", category: "Device")
+        return resolved
+    }
+
+    private func resolveDevice(forSenderID senderID: UInt64) -> HIDDevice? {
+        let entry = IOServiceGetMatchingService(kIOMainPortDefault, IORegistryEntryIDMatching(senderID))
+        guard entry != 0 else { return nil }
+        defer { IOObjectRelease(entry) }
+
+        // The sender is usually an IOHIDEventService that lives below the
+        // IOHIDDevice we enumerated, so walk up the parent chain comparing
+        // registry IDs against known devices.
+        var current = entry
+        IOObjectRetain(current)
+        while current != 0 {
+            var entryID: UInt64 = 0
+            IORegistryEntryGetRegistryEntryID(current, &entryID)
+            if let match = connectedDevices.first(where: { $0.registryID == entryID }) {
+                IOObjectRelease(current)
+                return match
+            }
+            var parent: io_registry_entry_t = 0
+            let result = IORegistryEntryGetParentEntry(current, kIOServicePlane, &parent)
+            IOObjectRelease(current)
+            current = result == KERN_SUCCESS ? parent : 0
+        }
+
+        // Fallback: some service layouts don't have the IOHIDDevice as a direct
+        // ancestor — match by VendorID/ProductID properties instead.
+        let searchOptions = IOOptionBits(kIORegistryIterateRecursively | kIORegistryIterateParents)
+        if let vendorID = IORegistryEntrySearchCFProperty(entry, kIOServicePlane, kIOHIDVendorIDKey as CFString, kCFAllocatorDefault, searchOptions) as? Int,
+           let productID = IORegistryEntrySearchCFProperty(entry, kIOServicePlane, kIOHIDProductIDKey as CFString, kCFAllocatorDefault, searchOptions) as? Int {
+            return connectedDevices.first { $0.vendorID == vendorID && $0.productID == productID }
+        }
+        return nil
     }
     
     private func createHIDDevice(from device: IOHIDDevice) -> HIDDevice? {

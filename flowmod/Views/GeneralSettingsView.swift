@@ -246,13 +246,28 @@ struct GeneralSettingsView: View {
                 devicePill(
                     connected: deviceManager.externalMouseConnected,
                     icon: "computermouse",
-                    label: "Mouse",
-                    devices: deviceManager.connectedDevices.filter { $0.isMouse && !$0.isAppleDevice },
+                    label: mousePillLabel,
+                    devices: externalMice,
                     showPopover: $showMousePopover
                 )
             }
         }
         .frame(maxWidth: .infinity)
+    }
+
+    private var externalMice: [DeviceManager.HIDDevice] {
+        deviceManager.connectedDevices.filter { $0.isMouse && !$0.isAppleDevice }
+    }
+
+    /// Pill label: the device name when one mouse is connected, a count when
+    /// several are, or "Mouse" when none is detected.
+    private var mousePillLabel: String {
+        let names = Array(Set(externalMice.map { $0.displayName })).sorted()
+        switch names.count {
+        case 0: return "Mouse"
+        case 1: return names[0]
+        default: return "\(names.count) Mice"
+        }
     }
     
     private func devicePill(connected: Bool, icon: String, label: String, devices: [DeviceManager.HIDDevice], showPopover: Binding<Bool>) -> some View {

@@ -83,6 +83,10 @@ class InputInterceptor {
     private struct RuntimeConfig {
         var mouseEnabled: Bool
         var shouldReverse: Bool
+        /// Raw reverseScrollEnabled setting, without the global device-detection
+        /// gate. Used when field-87 attribution proves the event came from an
+        /// external mouse, making the global gate unnecessary.
+        var reverseScrollSetting: Bool
         var smoothScrolling: SmoothScrolling
         var shiftHorizontal: Bool
         var optionPrecision: Bool
@@ -94,6 +98,7 @@ class InputInterceptor {
         static let `default` = RuntimeConfig(
             mouseEnabled: true,
             shouldReverse: false,
+            reverseScrollSetting: false,
             smoothScrolling: .verySmooth,
             shiftHorizontal: true,
             optionPrecision: true,
@@ -110,6 +115,28 @@ class InputInterceptor {
     
     // Marker for synthetic events we post ourselves (to avoid re-processing)
     private static let syntheticEventMarker: Int64 = 0x464C4F574D4F44  // "FLOWMOD" in hex
+
+    // Undocumented CGEvent field carrying the IORegistry entry ID of the HID
+    // event service that produced the event (0 for synthesized events).
+    // Long-stable SPI, also relied on by LinearMouse and Mac Mouse Fix.
+    private static let senderIDField = CGEventField(rawValue: 87)!
+
+    /// Which physical device an event came from, per field-87 attribution.
+    private enum EventSourceKind {
+        case externalMouse  // resolved to a non-Apple pointing device
+        case appleDevice    // resolved to an Apple device (trackpad / Magic Mouse)
+        case unknown        // synthesized or unresolvable — fall back to heuristics
+    }
+
+    private func sourceKind(of event: CGEvent) -> EventSourceKind {
+        let senderID = UInt64(bitPattern: event.getIntegerValueField(InputInterceptor.senderIDField))
+        guard senderID != 0 else { return .unknown }
+        let device: DeviceManager.HIDDevice? = onMain {
+            deviceManager?.device(forEventSenderID: senderID)
+        }
+        guard let device else { return .unknown }
+        return device.isAppleDevice ? .appleDevice : .externalMouse
+    }
     
     private init() {}
     
@@ -325,8 +352,19 @@ class InputInterceptor {
     // MARK: - Scroll Handling
     
     private func handleScrollEvent(_ event: CGEvent) -> CGEvent? {
+        // Attribute the event to a physical device via field 87. Events that
+        // provably come from Apple devices (internal trackpad, Magic Mouse /
+        // Trackpad) are never modified, regardless of the phase heuristics below.
+        let source = sourceKind(of: event)
+        if source == .appleDevice {
+            return event
+        }
+
         let config = currentRuntimeConfig()
-        let shouldReverse = config.shouldReverse
+        // When attribution proves an external mouse, reversal follows the setting
+        // directly. Otherwise fall back to the global detection gate
+        // (externalMouseConnected / assumeExternalMouse).
+        let shouldReverse = source == .externalMouse ? config.reverseScrollSetting : config.shouldReverse
         let smoothScrolling = config.smoothScrolling
         let shiftHorizontal = config.shiftHorizontal
         let optionPrecision = config.optionPrecision
@@ -774,6 +812,12 @@ class InputInterceptor {
     // MARK: - Mouse Button Handling
     
     private func handleOtherMouseDown(_ event: CGEvent) -> CGEvent? {
+        // Button mappings target external mice — never remap Apple devices.
+        // (Must stay symmetric with handleOtherMouseUp to avoid stuck buttons.)
+        if sourceKind(of: event) == .appleDevice {
+            return event
+        }
+
         let buttonNumber = event.getIntegerValueField(.mouseEventButtonNumber)
         
         // Middle button (button 2) - start tracking for drag gesture
@@ -821,6 +865,11 @@ class InputInterceptor {
     }
     
     private func handleOtherMouseUp(_ event: CGEvent) -> CGEvent? {
+        // Symmetric with handleOtherMouseDown: Apple device events pass through.
+        if sourceKind(of: event) == .appleDevice {
+            return event
+        }
+
         let buttonNumber = event.getIntegerValueField(.mouseEventButtonNumber)
         
         if buttonNumber == 2 {
@@ -1271,6 +1320,7 @@ class InputInterceptor {
             let snapshot = RuntimeConfig(
                 mouseEnabled: settings.mouseEnabled,
                 shouldReverse: reverse,
+                reverseScrollSetting: settings.reverseScrollEnabled,
                 smoothScrolling: settings.smoothScrolling,
                 shiftHorizontal: settings.shiftHorizontalScroll,
                 optionPrecision: settings.optionPrecisionScroll,
