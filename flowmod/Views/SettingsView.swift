@@ -223,38 +223,54 @@ struct SettingsView: View {
 
     // MARK: - Tab Content Gating
 
-    /// Show the editor bound to the right profile, or — when the selected
-    /// mouse has no profile yet — a prompt to create one.
+    /// Show the editor bound to the right profile. When the selected mouse
+    /// has no profile yet, show the default settings it currently follows —
+    /// dimmed and read-only — under a banner offering to customize. The
+    /// preview doubles as documentation: those values are exactly what the
+    /// new profile starts with.
     @ViewBuilder
     private func behaviorTab<Content: View>(@ViewBuilder content: (ProfileSettings) -> Content) -> some View {
         if let profile = selectedProfile {
             content(profile)
         } else {
-            customizePrompt
+            VStack(spacing: 10) {
+                customizeBanner
+
+                content(settings.defaultProfile)
+                    .disabled(true)
+                    .opacity(0.5)
+            }
         }
     }
 
-    private var customizePrompt: some View {
-        VStack(spacing: 14) {
+    private var customizeBanner: some View {
+        HStack(spacing: 10) {
             Image(systemName: "computermouse")
-                .font(.system(size: 36))
-                .foregroundStyle(.secondary)
+                .font(.title3)
+                .foregroundStyle(Color.accentColor)
 
-            Text("\(selectedDeviceName) uses the default settings")
-                .font(.headline)
+            VStack(alignment: .leading, spacing: 1) {
+                Text("\(selectedDeviceName) is following the default settings")
+                    .font(.callout)
+                    .fontWeight(.medium)
+                Text("Customize to give it its own settings, starting from a copy of these.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
 
-            Text("Give this mouse its own scroll, button, and gesture settings. It starts with a copy of your current defaults.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: 320)
+            Spacer()
 
-            Button("Customize This Mouse") {
+            Button("Customize") {
                 customizeSelectedMouse()
             }
             .buttonStyle(.borderedProminent)
+            .controlSize(.small)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(10)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color.accentColor.opacity(0.08))
+        )
     }
 
     private func customizeSelectedMouse() {
