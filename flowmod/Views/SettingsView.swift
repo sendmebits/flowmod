@@ -6,9 +6,19 @@ struct SettingsView: View {
     var deviceManager: DeviceManager
     var permissionManager: PermissionManager
 
+    private enum Tab: Hashable {
+        case scroll, buttons, gestures, general
+    }
+
     /// Which profile the window is editing. nil = default ("All Mice").
     @State private var selectedProfileKey: String? = nil
     @State private var showRemoveConfirmation = false
+    @State private var selectedTab: Tab = .scroll
+
+    /// The mouse scope bar is only relevant on the per-mouse behavior tabs.
+    private var showsScopeBar: Bool {
+        settings.perMouseSettingsEnabled && selectedTab != .general
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -17,19 +27,21 @@ struct SettingsView: View {
                 permissionWarning
             }
 
-            // Profile picker — only when per-mouse settings are enabled
-            if settings.perMouseSettingsEnabled {
-                profilePickerBar
+            // Mouse scope bar — Finder-style filter under the toolbar,
+            // shown only on the tabs it applies to
+            if showsScopeBar {
+                profileScopeBar
             }
 
             // Tab content using native TabView
-            TabView {
+            TabView(selection: $selectedTab) {
                 behaviorTab { profile in
                     ScrollSettingsView(profile: profile)
                 }
                 .tabItem {
                     Label("Scroll", systemImage: "scroll")
                 }
+                .tag(Tab.scroll)
 
                 behaviorTab { profile in
                     MouseButtonsView(profile: profile)
@@ -37,6 +49,7 @@ struct SettingsView: View {
                 .tabItem {
                     Label("Buttons", systemImage: "computermouse")
                 }
+                .tag(Tab.buttons)
 
                 behaviorTab { profile in
                     MiddleDragGesturesView(profile: profile, settings: settings)
@@ -44,15 +57,17 @@ struct SettingsView: View {
                 .tabItem {
                     Label("Gestures", systemImage: "hand.draw")
                 }
+                .tag(Tab.gestures)
 
                 GeneralSettingsView(settings: settings, deviceManager: deviceManager)
                     .tabItem {
                         Label("General", systemImage: "gear")
                     }
+                    .tag(Tab.general)
             }
             .padding()
         }
-        .frame(width: 500, height: settings.perMouseSettingsEnabled ? 482 : 440)
+        .frame(width: 500, height: showsScopeBar ? 478 : 440)
         .background(.regularMaterial)
         .onChange(of: settings.perMouseSettingsEnabled) { _, enabled in
             if !enabled { selectedProfileKey = nil }
@@ -123,49 +138,87 @@ struct SettingsView: View {
         return profileName(forKey: key)
     }
 
-    private var profilePickerBar: some View {
-        HStack(spacing: 8) {
-            Text("Configuring:")
-                .font(.callout)
-                .foregroundStyle(.secondary)
+    /// One selectable mouse in the scope bar (connected mice first, then
+    /// saved profiles for disconnected mice).
+    private struct ScopeEntry: Identifiable {
+        let key: String
+        let name: String
+        let connected: Bool
+        var id: String { key }
+    }
 
-            Picker("", selection: $selectedProfileKey) {
-                Text("All Mice (Default)").tag(String?.none)
+    private var scopeEntries: [ScopeEntry] {
+        let connected = connectedMice.map {
+            ScopeEntry(key: $0.deviceKey, name: $0.displayName, connected: true)
+        }
+        let disconnected = disconnectedProfileKeys.map {
+            ScopeEntry(key: $0, name: profileName(forKey: $0), connected: false)
+        }
+        return connected + disconnected
+    }
 
-                ForEach(connectedMice, id: \.deviceKey) { device in
-                    Text(pickerLabel(name: device.displayName, key: device.deviceKey))
-                        .tag(Optional(device.deviceKey))
+    /// Finder-style scope bar: a centered segmented control selecting which
+    /// mouse is being configured, with a trailing reset menu for customized
+    /// mice. Falls back to a dropdown when there are too many mice for
+    /// segments to stay readable.
+    private var profileScopeBar: some View {
+        HStack {
+            Spacer(minLength: 40)
+            scopePicker
+            Spacer(minLength: 40)
+        }
+        .overlay(alignment: .trailing) {
+            if selectedProfileKey != nil && selectedProfile != nil {
+                Menu {
+                    Button("Reset \(selectedDeviceName) to Default…", role: .destructive) {
+                        showRemoveConfirmation = true
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                        .foregroundStyle(.secondary)
                 }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .padding(.trailing, 14)
+                .help("Profile options")
+            }
+        }
+        .padding(.top, 10)
+        .padding(.bottom, 2)
+    }
 
-                if !disconnectedProfileKeys.isEmpty {
+    @ViewBuilder
+    private var scopePicker: some View {
+        let entries = scopeEntries
+        if entries.count <= 3 {
+            Picker("", selection: $selectedProfileKey) {
+                Text("All Mice").tag(String?.none)
+                ForEach(entries) { entry in
+                    Text(entry.name).tag(Optional(entry.key))
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .fixedSize()
+        } else {
+            // Too many mice for segments — compact centered dropdown
+            Picker("", selection: $selectedProfileKey) {
+                Text("All Mice").tag(String?.none)
+                ForEach(entries.filter { $0.connected }) { entry in
+                    Text(entry.name).tag(Optional(entry.key))
+                }
+                if entries.contains(where: { !$0.connected }) {
                     Section("Not Connected") {
-                        ForEach(disconnectedProfileKeys, id: \.self) { key in
-                            Text(pickerLabel(name: profileName(forKey: key), key: key))
-                                .tag(Optional(key))
+                        ForEach(entries.filter { !$0.connected }) { entry in
+                            Text(entry.name).tag(Optional(entry.key))
                         }
                     }
                 }
             }
             .labelsHidden()
-            .frame(maxWidth: 240)
-
-            Spacer()
-
-            if selectedProfileKey != nil && selectedProfile != nil {
-                Button("Reset to Default…") {
-                    showRemoveConfirmation = true
-                }
-                .controlSize(.small)
-            }
+            .fixedSize()
         }
-        .padding(.horizontal, 16)
-        .padding(.top, 10)
-        .padding(.bottom, 2)
-    }
-
-    /// Mark customized mice so the picker shows which mice have their own settings.
-    private func pickerLabel(name: String, key: String) -> String {
-        settings.mouseProfiles[key] != nil ? "\(name) ✓" : name
     }
 
     // MARK: - Tab Content Gating
