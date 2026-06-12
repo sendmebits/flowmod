@@ -7,7 +7,7 @@ private struct CustomShortcutSheetItem: Identifiable {
 
 /// Settings for mouse button remapping
 struct MouseButtonsView: View {
-    @Bindable var settings: Settings
+    @Bindable var profile: ProfileSettings
     @State private var customShortcutSheetItem: CustomShortcutSheetItem?
     @State private var showingButtonRecorder = false
     
@@ -34,7 +34,7 @@ struct MouseButtonsView: View {
                     .foregroundStyle(.secondary)
             
                 GroupBox {
-                    if settings.customMouseButtonMappings.isEmpty {
+                    if profile.customMouseButtonMappings.isEmpty {
                         VStack(spacing: 12) {
                             Image(systemName: "computermouse")
                                 .font(.largeTitle)
@@ -53,10 +53,10 @@ struct MouseButtonsView: View {
                         .padding(.vertical, 20)
                     } else {
                         VStack(spacing: 0) {
-                            ForEach(settings.customMouseButtonMappings) { mapping in
+                            ForEach(profile.customMouseButtonMappings) { mapping in
                                 buttonRow(for: mapping)
                             
-                                if mapping.id != settings.customMouseButtonMappings.last?.id {
+                                if mapping.id != profile.customMouseButtonMappings.last?.id {
                                     Divider()
                                         .padding(.vertical, 8)
                                 }
@@ -71,8 +71,8 @@ struct MouseButtonsView: View {
         .sheet(item: $customShortcutSheetItem) { item in
             KeyRecorderSheet(title: "Record Shortcut") { combo in
                 if let combo = combo,
-                   let index = settings.customMouseButtonMappings.firstIndex(where: { $0.id == item.id }) {
-                    settings.customMouseButtonMappings[index].action = .customShortcut(combo)
+                   let index = profile.customMouseButtonMappings.firstIndex(where: { $0.id == item.id }) {
+                    profile.customMouseButtonMappings[index].action = .customShortcut(combo)
                 }
                 customShortcutSheetItem = nil
             }
@@ -80,7 +80,7 @@ struct MouseButtonsView: View {
         .sheet(isPresented: $showingButtonRecorder) {
             MouseButtonRecorderSheet(
                 title: "Record Mouse Button",
-                existingButtonNumbers: settings.customMappedButtonNumbers
+                existingButtonNumbers: profile.customMappedButtonNumbers
             ) { result in
                 showingButtonRecorder = false
                 if case .success(let buttonNumber) = result {
@@ -88,7 +88,7 @@ struct MouseButtonsView: View {
                         buttonNumber: buttonNumber,
                         action: .none
                     )
-                    settings.customMouseButtonMappings.append(newMapping)
+                    profile.customMouseButtonMappings.append(newMapping)
                 }
             }
         }
@@ -153,18 +153,18 @@ struct MouseButtonsView: View {
     }
     
     private func updateAction(for mapping: CustomMouseButtonMapping, to action: MouseAction) {
-        if let index = settings.customMouseButtonMappings.firstIndex(where: { $0.id == mapping.id }) {
-            settings.customMouseButtonMappings[index].action = action
+        if let index = profile.customMouseButtonMappings.firstIndex(where: { $0.id == mapping.id }) {
+            profile.customMouseButtonMappings[index].action = action
         }
     }
     
     private func deleteMapping(_ mapping: CustomMouseButtonMapping) {
-        settings.customMouseButtonMappings.removeAll { $0.id == mapping.id }
+        profile.customMouseButtonMappings.removeAll { $0.id == mapping.id }
     }
 }
 
 #Preview {
-    MouseButtonsView(settings: Settings.shared)
+    MouseButtonsView(profile: Settings.shared.defaultProfile)
         .padding()
         .frame(width: 460, height: 400)
 }

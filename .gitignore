@@ -34,3 +34,6 @@ Packages/
 
 # Crash logs
 *.crash
+
+# Local planning
+docs/

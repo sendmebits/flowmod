@@ -2,6 +2,8 @@ import SwiftUI
 
 /// Settings for middle-button drag gestures
 struct MiddleDragGesturesView: View {
+    @Bindable var profile: ProfileSettings
+    /// Global settings (drag threshold is shared across all mice)
     @Bindable var settings: Settings
     @State private var showingCustomShortcut: DragDirection?
     
@@ -35,12 +37,12 @@ struct MiddleDragGesturesView: View {
                         
                         Spacer()
                         
-                        Toggle("", isOn: $settings.continuousGestures)
+                        Toggle("", isOn: $profile.continuousGestures)
                             .toggleStyle(.switch)
                             .labelsHidden()
                     }
                     
-                    if settings.continuousGestures {
+                    if profile.continuousGestures {
                         Text("Works with Mission Control, App Exposé, Switch Spaces, Show Desktop, and Launchpad. Direction settings below are not used in this mode.")
                             .font(.caption2)
                             .foregroundStyle(.tertiary)
@@ -63,8 +65,8 @@ struct MiddleDragGesturesView: View {
                 }
                 .padding(.vertical, 4)
             }
-            .opacity(settings.continuousGestures ? 0.5 : 1.0)
-            .allowsHitTesting(!settings.continuousGestures)
+            .opacity(profile.continuousGestures ? 0.5 : 1.0)
+            .allowsHitTesting(!profile.continuousGestures)
             
             // Threshold slider
             GroupBox {
@@ -92,7 +94,7 @@ struct MiddleDragGesturesView: View {
         .sheet(item: $showingCustomShortcut) { direction in
             KeyRecorderSheet(title: "Record Shortcut for Drag \(direction.rawValue)") { combo in
                 if let combo = combo {
-                    settings.middleDragMappings[direction] = .customShortcut(combo)
+                    profile.middleDragMappings[direction] = .customShortcut(combo)
                 }
                 showingCustomShortcut = nil
             }
@@ -117,12 +119,12 @@ struct MiddleDragGesturesView: View {
     
     private func actionPicker(for direction: DragDirection) -> some View {
         let binding = Binding<MouseAction>(
-            get: { settings.middleDragMappings[direction] ?? .none },
+            get: { profile.middleDragMappings[direction] ?? .none },
             set: { newValue in
                 if case .customShortcut = newValue {
                     showingCustomShortcut = direction
                 } else {
-                    settings.middleDragMappings[direction] = newValue
+                    profile.middleDragMappings[direction] = newValue
                 }
             }
         )
@@ -145,7 +147,7 @@ struct MiddleDragGesturesView: View {
             }
         } label: {
             HStack {
-                let action = settings.middleDragMappings[direction] ?? .none
+                let action = profile.middleDragMappings[direction] ?? .none
                 Image(systemName: action.icon)
                 Text(action.displayName)
                     .lineLimit(1)
@@ -163,7 +165,7 @@ struct MiddleDragGesturesView: View {
 }
 
 #Preview {
-    MiddleDragGesturesView(settings: Settings.shared)
+    MiddleDragGesturesView(profile: Settings.shared.defaultProfile, settings: Settings.shared)
         .padding()
         .frame(width: 460, height: 400)
 }

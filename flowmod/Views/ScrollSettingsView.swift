@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Settings for scroll reversal
 struct ScrollSettingsView: View {
-    @Bindable var settings: Settings
+    @Bindable var profile: ProfileSettings
     
     var body: some View {
         ScrollView {
@@ -30,7 +30,7 @@ struct ScrollSettingsView: View {
                         
                         Spacer()
                         
-                        Toggle("", isOn: $settings.reverseScrollEnabled)
+                        Toggle("", isOn: $profile.reverseScrollEnabled)
                             .toggleStyle(.switch)
                             .labelsHidden()
                     }
@@ -54,7 +54,7 @@ struct ScrollSettingsView: View {
                         
                         Spacer()
                         
-                        Picker("", selection: $settings.smoothScrolling) {
+                        Picker("", selection: $profile.smoothScrolling) {
                             ForEach(SmoothScrolling.allCases) { option in
                                 Text(option.rawValue).tag(option)
                             }
@@ -89,7 +89,7 @@ struct ScrollSettingsView: View {
                         
                         Spacer()
                         
-                        Toggle("", isOn: $settings.shiftHorizontalScroll)
+                        Toggle("", isOn: $profile.shiftHorizontalScroll)
                             .toggleStyle(.switch)
                             .labelsHidden()
                     }
@@ -113,7 +113,7 @@ struct ScrollSettingsView: View {
                         
                         Spacer()
                         
-                        Toggle("", isOn: $settings.optionPrecisionScroll)
+                        Toggle("", isOn: $profile.optionPrecisionScroll)
                             .toggleStyle(.switch)
                             .labelsHidden()
                     }
@@ -137,7 +137,7 @@ struct ScrollSettingsView: View {
                         
                         Spacer()
                         
-                        Toggle("", isOn: $settings.controlFastScroll)
+                        Toggle("", isOn: $profile.controlFastScroll)
                             .toggleStyle(.switch)
                             .labelsHidden()
                     }
@@ -161,7 +161,7 @@ struct ScrollSettingsView: View {
                         
                         Spacer()
                         
-                        Toggle("", isOn: $settings.commandZoomScroll)
+                        Toggle("", isOn: $profile.commandZoomScroll)
                             .toggleStyle(.switch)
                             .labelsHidden()
                     }
@@ -180,7 +180,7 @@ struct ScrollSettingsView: View {
 }
 
 #Preview {
-    ScrollSettingsView(settings: Settings.shared)
+    ScrollSettingsView(profile: Settings.shared.defaultProfile)
         .padding()
         .frame(width: 460, height: 400)
 }

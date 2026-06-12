@@ -30,7 +30,8 @@ This file guides AI agents (Cursor, Copilot, etc.) working on the FlowMod codeba
 | App entry & menu bar | `flowmod/FlowModApp.swift`                                   |
 | Event tap & mapping  | `flowmod/Managers/InputInterceptor.swift`                    |
 | HID device detection | `flowmod/Managers/DeviceManager.swift`                       |
-| Settings model       | `flowmod/Models/Settings.swift`                              |
+| Settings model       | `flowmod/Models/Settings.swift` (globals + profile store)    |
+| Per-mouse profiles   | `flowmod/Models/ProfileSettings.swift` (scroll/button/gesture settings; default profile + per-device profiles keyed by "vendorID:productID") |
 | Shortcut combo model | `flowmod/Models/KeyCombo.swift` (for custom mouse shortcuts) |
 | Settings UI          | `flowmod/Views/SettingsView.swift`                           |
 

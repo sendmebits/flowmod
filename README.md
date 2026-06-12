@@ -39,6 +39,10 @@ FlowMod is **free and open source**, with **no paywalls** and **no tracking.**
 - You can assign other actions to a direction — for example **Show Desktop** or **Launchpad**. With **continuous mode** on, those use a pinch-style DockSwipe under the hood.
 - **Continuous mode** — system animations follow your drag like a trackpad swipe (via reverse-engineered DockSwipe events). While continuous mode is on, per-direction mappings are not used; turn it off to rely on the direction → action table above.
 
+### 🐭 Multiple mice
+
+- **Per-mouse settings** (optional) — turn on **Separate Settings Per Mouse** in the General tab to give each mouse its own scroll, button, and gesture settings. Handy for a work mouse vs a home mouse, or mice with different button layouts. Each mouse starts with a copy of your defaults; mice you haven't customized keep following the defaults. Works per-event, so two connected mice can behave differently at the same time.
+
 ---
 
 ### Requirements

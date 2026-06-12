@@ -3,80 +3,76 @@ import Observation
 import ServiceManagement
 
 /// Smooth scrolling intensity options
-enum SmoothScrolling: String, CaseIterable, Identifiable {
+enum SmoothScrolling: String, CaseIterable, Identifiable, Codable {
     case off = "Off"
     case smooth = "Smooth"
     case verySmooth = "Very Smooth"
-    
+
     var id: String { rawValue }
 }
 
-/// Main settings store for the app
+/// Main settings store for the app.
+///
+/// Per-device settings (scroll, buttons, gestures) live in `ProfileSettings`:
+/// `defaultProfile` persists under the original UserDefaults keys (so existing
+/// installs upgrade without migration), and `mouseProfiles` holds optional
+/// per-mouse overrides keyed by "vendorID:productID". Global settings
+/// (launch at login, drag threshold, etc.) remain here.
 @MainActor
 @Observable
 class Settings {
     static let shared = Settings()
-    
+
     /// Flag to suppress didSet UserDefaults writes during initialization
     private var isLoading = true
-    
-    // MARK: - Scroll Settings
-    var reverseScrollEnabled: Bool = true {
-        didSet { if !isLoading { UserDefaults.standard.set(reverseScrollEnabled, forKey: "reverseScrollEnabled") } }
+
+    // MARK: - Per-Device Profiles
+
+    /// Settings used by any mouse without its own profile (and by everything
+    /// when `perMouseSettingsEnabled` is off). Persists under the legacy keys.
+    let defaultProfile: ProfileSettings
+
+    /// Per-mouse profiles, keyed by `HIDDevice.deviceKey` ("vendorID:productID").
+    /// Only consulted when `perMouseSettingsEnabled` is true.
+    private(set) var mouseProfiles: [String: ProfileSettings] = [:]
+
+    /// Opt-in master switch for per-mouse settings. When off, all mice follow
+    /// the default profile (existing behavior); profiles are retained but inert.
+    var perMouseSettingsEnabled: Bool = false {
+        didSet { if !isLoading { UserDefaults.standard.set(perMouseSettingsEnabled, forKey: "perMouseSettingsEnabled") } }
     }
-    
-    var smoothScrolling: SmoothScrolling = .verySmooth {
-        didSet { if !isLoading { UserDefaults.standard.set(smoothScrolling.rawValue, forKey: "smoothScrolling") } }
+
+    /// Resolve the profile to use for a device key (nil key = unattributed
+    /// event or no device). Falls back to the default profile.
+    func profile(forKey key: String?) -> ProfileSettings {
+        guard perMouseSettingsEnabled, let key, let profile = mouseProfiles[key] else {
+            return defaultProfile
+        }
+        return profile
     }
-    
-    /// Shift key modifier: scroll horizontally instead of vertically
-    var shiftHorizontalScroll: Bool = true {
-        didSet { if !isLoading { UserDefaults.standard.set(shiftHorizontalScroll, forKey: "shiftHorizontalScroll") } }
+
+    /// Create a profile for a mouse, starting as a copy of the current
+    /// default settings. Returns the existing profile if one is present.
+    @discardableResult
+    func createProfile(forKey key: String, displayName: String) -> ProfileSettings {
+        if let existing = mouseProfiles[key] { return existing }
+        let profile = ProfileSettings()
+        profile.copyValues(from: defaultProfile)
+        profile.displayName = displayName
+        profile.onChange = { [weak self] in self?.saveMouseProfiles() }
+        mouseProfiles[key] = profile
+        saveMouseProfiles()
+        LogManager.shared.log("Created profile for \(displayName) [\(key)]", category: "Settings")
+        return profile
     }
-    
-    /// Option key modifier: slow down scroll speed for precision
-    var optionPrecisionScroll: Bool = true {
-        didSet { if !isLoading { UserDefaults.standard.set(optionPrecisionScroll, forKey: "optionPrecisionScroll") } }
+
+    /// Delete a mouse's profile; that mouse goes back to the default settings.
+    func removeProfile(forKey key: String) {
+        guard mouseProfiles.removeValue(forKey: key) != nil else { return }
+        saveMouseProfiles()
+        LogManager.shared.log("Removed profile [\(key)]", category: "Settings")
     }
-    
-    /// Precision scroll speed multiplier (0.0 to 1.0)
-    var precisionScrollMultiplier: Double = 0.33 {
-        didSet { if !isLoading { UserDefaults.standard.set(precisionScrollMultiplier, forKey: "precisionScrollMultiplier") } }
-    }
-    
-    /// Control key modifier: speed up scroll for fast scrolling
-    var controlFastScroll: Bool = true {
-        didSet { if !isLoading { UserDefaults.standard.set(controlFastScroll, forKey: "controlFastScroll") } }
-    }
-    
-    /// Fast scroll speed multiplier (1.0 to 10.0)
-    var fastScrollMultiplier: Double = 3.0 {
-        didSet { if !isLoading { UserDefaults.standard.set(fastScrollMultiplier, forKey: "fastScrollMultiplier") } }
-    }
-    
-    /// Command key modifier: zoom in/out instead of scrolling
-    var commandZoomScroll: Bool = true {
-        didSet { if !isLoading { UserDefaults.standard.set(commandZoomScroll, forKey: "commandZoomScroll") } }
-    }
-    
-    // MARK: - Custom Mouse Button Mappings
-    var customMouseButtonMappings: [CustomMouseButtonMapping] = [] {
-        didSet { if !isLoading { saveCustomMouseButtonMappings() } }
-    }
-    
-    // MARK: - Middle Drag Gesture Mappings
-    var middleDragMappings: [DragDirection: MouseAction] = [:] {
-        didSet { if !isLoading { saveMiddleDragMappings() } }
-    }
-    
-    /// When true, compatible drag gestures (Mission Control, App Exposé, Switch Spaces,
-    /// Show Desktop, Launchpad) use continuous DockSwipe simulation — the animation
-    /// follows the mouse drag like a real trackpad three-finger swipe.
-    /// When false, uses the current fire-and-forget trigger behavior.
-    var continuousGestures: Bool = true {
-        didSet { if !isLoading { UserDefaults.standard.set(continuousGestures, forKey: "continuousGestures") } }
-    }
-    
+
     // MARK: - Master Toggles
 
     /// Master toggle for mouse interception (scroll, buttons, drag gestures)
@@ -88,83 +84,33 @@ class Settings {
     var launchAtLogin: Bool = true {
         didSet { if !isLoading { UserDefaults.standard.set(launchAtLogin, forKey: "launchAtLogin") } }
     }
-    
+
     var dragThreshold: Double = 10.0 {
         didSet { if !isLoading { UserDefaults.standard.set(dragThreshold, forKey: "dragThreshold") } }
     }
-    
+
     /// Override device detection - assume external mouse is always connected
     var assumeExternalMouse: Bool = false {
         didSet { if !isLoading { UserDefaults.standard.set(assumeExternalMouse, forKey: "assumeExternalMouse") } }
     }
-    
+
     /// Enable debug logging
     var debugLogging: Bool = false {
         didSet { if !isLoading { UserDefaults.standard.set(debugLogging, forKey: "debugLogging") } }
     }
-    
+
     // MARK: - Initialization
-    
+
     private init() {
+        defaultProfile = ProfileSettings()
+
         // Load master toggles from UserDefaults (default to true if not set)
         if UserDefaults.standard.object(forKey: "mouseEnabled") == nil {
             mouseEnabled = true
         } else {
             mouseEnabled = UserDefaults.standard.bool(forKey: "mouseEnabled")
         }
-        
-        // Load reverseScrollEnabled from UserDefaults (default to true if not set)
-        if UserDefaults.standard.object(forKey: "reverseScrollEnabled") == nil {
-            reverseScrollEnabled = true
-        } else {
-            reverseScrollEnabled = UserDefaults.standard.bool(forKey: "reverseScrollEnabled")
-        }
-        
-        // Load smoothScrolling from UserDefaults (default to .off if not set)
-        if let rawValue = UserDefaults.standard.string(forKey: "smoothScrolling"),
-           let value = SmoothScrolling(rawValue: rawValue) {
-            smoothScrolling = value
-        } else {
-            smoothScrolling = .verySmooth
-        }
-        
-        // Load scroll modifier settings (default to true if not set)
-        if UserDefaults.standard.object(forKey: "shiftHorizontalScroll") == nil {
-            shiftHorizontalScroll = true
-        } else {
-            shiftHorizontalScroll = UserDefaults.standard.bool(forKey: "shiftHorizontalScroll")
-        }
-        
-        if UserDefaults.standard.object(forKey: "optionPrecisionScroll") == nil {
-            optionPrecisionScroll = true
-        } else {
-            optionPrecisionScroll = UserDefaults.standard.bool(forKey: "optionPrecisionScroll")
-        }
-        
-        if UserDefaults.standard.object(forKey: "precisionScrollMultiplier") != nil {
-            precisionScrollMultiplier = UserDefaults.standard.double(forKey: "precisionScrollMultiplier")
-        } else {
-            precisionScrollMultiplier = 0.33
-        }
-        
-        if UserDefaults.standard.object(forKey: "controlFastScroll") == nil {
-            controlFastScroll = true
-        } else {
-            controlFastScroll = UserDefaults.standard.bool(forKey: "controlFastScroll")
-        }
-        
-        if UserDefaults.standard.object(forKey: "fastScrollMultiplier") != nil {
-            fastScrollMultiplier = UserDefaults.standard.double(forKey: "fastScrollMultiplier")
-        } else {
-            fastScrollMultiplier = 3.0
-        }
-        
-        if UserDefaults.standard.object(forKey: "commandZoomScroll") == nil {
-            commandZoomScroll = true
-        } else {
-            commandZoomScroll = UserDefaults.standard.bool(forKey: "commandZoomScroll")
-        }
-        
+
         // Load general settings
         if UserDefaults.standard.object(forKey: "launchAtLogin") != nil {
             launchAtLogin = UserDefaults.standard.bool(forKey: "launchAtLogin")
@@ -176,82 +122,124 @@ class Settings {
                 try? SMAppService.mainApp.register()
             }
         }
-        
+
         if UserDefaults.standard.object(forKey: "dragThreshold") != nil {
             dragThreshold = UserDefaults.standard.double(forKey: "dragThreshold")
         }
-        
-        if UserDefaults.standard.object(forKey: "continuousGestures") != nil {
-            continuousGestures = UserDefaults.standard.bool(forKey: "continuousGestures")
-        } else {
-            continuousGestures = true  // Default to continuous mode
-        }
-        
+
         assumeExternalMouse = UserDefaults.standard.bool(forKey: "assumeExternalMouse")
         debugLogging = UserDefaults.standard.bool(forKey: "debugLogging")
-        
-        loadCustomMouseButtonMappings()
-        loadMiddleDragMappings()
-        
-        if middleDragMappings.isEmpty {
-            middleDragMappings = [
+        perMouseSettingsEnabled = UserDefaults.standard.bool(forKey: "perMouseSettingsEnabled")
+
+        // Load the default profile from the legacy keys, then per-mouse profiles
+        loadDefaultProfile()
+        loadMouseProfiles()
+
+        // Wire persistence AFTER loading so bulk assignment doesn't re-save
+        defaultProfile.onChange = { [weak self] in self?.saveDefaultProfile() }
+        for profile in mouseProfiles.values {
+            profile.onChange = { [weak self] in self?.saveMouseProfiles() }
+        }
+
+        isLoading = false
+    }
+
+    // MARK: - Default Profile Persistence (legacy keys)
+
+    private let customMouseButtonMappingsKey = "customMouseButtonMappings"
+    private let middleDragMappingsKey = "middleDragMappings"
+    private let mouseProfilesKey = "mouseProfiles"
+
+    private func loadDefaultProfile() {
+        let defaults = UserDefaults.standard
+        let p = defaultProfile
+
+        // Bool/enum settings default to true (or .verySmooth) when not set
+        if defaults.object(forKey: "reverseScrollEnabled") != nil {
+            p.reverseScrollEnabled = defaults.bool(forKey: "reverseScrollEnabled")
+        }
+        if let rawValue = defaults.string(forKey: "smoothScrolling"),
+           let value = SmoothScrolling(rawValue: rawValue) {
+            p.smoothScrolling = value
+        }
+        if defaults.object(forKey: "shiftHorizontalScroll") != nil {
+            p.shiftHorizontalScroll = defaults.bool(forKey: "shiftHorizontalScroll")
+        }
+        if defaults.object(forKey: "optionPrecisionScroll") != nil {
+            p.optionPrecisionScroll = defaults.bool(forKey: "optionPrecisionScroll")
+        }
+        if defaults.object(forKey: "precisionScrollMultiplier") != nil {
+            p.precisionScrollMultiplier = defaults.double(forKey: "precisionScrollMultiplier")
+        }
+        if defaults.object(forKey: "controlFastScroll") != nil {
+            p.controlFastScroll = defaults.bool(forKey: "controlFastScroll")
+        }
+        if defaults.object(forKey: "fastScrollMultiplier") != nil {
+            p.fastScrollMultiplier = defaults.double(forKey: "fastScrollMultiplier")
+        }
+        if defaults.object(forKey: "commandZoomScroll") != nil {
+            p.commandZoomScroll = defaults.bool(forKey: "commandZoomScroll")
+        }
+        if defaults.object(forKey: "continuousGestures") != nil {
+            p.continuousGestures = defaults.bool(forKey: "continuousGestures")
+        }
+
+        if let data = defaults.data(forKey: customMouseButtonMappingsKey),
+           let mappings = try? JSONDecoder().decode([CustomMouseButtonMapping].self, from: data) {
+            p.customMouseButtonMappings = mappings
+        }
+
+        if let data = defaults.data(forKey: middleDragMappingsKey),
+           let mappings = try? JSONDecoder().decode([DragDirection: MouseAction].self, from: data) {
+            p.middleDragMappings = mappings
+        }
+
+        if p.middleDragMappings.isEmpty {
+            p.middleDragMappings = [
                 .up: .missionControl,
                 .down: .appExpose,
                 .left: .switchSpaceRight,
                 .right: .switchSpaceLeft
             ]
         }
-        
-        isLoading = false
     }
-    
-    // MARK: - Persistence
-    
-    private let customMouseButtonMappingsKey = "customMouseButtonMappings"
-    private let middleDragMappingsKey = "middleDragMappings"
-    
-    private func saveCustomMouseButtonMappings() {
-        if let data = try? JSONEncoder().encode(customMouseButtonMappings) {
-            UserDefaults.standard.set(data, forKey: customMouseButtonMappingsKey)
+
+    private func saveDefaultProfile() {
+        let defaults = UserDefaults.standard
+        let p = defaultProfile
+
+        defaults.set(p.reverseScrollEnabled, forKey: "reverseScrollEnabled")
+        defaults.set(p.smoothScrolling.rawValue, forKey: "smoothScrolling")
+        defaults.set(p.shiftHorizontalScroll, forKey: "shiftHorizontalScroll")
+        defaults.set(p.optionPrecisionScroll, forKey: "optionPrecisionScroll")
+        defaults.set(p.precisionScrollMultiplier, forKey: "precisionScrollMultiplier")
+        defaults.set(p.controlFastScroll, forKey: "controlFastScroll")
+        defaults.set(p.fastScrollMultiplier, forKey: "fastScrollMultiplier")
+        defaults.set(p.commandZoomScroll, forKey: "commandZoomScroll")
+        defaults.set(p.continuousGestures, forKey: "continuousGestures")
+
+        if let data = try? JSONEncoder().encode(p.customMouseButtonMappings) {
+            defaults.set(data, forKey: customMouseButtonMappingsKey)
+        }
+        if let data = try? JSONEncoder().encode(p.middleDragMappings) {
+            defaults.set(data, forKey: middleDragMappingsKey)
         }
     }
-    
-    private func loadCustomMouseButtonMappings() {
-        if let data = UserDefaults.standard.data(forKey: customMouseButtonMappingsKey),
-           let mappings = try? JSONDecoder().decode([CustomMouseButtonMapping].self, from: data) {
-            customMouseButtonMappings = mappings
+
+    // MARK: - Mouse Profile Persistence
+
+    private func loadMouseProfiles() {
+        guard let data = UserDefaults.standard.data(forKey: mouseProfilesKey),
+              let decoded = try? JSONDecoder().decode([String: ProfileData].self, from: data) else {
+            return
         }
+        mouseProfiles = decoded.mapValues { ProfileSettings(data: $0) }
     }
-    
-    private func saveMiddleDragMappings() {
-        if let data = try? JSONEncoder().encode(middleDragMappings) {
-            UserDefaults.standard.set(data, forKey: middleDragMappingsKey)
+
+    private func saveMouseProfiles() {
+        let snapshot = mouseProfiles.mapValues { $0.data }
+        if let data = try? JSONEncoder().encode(snapshot) {
+            UserDefaults.standard.set(data, forKey: mouseProfilesKey)
         }
-    }
-    
-    private func loadMiddleDragMappings() {
-        if let data = UserDefaults.standard.data(forKey: middleDragMappingsKey),
-           let mappings = try? JSONDecoder().decode([DragDirection: MouseAction].self, from: data) {
-            middleDragMappings = mappings
-        }
-    }
-    
-    // MARK: - Helpers
-    
-    func getAction(for direction: DragDirection) -> MouseAction {
-        middleDragMappings[direction] ?? .none
-    }
-    
-    /// Get action for a button number from custom mappings
-    func getAction(forButtonNumber buttonNumber: Int64) -> MouseAction? {
-        if let customMapping = customMouseButtonMappings.first(where: { $0.buttonNumber == buttonNumber }) {
-            return customMapping.action
-        }
-        return nil
-    }
-    
-    /// Get all custom button numbers that are already mapped
-    var customMappedButtonNumbers: Set<Int64> {
-        Set(customMouseButtonMappings.map { $0.buttonNumber })
     }
 }

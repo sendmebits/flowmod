@@ -26,6 +26,9 @@ class InputInterceptor {
     private var middleButtonDown = false
     private var middleButtonStartPoint: CGPoint = .zero
     private var middleDragTriggered = false
+    /// Profile key of the mouse that started the current middle-button
+    /// press/drag session, so all reads during the session use one profile.
+    private var middleDragProfileKey: String?
     
     // Continuous gesture (DockSwipe) state
     private let dockSwipeSimulator = DockSwipeSimulator()
@@ -79,6 +82,9 @@ class InputInterceptor {
     // Lock-protected runtime config snapshot to avoid per-event main-thread sync.
     private let runtimeConfigLock = NSLock()
     private var runtimeConfig = RuntimeConfig.default
+    /// Per-mouse config snapshots keyed by `HIDDevice.deviceKey`.
+    /// Only populated while per-mouse settings are enabled.
+    private var runtimeProfileConfigs: [String: RuntimeConfig] = [:]
     
     private struct RuntimeConfig {
         var mouseEnabled: Bool
@@ -128,14 +134,27 @@ class InputInterceptor {
         case unknown        // synthesized or unresolvable — fall back to heuristics
     }
 
-    private func sourceKind(of event: CGEvent) -> EventSourceKind {
+    /// Attribution result for a single event: the kind of device plus the
+    /// settings-profile key ("vendorID:productID") when the event provably
+    /// came from an external mouse.
+    private struct EventSource {
+        let kind: EventSourceKind
+        let profileKey: String?
+
+        static let unknown = EventSource(kind: .unknown, profileKey: nil)
+    }
+
+    private func source(of event: CGEvent) -> EventSource {
         let senderID = UInt64(bitPattern: event.getIntegerValueField(InputInterceptor.senderIDField))
         guard senderID != 0 else { return .unknown }
         let device: DeviceManager.HIDDevice? = onMain {
             deviceManager?.device(forEventSenderID: senderID)
         }
         guard let device else { return .unknown }
-        return device.isAppleDevice ? .appleDevice : .externalMouse
+        if device.isAppleDevice {
+            return EventSource(kind: .appleDevice, profileKey: nil)
+        }
+        return EventSource(kind: .externalMouse, profileKey: device.deviceKey)
     }
     
     private init() {}
@@ -316,6 +335,7 @@ class InputInterceptor {
         deviceManager = nil
         runtimeConfigLock.lock()
         runtimeConfig = .default
+        runtimeProfileConfigs = [:]
         runtimeConfigLock.unlock()
         isRunning = false
         print("Input interceptor stopped")
@@ -355,16 +375,19 @@ class InputInterceptor {
         // Attribute the event to a physical device via field 87. Events that
         // provably come from Apple devices (internal trackpad, Magic Mouse /
         // Trackpad) are never modified, regardless of the phase heuristics below.
-        let source = sourceKind(of: event)
-        if source == .appleDevice {
+        let source = self.source(of: event)
+        if source.kind == .appleDevice {
             return event
         }
 
-        let config = currentRuntimeConfig()
+        // Per-mouse settings: use the device's own config snapshot when one
+        // exists; otherwise (default profile, unattributed event, or feature
+        // disabled) use the default config.
+        let config = runtimeConfig(forProfileKey: source.profileKey)
         // When attribution proves an external mouse, reversal follows the setting
         // directly. Otherwise fall back to the global detection gate
         // (externalMouseConnected / assumeExternalMouse).
-        let shouldReverse = source == .externalMouse ? config.reverseScrollSetting : config.shouldReverse
+        let shouldReverse = source.kind == .externalMouse ? config.reverseScrollSetting : config.shouldReverse
         let smoothScrolling = config.smoothScrolling
         let shiftHorizontal = config.shiftHorizontal
         let optionPrecision = config.optionPrecision
@@ -814,17 +837,20 @@ class InputInterceptor {
     private func handleOtherMouseDown(_ event: CGEvent) -> CGEvent? {
         // Button mappings target external mice — never remap Apple devices.
         // (Must stay symmetric with handleOtherMouseUp to avoid stuck buttons.)
-        if sourceKind(of: event) == .appleDevice {
+        let eventSource = source(of: event)
+        if eventSource.kind == .appleDevice {
             return event
         }
+        let profileKey = eventSource.profileKey
 
         let buttonNumber = event.getIntegerValueField(.mouseEventButtonNumber)
-        
+
         // Middle button (button 2) - start tracking for drag gesture
         if buttonNumber == 2 {
             middleButtonDown = true
             middleButtonStartPoint = event.location
             middleDragTriggered = false
+            middleDragProfileKey = profileKey
             
             // Properly end any leftover continuous gesture from a previous interaction
             // (e.g. if a mouseUp was lost due to tap being disabled by timeout)
@@ -840,11 +866,10 @@ class InputInterceptor {
             
             // Check if middle click has a mapping AND if drag gestures are configured
             let (action, hasDragGestures): (MouseAction?, Bool) = onMain {
-                let a = settings?.getAction(forButtonNumber: 2)
-                let hasGestures = !(settings?.middleDragMappings.isEmpty ?? true)
-                return (a, hasGestures)
+                guard let profile = settings?.profile(forKey: profileKey) else { return (nil, false) }
+                return (profile.getAction(forButtonNumber: 2), !profile.middleDragMappings.isEmpty)
             }
-            
+
             // If no mapping or action is just middle click, check for drag gestures
             if action == nil || action == .middleClick {
                 if hasDragGestures {
@@ -861,21 +886,26 @@ class InputInterceptor {
         }
         
         // All other buttons (3, 4, 5+) - check for custom mappings
-        return handleMouseButtonAction(buttonNumber: buttonNumber, originalEvent: event)
+        return handleMouseButtonAction(buttonNumber: buttonNumber, profileKey: profileKey, originalEvent: event)
     }
-    
+
     private func handleOtherMouseUp(_ event: CGEvent) -> CGEvent? {
         // Symmetric with handleOtherMouseDown: Apple device events pass through.
-        if sourceKind(of: event) == .appleDevice {
+        let eventSource = source(of: event)
+        if eventSource.kind == .appleDevice {
             return event
         }
 
         let buttonNumber = event.getIntegerValueField(.mouseEventButtonNumber)
-        
+
         if buttonNumber == 2 {
+            // Use the profile captured at mouseDown so the up-decision matches
+            // the down-decision even if attribution differs.
+            let profileKey = middleDragProfileKey
             defer {
                 middleButtonDown = false
                 middleDragTriggered = false
+                middleDragProfileKey = nil
                 continuousGestureAxisLocked = false
             }
             
@@ -903,9 +933,8 @@ class InputInterceptor {
             
             // Otherwise, check middle click action and drag gesture configuration
             let (action, hasDragGestures): (MouseAction?, Bool) = onMain {
-                let a = settings?.getAction(forButtonNumber: 2)
-                let hasGestures = !(settings?.middleDragMappings.isEmpty ?? true)
-                return (a, hasGestures)
+                guard let profile = settings?.profile(forKey: profileKey) else { return (nil, false) }
+                return (profile.getAction(forButtonNumber: 2), !profile.middleDragMappings.isEmpty)
             }
             
             // If no mapping or action is just middle click
@@ -926,7 +955,7 @@ class InputInterceptor {
         
         // Suppress up events for buttons that have mappings
         let hasMapping: Bool = onMain {
-            settings?.getAction(forButtonNumber: buttonNumber) != nil
+            settings?.profile(forKey: eventSource.profileKey).getAction(forButtonNumber: buttonNumber) != nil
         }
         if hasMapping {
             return nil
@@ -952,7 +981,8 @@ class InputInterceptor {
         let deltaY = currentPoint.y - middleButtonStartPoint.y
         
         let (threshold, useContinuous): (Double, Bool) = onMain {
-            (settings?.dragThreshold ?? 10, settings?.continuousGestures ?? true)
+            guard let settings else { return (10, true) }
+            return (settings.dragThreshold, settings.profile(forKey: middleDragProfileKey).continuousGestures)
         }
         
         // For continuous mode, determine axis early with a smaller dead zone
@@ -981,7 +1011,7 @@ class InputInterceptor {
                         }
                         
                         let action: MouseAction = onMain {
-                            self.settings?.getAction(for: initialDirection) ?? .none
+                            self.settings?.profile(forKey: self.middleDragProfileKey).getAction(for: initialDirection) ?? .none
                         }
                         
                         let swipeType = dockSwipeType(for: action)
@@ -1037,7 +1067,7 @@ class InputInterceptor {
             middleDragTriggered = true
             
             let action: MouseAction = onMain {
-                settings?.getAction(for: dir) ?? .none
+                settings?.profile(forKey: middleDragProfileKey).getAction(for: dir) ?? .none
             }
             
             if action != .none {
@@ -1048,9 +1078,9 @@ class InputInterceptor {
         return event
     }
     
-    private func handleMouseButtonAction(buttonNumber: Int64, originalEvent: CGEvent) -> CGEvent? {
+    private func handleMouseButtonAction(buttonNumber: Int64, profileKey: String?, originalEvent: CGEvent) -> CGEvent? {
         let action: MouseAction? = onMain {
-            settings?.getAction(forButtonNumber: buttonNumber)
+            settings?.profile(forKey: profileKey).getAction(forButtonNumber: buttonNumber)
         }
         
         // If no mapping, pass through the event
@@ -1285,10 +1315,11 @@ class InputInterceptor {
     private func axisSupportsContinuous(axis: ContinuousAxis) -> Bool {
         let (action1, action2): (MouseAction, MouseAction) = onMain {
             guard let s = self.settings else { return (.none, .none) }
+            let profile = s.profile(forKey: self.middleDragProfileKey)
             if axis == .horizontal {
-                return (s.getAction(for: .left), s.getAction(for: .right))
+                return (profile.getAction(for: .left), profile.getAction(for: .right))
             } else {
-                return (s.getAction(for: .up), s.getAction(for: .down))
+                return (profile.getAction(for: .up), profile.getAction(for: .down))
             }
         }
         return actionSupportsContinuousGesture(action1) || actionSupportsContinuousGesture(action2)
@@ -1300,38 +1331,84 @@ class InputInterceptor {
         runtimeConfigLock.unlock()
         return config
     }
+
+    /// The config snapshot for a given profile key, falling back to the
+    /// default config when the key is nil or has no profile.
+    private func runtimeConfig(forProfileKey key: String?) -> RuntimeConfig {
+        runtimeConfigLock.lock()
+        defer { runtimeConfigLock.unlock() }
+        if let key, let config = runtimeProfileConfigs[key] {
+            return config
+        }
+        return runtimeConfig
+    }
     
     @MainActor
     private func startObservingRuntimeConfig() {
         observeRuntimeConfigChanges()
     }
     
+    /// Build a RuntimeConfig snapshot from a profile plus the global gates.
+    @MainActor
+    private static func makeRuntimeConfig(
+        profile: ProfileSettings,
+        mouseEnabled: Bool,
+        assumeExternalMouse: Bool,
+        externalMouseConnected: Bool
+    ) -> RuntimeConfig {
+        let reverse = profile.reverseScrollEnabled && (assumeExternalMouse || externalMouseConnected)
+        return RuntimeConfig(
+            mouseEnabled: mouseEnabled,
+            shouldReverse: reverse,
+            reverseScrollSetting: profile.reverseScrollEnabled,
+            smoothScrolling: profile.smoothScrolling,
+            shiftHorizontal: profile.shiftHorizontalScroll,
+            optionPrecision: profile.optionPrecisionScroll,
+            precisionMultiplier: profile.precisionScrollMultiplier,
+            controlFast: profile.controlFastScroll,
+            fastMultiplier: profile.fastScrollMultiplier,
+            commandZoom: profile.commandZoomScroll
+        )
+    }
+
     @MainActor
     private func observeRuntimeConfigChanges() {
         withObservationTracking {
             guard let settings else {
                 runtimeConfigLock.lock()
                 runtimeConfig = .default
+                runtimeProfileConfigs = [:]
                 runtimeConfigLock.unlock()
                 return
             }
-            
-            let reverse = settings.reverseScrollEnabled && (settings.assumeExternalMouse || (deviceManager?.externalMouseConnected ?? false))
-            let snapshot = RuntimeConfig(
-                mouseEnabled: settings.mouseEnabled,
-                shouldReverse: reverse,
-                reverseScrollSetting: settings.reverseScrollEnabled,
-                smoothScrolling: settings.smoothScrolling,
-                shiftHorizontal: settings.shiftHorizontalScroll,
-                optionPrecision: settings.optionPrecisionScroll,
-                precisionMultiplier: settings.precisionScrollMultiplier,
-                controlFast: settings.controlFastScroll,
-                fastMultiplier: settings.fastScrollMultiplier,
-                commandZoom: settings.commandZoomScroll
+
+            let mouseEnabled = settings.mouseEnabled
+            let assumeExternal = settings.assumeExternalMouse
+            let externalConnected = deviceManager?.externalMouseConnected ?? false
+
+            let snapshot = Self.makeRuntimeConfig(
+                profile: settings.defaultProfile,
+                mouseEnabled: mouseEnabled,
+                assumeExternalMouse: assumeExternal,
+                externalMouseConnected: externalConnected
             )
-            
+
+            // Snapshot each per-mouse profile (only while the feature is on).
+            var profileSnapshots: [String: RuntimeConfig] = [:]
+            if settings.perMouseSettingsEnabled {
+                for (key, profile) in settings.mouseProfiles {
+                    profileSnapshots[key] = Self.makeRuntimeConfig(
+                        profile: profile,
+                        mouseEnabled: mouseEnabled,
+                        assumeExternalMouse: assumeExternal,
+                        externalMouseConnected: externalConnected
+                    )
+                }
+            }
+
             runtimeConfigLock.lock()
             runtimeConfig = snapshot
+            runtimeProfileConfigs = profileSnapshots
             runtimeConfigLock.unlock()
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in

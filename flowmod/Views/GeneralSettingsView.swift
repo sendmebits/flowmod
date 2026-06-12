@@ -53,7 +53,32 @@ struct GeneralSettingsView: View {
                     }
                 }
                 .padding(.vertical, 4)
-                
+
+                // Per-mouse settings
+                GroupBox {
+                    HStack {
+                        Image(systemName: "computermouse")
+                            .font(.title2)
+                            .foregroundStyle(Color.accentColor)
+                            .frame(width: 32)
+
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Separate Settings Per Mouse")
+                                .font(.headline)
+                            Text("Give each mouse its own scroll, button, and gesture settings")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+
+                        Spacer()
+
+                        Toggle("", isOn: $settings.perMouseSettingsEnabled)
+                            .toggleStyle(.switch)
+                            .labelsHidden()
+                    }
+                }
+                .padding(.vertical, 4)
+
                 // Updates
                 updatesSection
                 

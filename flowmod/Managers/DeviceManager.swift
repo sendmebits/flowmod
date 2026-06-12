@@ -30,7 +30,13 @@ class DeviceManager {
         let isAppleDevice: Bool
         /// IORegistryEntry ID for this device; used to match CGEvent source (undocumented field 87).
         let registryID: UInt64
-        
+
+        /// Stable identity used to key per-mouse settings profiles.
+        /// Survives reconnection/re-enumeration (unlike `registryID`).
+        var deviceKey: String {
+            "\(vendorID):\(productID)"
+        }
+
         var displayName: String {
             if !productName.isEmpty {
                 return productName
