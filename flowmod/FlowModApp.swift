@@ -23,7 +23,8 @@ struct FlowModApp: App {
                 settings: settings,
                 deviceManager: deviceManager,
                 permissionManager: permissionManager,
-                inputInterceptor: inputInterceptor
+                inputInterceptor: inputInterceptor,
+                updateManager: updateManager
             )
         } label: {
             let isActive = permissionManager.hasAccessibilityPermission
@@ -160,8 +161,27 @@ struct MenuBarContent: View {
     var deviceManager: DeviceManager
     var permissionManager: PermissionManager
     var inputInterceptor: InputInterceptor
+    var updateManager: UpdateManager
+
+    private var appVersion: String {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
+    }
 
     var body: some View {
+        if updateManager.isDownloading {
+            Text("Downloading Update... \(Int(updateManager.downloadProgress * 100))%")
+        } else if updateManager.updateAvailable, let latest = updateManager.latestVersion {
+            Button {
+                Task { await updateManager.downloadAndInstall() }
+            } label: {
+                Label("Update Available — \(latest)", systemImage: "arrow.up.circle.fill")
+            }
+        } else {
+            Text("FlowMod \(appVersion)")
+        }
+
+        Divider()
+
         SettingsLink {
             Text("Settings...")
         }
