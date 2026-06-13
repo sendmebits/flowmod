@@ -43,11 +43,11 @@ struct FlowModApp: App {
                 permissionManager: permissionManager
             )
             .onAppear {
-                // Make settings window float on top and bring to front
+                // Bring the settings window to front (menu bar apps don't
+                // activate automatically)
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                     for window in NSApp.windows {
                         if window.title == "Settings" || window.identifier?.rawValue.contains("Settings") == true {
-                            window.level = .floating
                             window.orderFrontRegardless()
                         }
                     }
@@ -186,7 +186,7 @@ struct MenuBarContent: View {
 
     var body: some View {
         if updateManager.isDownloading {
-            Text("Downloading Update... \(Int(updateManager.downloadProgress * 100))%")
+            Text("Downloading Update… \(Int(updateManager.downloadProgress * 100))%")
         } else if updateManager.updateAvailable, let latest = updateManager.latestVersion {
             Button {
                 Task { await updateManager.downloadAndInstall() }
@@ -200,26 +200,27 @@ struct MenuBarContent: View {
         Divider()
 
         SettingsLink {
-            Text("Settings...")
+            Text("Settings…")
         }
+        .keyboardShortcut(",", modifiers: .command)
 
         Divider()
 
         if inputInterceptor.isRunning {
-            Button("Disable") {
+            Button("Disable FlowMod") {
                 inputInterceptor.stop()
             }
         } else if !permissionManager.hasAccessibilityPermission {
-            Button("Grant Accessibility Access...") {
+            Button("Grant Accessibility Access…") {
                 startInterceptor()
             }
         } else {
-            Button("Enable") {
+            Button("Enable FlowMod") {
                 startInterceptor()
             }
         }
 
-        Button("Quit") {
+        Button("Quit FlowMod") {
             NSApplication.shared.terminate(nil)
         }
         .keyboardShortcut("q", modifiers: .command)

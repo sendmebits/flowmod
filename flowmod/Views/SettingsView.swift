@@ -7,13 +7,13 @@ struct SettingsView: View {
     var permissionManager: PermissionManager
 
     private enum Tab: Hashable {
-        case scroll, buttons, gestures, general
+        case general, scroll, buttons, gestures
     }
 
     /// Which profile the window is editing. nil = default ("All Mice").
     @State private var selectedProfileKey: String? = nil
     @State private var showRemoveConfirmation = false
-    @State private var selectedTab: Tab = .scroll
+    @State private var selectedTab: Tab = .general
 
     /// The mouse scope bar is only relevant on the per-mouse behavior tabs.
     private var showsScopeBar: Bool {
@@ -35,6 +35,12 @@ struct SettingsView: View {
 
             // Tab content using native TabView
             TabView(selection: $selectedTab) {
+                GeneralSettingsView(settings: settings, deviceManager: deviceManager)
+                    .tabItem {
+                        Label("General", systemImage: "gear")
+                    }
+                    .tag(Tab.general)
+
                 behaviorTab { profile in
                     ScrollSettingsView(profile: profile)
                 }
@@ -58,16 +64,12 @@ struct SettingsView: View {
                     Label("Gestures", systemImage: "hand.draw")
                 }
                 .tag(Tab.gestures)
-
-                GeneralSettingsView(settings: settings, deviceManager: deviceManager)
-                    .tabItem {
-                        Label("General", systemImage: "gear")
-                    }
-                    .tag(Tab.general)
             }
             .padding()
         }
-        .frame(width: 500, height: showsScopeBar ? 478 : 440)
+        // Constant height so the window doesn't jump when the scope bar
+        // appears or disappears
+        .frame(width: 500, height: 478)
         .background(.regularMaterial)
         .onChange(of: settings.perMouseSettingsEnabled) { _, enabled in
             if !enabled { selectedProfileKey = nil }
@@ -80,10 +82,10 @@ struct SettingsView: View {
             }
         }
         .confirmationDialog(
-            "Remove the custom settings for \(selectedDeviceName)?",
+            "Reset \(selectedDeviceName) to the default settings?",
             isPresented: $showRemoveConfirmation
         ) {
-            Button("Remove Customization", role: .destructive) {
+            Button("Reset to Default", role: .destructive) {
                 if let key = selectedProfileKey {
                     settings.removeProfile(forKey: key)
                 }
@@ -192,7 +194,7 @@ struct SettingsView: View {
     private var scopePicker: some View {
         let entries = scopeEntries
         if entries.count <= 3 {
-            Picker("", selection: $selectedProfileKey) {
+            Picker("Mouse", selection: $selectedProfileKey) {
                 Text("All Mice").tag(String?.none)
                 ForEach(entries) { entry in
                     Text(entry.name).tag(Optional(entry.key))
@@ -203,7 +205,7 @@ struct SettingsView: View {
             .fixedSize()
         } else {
             // Too many mice for segments — compact centered dropdown
-            Picker("", selection: $selectedProfileKey) {
+            Picker("Mouse", selection: $selectedProfileKey) {
                 Text("All Mice").tag(String?.none)
                 ForEach(entries.filter { $0.connected }) { entry in
                     Text(entry.name).tag(Optional(entry.key))

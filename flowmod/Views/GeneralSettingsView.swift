@@ -8,8 +8,8 @@ struct GeneralSettingsView: View {
     var updateManager = UpdateManager.shared
     
     @State private var launchAtLoginEnabled = false
+    @State private var launchAtLoginError: String?
     @State private var showAdvanced = false
-    @State private var showMousePopover = false
     
     /// Get the app version from Bundle info
     private var appVersionString: String {
@@ -28,27 +28,40 @@ struct GeneralSettingsView: View {
                 
                 // Launch at Login
                 GroupBox {
-                    HStack {
-                        Image(systemName: "power")
-                            .font(.title2)
-                            .foregroundStyle(Color.accentColor)
-                            .frame(width: 32)
-                    
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Launch at Login")
-                                .font(.headline)
-                            Text("Start FlowMod automatically when you log in")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Image(systemName: "power")
+                                .font(.body)
+                                .foregroundStyle(Color.accentColor)
+                                .frame(width: 24)
+
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Launch at Login")
+                                    .font(.subheadline)
+                                Text("Start FlowMod automatically when you log in")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+
+                            Spacer()
+
+                            Toggle("Launch at Login", isOn: $launchAtLoginEnabled)
+                                .toggleStyle(.switch)
+                                .labelsHidden()
+                                .onChange(of: launchAtLoginEnabled) { _, newValue in
+                                    setLaunchAtLogin(newValue)
+                                }
                         }
-                    
-                        Spacer()
-                    
-                    Toggle("", isOn: $launchAtLoginEnabled)
-                        .toggleStyle(.switch)
-                        .labelsHidden()
-                        .onChange(of: launchAtLoginEnabled) { _, newValue in
-                            setLaunchAtLogin(newValue)
+
+                        if let error = launchAtLoginError {
+                            HStack(spacing: 4) {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .foregroundStyle(.yellow)
+                                    .font(.caption)
+                                Text(error)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
                     }
                 }
@@ -56,47 +69,50 @@ struct GeneralSettingsView: View {
 
                 // Per-mouse settings
                 GroupBox {
-                    HStack {
-                        Image(systemName: "computermouse")
-                            .font(.title2)
-                            .foregroundStyle(Color.accentColor)
-                            .frame(width: 32)
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Image(systemName: "computermouse")
+                                .font(.body)
+                                .foregroundStyle(Color.accentColor)
+                                .frame(width: 24)
 
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Separate Settings Per Mouse")
-                                .font(.headline)
-                            Text("Give each mouse its own scroll, button, and gesture settings")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Separate Settings Per Mouse")
+                                    .font(.subheadline)
+                                Text("Give each mouse its own scroll, button, and gesture settings")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+
+                            Spacer()
+
+                            Toggle("Separate Settings Per Mouse", isOn: $settings.perMouseSettingsEnabled)
+                                .toggleStyle(.switch)
+                                .labelsHidden()
                         }
 
-                        Spacer()
-
-                        Toggle("", isOn: $settings.perMouseSettingsEnabled)
-                            .toggleStyle(.switch)
-                            .labelsHidden()
+                        if settings.perMouseSettingsEnabled {
+                            Text("Choose a mouse at the top of the Scroll, Buttons, and Gestures tabs to customize it.")
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
+                        }
                     }
                 }
                 .padding(.vertical, 4)
 
                 // Updates
                 updatesSection
-                
+
                 // Bottom buttons
                 HStack {
                     Button {
                         showAdvanced = true
                     } label: {
-                        Label("Advanced", systemImage: "gearshape.2")
+                        Label("Advanced…", systemImage: "gearshape.2")
                     }
                     .buttonStyle(.bordered)
-                    
+
                     Spacer()
-                    
-                    Button("Quit FlowMod") {
-                        NSApplication.shared.terminate(nil)
-                    }
-                    .buttonStyle(.bordered)
                 }
             }
         }
@@ -124,8 +140,9 @@ struct GeneralSettingsView: View {
                     try SMAppService.mainApp.unregister()
                 }
                 settings.launchAtLogin = enabled
+                launchAtLoginError = nil
             } catch {
-                print("Failed to set launch at login: \(error)")
+                launchAtLoginError = "Couldn't \(enabled ? "enable" : "disable") launch at login: \(error.localizedDescription)"
                 // Revert UI state
                 launchAtLoginEnabled = !enabled
             }
@@ -137,21 +154,21 @@ struct GeneralSettingsView: View {
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
                     Image(systemName: "arrow.triangle.2.circlepath")
-                        .font(.title2)
+                        .font(.body)
                         .foregroundStyle(Color.accentColor)
-                        .frame(width: 32)
-                    
+                        .frame(width: 24)
+
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Updates")
-                            .font(.headline)
+                            .font(.subheadline)
                         Text("Checks once per day for new releases on GitHub")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
-                    
+
                     Spacer()
-                    
-                    Toggle("", isOn: Binding(
+
+                    Toggle("Check for Updates Automatically", isOn: Binding(
                         get: { updateManager.autoCheckForUpdates },
                         set: { updateManager.autoCheckForUpdates = $0 }
                     ))
@@ -176,7 +193,7 @@ struct GeneralSettingsView: View {
                     if updateManager.isChecking {
                         ProgressView()
                             .controlSize(.small)
-                        Text("Checking...")
+                        Text("Checking…")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     } else if let message = updateManager.upToDateMessage {
@@ -194,10 +211,10 @@ struct GeneralSettingsView: View {
                 // Update available banner
                 if updateManager.updateAvailable, let version = updateManager.latestVersion {
                     HStack(spacing: 8) {
-                        Image(systemName: "gift.fill")
+                        Image(systemName: "arrow.up.circle.fill")
                             .foregroundStyle(.green)
-                        
-                        Text("Version \(version) is available!")
+
+                        Text("Version \(version) is available")
                             .font(.callout)
                             .fontWeight(.medium)
                         
@@ -227,7 +244,7 @@ struct GeneralSettingsView: View {
                 if updateManager.isDownloading {
                     VStack(alignment: .leading, spacing: 4) {
                         ProgressView(value: updateManager.downloadProgress)
-                        Text("Downloading update... \(Int(updateManager.downloadProgress * 100))%")
+                        Text("Downloading update… \(Int(updateManager.downloadProgress * 100))%")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
@@ -272,8 +289,7 @@ struct GeneralSettingsView: View {
                     connected: deviceManager.externalMouseConnected,
                     icon: "computermouse",
                     label: mousePillLabel,
-                    devices: externalMice,
-                    showPopover: $showMousePopover
+                    devices: externalMice
                 )
             }
         }
@@ -295,12 +311,12 @@ struct GeneralSettingsView: View {
         }
     }
     
-    private func devicePill(connected: Bool, icon: String, label: String, devices: [DeviceManager.HIDDevice], showPopover: Binding<Bool>) -> some View {
+    private func devicePill(connected: Bool, icon: String, label: String, devices: [DeviceManager.HIDDevice]) -> some View {
         let uniqueDeviceNames = Array(Set(devices.map { $0.displayName })).sorted()
         let deviceList = uniqueDeviceNames.isEmpty
             ? "No external \(label.lowercased()) detected"
             : uniqueDeviceNames.joined(separator: "\n")
-        
+
         return HStack(spacing: 6) {
             Image(systemName: icon)
                 .font(.caption2)
@@ -318,15 +334,7 @@ struct GeneralSettingsView: View {
                 .fill(connected ? Color.accentColor.opacity(0.08) : Color.secondary.opacity(0.06))
         )
         .foregroundStyle(connected ? .primary : .secondary)
-        .onHover { isHovering in
-            showPopover.wrappedValue = isHovering
-        }
-        .popover(isPresented: showPopover, arrowEdge: .bottom) {
-            Text(deviceList)
-                .font(.caption)
-                .padding(8)
-                .fixedSize()
-        }
+        .help(deviceList)
     }
 }
 
@@ -334,48 +342,53 @@ struct GeneralSettingsView: View {
 struct AdvancedSettingsSheet: View {
     @Bindable var settings: Settings
     @Environment(\.dismiss) private var dismiss
-    
+    @State private var showCopiedConfirmation = false
+
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             // Header
-            HStack {
-                Text("Advanced Settings")
-                    .font(.headline)
-                Spacer()
-                Button("Done") {
-                    dismiss()
-                }
-                .keyboardShortcut(.escape, modifiers: [])
-            }
-            
+            Text("Advanced Settings")
+                .font(.headline)
+
             // Debug Logging
             GroupBox {
                 VStack(alignment: .leading, spacing: 12) {
                     Label("Debug Logging", systemImage: "ladybug")
                         .font(.headline)
-                    
+
                     Toggle("Enable Debug Logging", isOn: $settings.debugLogging)
                         .font(.callout)
-                    
+
                     Text("Captures detailed logs for troubleshooting. May impact performance.")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
-                    
+
                     HStack {
                         Button {
                             LogManager.shared.copyLogsToClipboard()
+                            showCopiedConfirmation = true
+                            Task {
+                                try? await Task.sleep(for: .seconds(2))
+                                showCopiedConfirmation = false
+                            }
                         } label: {
                             Label("Copy Logs", systemImage: "doc.on.clipboard")
                         }
                         .buttonStyle(.bordered)
                         .controlSize(.small)
-                        
-                        Text("\(LogManager.shared.entryCount) entries")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                        
+
+                        if showCopiedConfirmation {
+                            Label("Copied", systemImage: "checkmark")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        } else {
+                            Text("\(LogManager.shared.entryCount) entries")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+
                         Spacer()
-                        
+
                         Button {
                             LogManager.shared.clearLogs()
                         } label: {
@@ -388,16 +401,16 @@ struct AdvancedSettingsSheet: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.vertical, 4)
             }
-            
+
             // Device Detection Override
             GroupBox {
                 VStack(alignment: .leading, spacing: 12) {
                     Label("Device Detection", systemImage: "cable.connector")
                         .font(.headline)
-                    
+
                     Toggle("Assume external mouse is connected", isOn: $settings.assumeExternalMouse)
                         .font(.callout)
-                    
+
                     Text("Enable this if your Bluetooth mouse isn't being detected automatically.")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
@@ -405,11 +418,21 @@ struct AdvancedSettingsSheet: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.vertical, 4)
             }
-            
+
             Spacer()
+
+            // Bottom-right action, standard macOS sheet layout
+            HStack {
+                Spacer()
+                Button("Done") {
+                    dismiss()
+                }
+                .buttonStyle(.borderedProminent)
+                .keyboardShortcut(.cancelAction)
+            }
         }
         .padding()
-        .frame(width: 400, height: 300)
+        .frame(width: 400, height: 320)
     }
 }
 

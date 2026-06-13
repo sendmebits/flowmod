@@ -301,7 +301,8 @@ struct MouseButtonRecorderSheet: View {
                     onComplete(nil)
                 }
                 .buttonStyle(.bordered)
-                
+                .keyboardShortcut(.cancelAction)
+
                 if !isRecording {
                     Button("Try Again") {
                         recordResult = nil

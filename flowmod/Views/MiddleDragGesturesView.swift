@@ -10,34 +10,30 @@ struct MiddleDragGesturesView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                Text("Middle Button Drag Gestures")
-                    .font(.headline)
-            
                 Text("Hold middle mouse button and drag in a direction to trigger an action")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-            
+
             // Continuous gesture mode — shown first
             GroupBox {
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
                         Image(systemName: "hand.draw")
-                            .font(.title2)
+                            .font(.body)
                             .foregroundStyle(Color.accentColor)
-                            .frame(width: 32)
-                        
+                            .frame(width: 24)
+
                         VStack(alignment: .leading, spacing: 2) {
                             Text("Continuous Gestures")
                                 .font(.subheadline)
-                                .fontWeight(.medium)
                             Text("Animation follows your drag like a trackpad swipe")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
-                        
+
                         Spacer()
-                        
-                        Toggle("", isOn: $profile.continuousGestures)
+
+                        Toggle("Continuous Gestures", isOn: $profile.continuousGestures)
                             .toggleStyle(.switch)
                             .labelsHidden()
                     }
@@ -72,17 +68,20 @@ struct MiddleDragGesturesView: View {
             GroupBox {
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
-                        Text("Drag Sensitivity")
+                        Text("Drag Distance")
                             .font(.subheadline)
                         Spacer()
                         Text("\(Int(settings.dragThreshold))px")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
-                    
-                    Slider(value: $settings.dragThreshold, in: 10...100, step: 5)
-                    
-                    Text("Lower values start gestures sooner and make short side swipes easier to complete")
+
+                    Slider(value: $settings.dragThreshold, in: 10...100, step: 5) {
+                        Text("Drag Distance")
+                    }
+                    .labelsHidden()
+
+                    Text("How far to drag before a gesture triggers — shorter distances start gestures sooner. Applies to all mice.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -143,7 +142,7 @@ struct MiddleDragGesturesView: View {
             Button {
                 showingCustomShortcut = direction
             } label: {
-                Label("Custom Shortcut...", systemImage: "keyboard")
+                Label("Custom Shortcut…", systemImage: "keyboard")
             }
         } label: {
             HStack {
@@ -151,16 +150,9 @@ struct MiddleDragGesturesView: View {
                 Image(systemName: action.icon)
                 Text(action.displayName)
                     .lineLimit(1)
-                Image(systemName: "chevron.up.chevron.down")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(.quaternary)
-            .cornerRadius(6)
         }
-        .menuStyle(.borderlessButton)
+        .fixedSize()
     }
 }
 

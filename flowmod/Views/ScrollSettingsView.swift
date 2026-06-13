@@ -10,27 +10,24 @@ struct ScrollSettingsView: View {
                 // Scroll Settings Section
                 GroupBox {
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("Scroll Settings")
-                        .font(.headline)
-                    
                     // Reverse scroll
                     HStack {
                         Image(systemName: "arrow.up.arrow.down")
                             .font(.body)
                             .foregroundStyle(Color.accentColor)
                             .frame(width: 24)
-                        
+
                         VStack(alignment: .leading, spacing: 2) {
                             Text("Reverse Scroll Direction")
                                 .font(.subheadline)
-                            Text("For external mice only (excludes Apple devices)")
+                            Text("Doesn't affect Apple trackpads or Magic Mouse")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
-                        
+
                         Spacer()
-                        
-                        Toggle("", isOn: $profile.reverseScrollEnabled)
+
+                        Toggle("Reverse Scroll Direction", isOn: $profile.reverseScrollEnabled)
                             .toggleStyle(.switch)
                             .labelsHidden()
                     }
@@ -54,12 +51,13 @@ struct ScrollSettingsView: View {
                         
                         Spacer()
                         
-                        Picker("", selection: $profile.smoothScrolling) {
+                        Picker("Smooth Scrolling", selection: $profile.smoothScrolling) {
                             ForEach(SmoothScrolling.allCases) { option in
                                 Text(option.rawValue).tag(option)
                             }
                         }
                         .pickerStyle(.menu)
+                        .labelsHidden()
                         .frame(width: 120)
                     }
                 }
@@ -89,7 +87,7 @@ struct ScrollSettingsView: View {
                         
                         Spacer()
                         
-                        Toggle("", isOn: $profile.shiftHorizontalScroll)
+                        Toggle("Shift + Scroll = Horizontal", isOn: $profile.shiftHorizontalScroll)
                             .toggleStyle(.switch)
                             .labelsHidden()
                     }
@@ -113,7 +111,7 @@ struct ScrollSettingsView: View {
                         
                         Spacer()
                         
-                        Toggle("", isOn: $profile.optionPrecisionScroll)
+                        Toggle("Option + Scroll = Precision", isOn: $profile.optionPrecisionScroll)
                             .toggleStyle(.switch)
                             .labelsHidden()
                     }
@@ -137,7 +135,7 @@ struct ScrollSettingsView: View {
                         
                         Spacer()
                         
-                        Toggle("", isOn: $profile.controlFastScroll)
+                        Toggle("Control + Scroll = Fast", isOn: $profile.controlFastScroll)
                             .toggleStyle(.switch)
                             .labelsHidden()
                     }
@@ -161,18 +159,13 @@ struct ScrollSettingsView: View {
                         
                         Spacer()
                         
-                        Toggle("", isOn: $profile.commandZoomScroll)
+                        Toggle("Command + Scroll = Zoom", isOn: $profile.commandZoomScroll)
                             .toggleStyle(.switch)
                             .labelsHidden()
                     }
                 }
                 .padding(.vertical, 4)
             }
-            
-            // Help text
-            Text("Apple trackpads and Magic Mouse will continue to scroll naturally. Only external/Windows mice will have their scroll direction reversed.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         }

@@ -15,24 +15,21 @@ struct MouseButtonsView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 HStack {
-                    Text("Mouse Button Mappings")
-                        .font(.headline)
-                
+                    Text("Configure what each mouse button does")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
                     Spacer()
-                
+
                     Button {
                         showingButtonRecorder = true
                     } label: {
-                        Label("Add Button", systemImage: "plus")
+                        Label("Add Button…", systemImage: "plus")
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
                 }
-            
-                Text("Configure what each mouse button does")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            
+
                 GroupBox {
                     if profile.customMouseButtonMappings.isEmpty {
                         VStack(spacing: 12) {
@@ -44,7 +41,7 @@ struct MouseButtonsView: View {
                                 .font(.headline)
                                 .foregroundStyle(.secondary)
                             
-                            Text("Click \"Add Button\" to configure extra mouse buttons")
+                            Text("Click \"Add Button…\" to configure extra mouse buttons")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                                 .multilineTextAlignment(.center)
@@ -133,23 +130,16 @@ struct MouseButtonsView: View {
             Button {
                 customShortcutSheetItem = CustomShortcutSheetItem(id: mapping.id)
             } label: {
-                Label("Custom Shortcut...", systemImage: "keyboard")
+                Label("Custom Shortcut…", systemImage: "keyboard")
             }
         } label: {
             HStack {
                 Image(systemName: mapping.action.icon)
                 Text(mapping.action.displayName)
                     .lineLimit(1)
-                Image(systemName: "chevron.up.chevron.down")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(.quaternary)
-            .cornerRadius(6)
         }
-        .menuStyle(.borderlessButton)
+        .fixedSize()
     }
     
     private func updateAction(for mapping: CustomMouseButtonMapping, to action: MouseAction) {
