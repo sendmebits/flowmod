@@ -9,6 +9,12 @@ class LogManager {
     
     private let maxLogEntries = 500
     private var logEntries: [LogEntry] = []
+
+    /// Thread-safe mirror of `Settings.debugLogging`, readable from the
+    /// event-tap thread without touching the main actor. Kept in sync by
+    /// `Settings` whenever the toggle changes (see `setDebugEnabled`).
+    @ObservationIgnored private let flagLock = NSLock()
+    @ObservationIgnored nonisolated(unsafe) private var debugEnabledFlag = false
     
     /// Shared date formatter (DateFormatter is expensive to create)
     private static let dateFormatter: DateFormatter = {
@@ -29,14 +35,34 @@ class LogManager {
     
     private init() {}
     
-    /// Log a message (only if debug logging is enabled in settings)
-    func log(_ message: String, category: String = "General") {
-        guard Settings.shared.debugLogging else { return }
-        
+    /// Update the cached debug-logging flag. Safe to call from any thread.
+    nonisolated func setDebugEnabled(_ enabled: Bool) {
+        flagLock.lock()
+        debugEnabledFlag = enabled
+        flagLock.unlock()
+    }
+
+    private nonisolated var debugEnabled: Bool {
+        flagLock.lock()
+        defer { flagLock.unlock() }
+        return debugEnabledFlag
+    }
+
+    /// Log a message (only if debug logging is enabled in settings).
+    /// Safe to call from any thread — including the event-tap thread. The entry
+    /// is appended on the main actor so the UI's observation of `logEntries`
+    /// stays intact and the array is never mutated from two threads at once.
+    nonisolated func log(_ message: String, category: String = "General") {
+        guard debugEnabled else { return }
+
         let entry = LogEntry(timestamp: Date(), category: category, message: message)
+        DispatchQueue.main.async { [weak self] in
+            self?.appendEntry(entry)
+        }
+    }
+
+    private func appendEntry(_ entry: LogEntry) {
         logEntries.append(entry)
-        
-        // Trim old entries if needed
         if logEntries.count > maxLogEntries {
             logEntries.removeFirst(logEntries.count - maxLogEntries)
         }

@@ -16,9 +16,18 @@ class DeviceManager {
     private let appleVendorID: Int = 0x05AC
     private var refreshTimer: Timer?
 
+    /// Attribution state read from the event-tap thread (see `device(forEventSenderID:)`).
+    /// Guarded by `attributionLock` rather than the main actor so the scroll/button
+    /// hot path never has to hop to the main thread to attribute an event.
+    @ObservationIgnored private let attributionLock = NSLock()
+
+    /// Snapshot of `connectedDevices` for off-main attribution. Updated under
+    /// `attributionLock` whenever `connectedDevices` changes.
+    @ObservationIgnored nonisolated(unsafe) private var attributionDevices: [HIDDevice] = []
+
     /// Cache of CGEvent sender IDs (undocumented field 87) → matched device.
     /// A nil value means "resolved, no match" so we don't re-walk the registry per event.
-    private var senderIDCache: [UInt64: HIDDevice?] = [:]
+    @ObservationIgnored nonisolated(unsafe) private var senderIDCache: [UInt64: HIDDevice?] = [:]
     
     struct HIDDevice: Identifiable, Equatable {
         let id: UUID = UUID()
@@ -146,7 +155,12 @@ class DeviceManager {
         
         if newDevices != connectedDevices {
             connectedDevices = newDevices
+            // Publish the snapshot the event-tap thread reads, and drop the
+            // now-stale sender→device cache, under the attribution lock.
+            attributionLock.lock()
+            attributionDevices = newDevices
             senderIDCache.removeAll()
+            attributionLock.unlock()
             updateConnectionState()
         }
     }
@@ -157,18 +171,34 @@ class DeviceManager {
     /// (undocumented CGEvent field 87 — the IORegistry entry ID of the HID event
     /// service that generated it). Returns nil for synthesized events (sender 0)
     /// or when the sender can't be matched to an enumerated device.
-    func device(forEventSenderID senderID: UInt64) -> HIDDevice? {
+    /// Resolves the device for a sender ID entirely on the calling thread
+    /// (the event tap runs on a background run-loop thread). All state it
+    /// touches is either lock-protected (`senderIDCache`, `attributionDevices`)
+    /// or thread-safe IOKit registry calls — it never hops to the main actor.
+    nonisolated func device(forEventSenderID senderID: UInt64) -> HIDDevice? {
         guard senderID != 0 else { return nil }
+
+        attributionLock.lock()
         if let cached = senderIDCache[senderID] {
+            attributionLock.unlock()
             return cached
         }
-        let resolved = resolveDevice(forSenderID: senderID)
+        let devices = attributionDevices
+        attributionLock.unlock()
+
+        let resolved = DeviceManager.resolveDevice(forSenderID: senderID, in: devices)
+
+        attributionLock.lock()
         senderIDCache[senderID] = resolved
-        LogManager.shared.log("Event sender \(senderID) resolved to: \(resolved?.displayName ?? "unknown device")", category: "Device")
+        attributionLock.unlock()
+
+        // Intentionally no logging here: this runs on the event-tap thread and
+        // both LogManager and HIDDevice.displayName are main-actor isolated, so
+        // logging would force a cross-actor access on the hot path.
         return resolved
     }
 
-    private func resolveDevice(forSenderID senderID: UInt64) -> HIDDevice? {
+    private nonisolated static func resolveDevice(forSenderID senderID: UInt64, in devices: [HIDDevice]) -> HIDDevice? {
         let entry = IOServiceGetMatchingService(kIOMainPortDefault, IORegistryEntryIDMatching(senderID))
         guard entry != 0 else { return nil }
         defer { IOObjectRelease(entry) }
@@ -181,7 +211,7 @@ class DeviceManager {
         while current != 0 {
             var entryID: UInt64 = 0
             IORegistryEntryGetRegistryEntryID(current, &entryID)
-            if let match = connectedDevices.first(where: { $0.registryID == entryID }) {
+            if let match = devices.first(where: { $0.registryID == entryID }) {
                 IOObjectRelease(current)
                 return match
             }
@@ -196,7 +226,7 @@ class DeviceManager {
         let searchOptions = IOOptionBits(kIORegistryIterateRecursively | kIORegistryIterateParents)
         if let vendorID = IORegistryEntrySearchCFProperty(entry, kIOServicePlane, kIOHIDVendorIDKey as CFString, kCFAllocatorDefault, searchOptions) as? Int,
            let productID = IORegistryEntrySearchCFProperty(entry, kIOServicePlane, kIOHIDProductIDKey as CFString, kCFAllocatorDefault, searchOptions) as? Int {
-            return connectedDevices.first { $0.vendorID == vendorID && $0.productID == productID }
+            return devices.first { $0.vendorID == vendorID && $0.productID == productID }
         }
         return nil
     }

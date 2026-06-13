@@ -96,7 +96,12 @@ class Settings {
 
     /// Enable debug logging
     var debugLogging: Bool = false {
-        didSet { if !isLoading { UserDefaults.standard.set(debugLogging, forKey: "debugLogging") } }
+        didSet {
+            // Mirror into LogManager's thread-safe flag so the event-tap thread
+            // can gate logging without reading this main-actor property.
+            LogManager.shared.setDebugEnabled(debugLogging)
+            if !isLoading { UserDefaults.standard.set(debugLogging, forKey: "debugLogging") }
+        }
     }
 
     // MARK: - Initialization

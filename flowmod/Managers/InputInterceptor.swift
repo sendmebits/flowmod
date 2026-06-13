@@ -147,10 +147,9 @@ class InputInterceptor {
     private func source(of event: CGEvent) -> EventSource {
         let senderID = UInt64(bitPattern: event.getIntegerValueField(InputInterceptor.senderIDField))
         guard senderID != 0 else { return .unknown }
-        let device: DeviceManager.HIDDevice? = onMain {
-            deviceManager?.device(forEventSenderID: senderID)
-        }
-        guard let device else { return .unknown }
+        // Attribution is lock-protected and resolves on this (event-tap) thread —
+        // no per-event hop to the main actor.
+        guard let device = deviceManager?.device(forEventSenderID: senderID) else { return .unknown }
         if device.isAppleDevice {
             return EventSource(kind: .appleDevice, profileKey: nil)
         }
