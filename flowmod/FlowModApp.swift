@@ -10,6 +10,8 @@ import AppKit
 
 @main
 struct FlowModApp: App {
+    private static let hasPromptedForAccessibilityKey = "hasPromptedForAccessibility"
+    
     @State private var settings = Settings.shared
     @State private var deviceManager = DeviceManager.shared
     @State private var permissionManager = PermissionManager.shared
@@ -56,19 +58,34 @@ struct FlowModApp: App {
     }
     
     init() {
+        Task { @MainActor in
+            PermissionManager.shared.onPermissionGranted = {
+                Self.startInputInterceptorIfNeeded()
+            }
+        }
+        
         // Start the input interceptor on launch if we have permission
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             Task { @MainActor in
                 if PermissionManager.shared.hasAccessibilityPermission {
-                    InputInterceptor.shared.start(
-                        settings: Settings.shared,
-                        deviceManager: DeviceManager.shared
-                    )
+                    Self.startInputInterceptorIfNeeded()
+                } else if !UserDefaults.standard.bool(forKey: Self.hasPromptedForAccessibilityKey) {
+                    UserDefaults.standard.set(true, forKey: Self.hasPromptedForAccessibilityKey)
+                    PermissionManager.shared.requestPermission()
                 }
                 // Check for updates on launch (respects auto-check setting and 24h interval)
                 UpdateManager.shared.checkIfNeeded()
             }
         }
+    }
+
+    @MainActor
+    private static func startInputInterceptorIfNeeded() {
+        guard PermissionManager.shared.hasAccessibilityPermission else { return }
+        InputInterceptor.shared.start(
+            settings: Settings.shared,
+            deviceManager: DeviceManager.shared
+        )
     }
 
     // MARK: - Menu Bar Icon Builder
@@ -191,6 +208,10 @@ struct MenuBarContent: View {
         if inputInterceptor.isRunning {
             Button("Disable") {
                 inputInterceptor.stop()
+            }
+        } else if !permissionManager.hasAccessibilityPermission {
+            Button("Grant Accessibility Access...") {
+                startInterceptor()
             }
         } else {
             Button("Enable") {

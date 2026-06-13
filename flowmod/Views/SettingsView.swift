@@ -291,7 +291,7 @@ struct SettingsView: View {
             Spacer()
 
             Button("Grant Access") {
-                permissionManager.openAccessibilitySettings()
+                permissionManager.requestPermission()
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.small)

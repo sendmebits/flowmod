@@ -10,6 +10,7 @@ class PermissionManager {
     static let shared = PermissionManager()
     
     private(set) var hasAccessibilityPermission = false
+    @ObservationIgnored var onPermissionGranted: (@MainActor () -> Void)?
     
     private var checkTimer: Timer?
     private var currentPollInterval: TimeInterval = 5.0
@@ -25,12 +26,16 @@ class PermissionManager {
     
     /// Check current accessibility permission status
     func checkPermission() {
+        let hadPermission = hasAccessibilityPermission
         hasAccessibilityPermission = AXIsProcessTrusted()
         
         // Stop polling once permission is granted
         if hasAccessibilityPermission {
             checkTimer?.invalidate()
             checkTimer = nil
+            if !hadPermission {
+                onPermissionGranted?()
+            }
         }
     }
     
@@ -38,6 +43,7 @@ class PermissionManager {
     func requestPermission() {
         let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary
         _ = AXIsProcessTrustedWithOptions(options)
+        openAccessibilitySettings()
         
         // Start monitoring for permission grant
         startPermissionMonitoring(resetBackoff: true)
