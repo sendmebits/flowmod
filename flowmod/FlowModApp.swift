@@ -43,16 +43,7 @@ struct FlowModApp: App {
                 permissionManager: permissionManager
             )
             .onAppear {
-                // Bring the settings window to front (menu bar apps don't
-                // activate automatically)
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                    for window in NSApp.windows {
-                        if window.title == "Settings" || window.identifier?.rawValue.contains("Settings") == true {
-                            window.orderFrontRegardless()
-                        }
-                    }
-                }
-                NSApp.activate(ignoringOtherApps: true)
+                Self.foregroundSettingsWindow(afterDelays: [0.1])
             }
         }
     }
@@ -86,6 +77,33 @@ struct FlowModApp: App {
             settings: Settings.shared,
             deviceManager: DeviceManager.shared
         )
+    }
+
+    @MainActor
+    static func foregroundSettingsWindow(afterDelays delays: [TimeInterval] = []) {
+        bringSettingsWindowToFront()
+
+        for delay in delays {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                Task { @MainActor in
+                    bringSettingsWindowToFront()
+                }
+            }
+        }
+    }
+
+    @MainActor
+    private static func bringSettingsWindowToFront() {
+        if let settingsWindow = NSApp.windows.first(where: isSettingsWindow) {
+            settingsWindow.makeKeyAndOrderFront(nil)
+            settingsWindow.orderFrontRegardless()
+        }
+
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    private static func isSettingsWindow(_ window: NSWindow) -> Bool {
+        window.title == "Settings" || window.identifier?.rawValue.contains("Settings") == true
     }
 
     // MARK: - Menu Bar Icon Builder
@@ -179,6 +197,7 @@ struct MenuBarContent: View {
     var permissionManager: PermissionManager
     var inputInterceptor: InputInterceptor
     var updateManager: UpdateManager
+    @Environment(\.openSettings) private var openSettings
 
     private var appVersion: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
@@ -199,10 +218,10 @@ struct MenuBarContent: View {
 
         Divider()
 
-        SettingsLink {
-            Text("Settings…")
+        Button("Settings…") {
+            openSettings()
+            FlowModApp.foregroundSettingsWindow(afterDelays: [0.1, 0.3])
         }
-        .keyboardShortcut(",", modifiers: .command)
 
         Divider()
 
@@ -223,7 +242,6 @@ struct MenuBarContent: View {
         Button("Quit FlowMod") {
             NSApplication.shared.terminate(nil)
         }
-        .keyboardShortcut("q", modifiers: .command)
     }
 
     private func startInterceptor() {

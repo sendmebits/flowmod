@@ -10,6 +10,10 @@ struct GeneralSettingsView: View {
     @State private var launchAtLoginEnabled = false
     @State private var launchAtLoginError: String?
     @State private var showAdvanced = false
+    @State private var showDevicePopover = false
+    @State private var devicePopoverTask: Task<Void, Never>?
+
+    private let devicePopoverDelay: Duration = .milliseconds(250)
     
     /// Get the app version from Bundle info
     private var appVersionString: String {
@@ -123,6 +127,9 @@ struct GeneralSettingsView: View {
         .sheet(isPresented: $showAdvanced) {
             AdvancedSettingsSheet(settings: settings)
         }
+        .onDisappear {
+            cancelDevicePopover()
+        }
     }
     
     private func checkLaunchAtLoginStatus() {
@@ -147,6 +154,27 @@ struct GeneralSettingsView: View {
                 launchAtLoginEnabled = !enabled
             }
         }
+    }
+
+    private func handleDevicePillHover(_ isHovering: Bool) {
+        devicePopoverTask?.cancel()
+
+        guard isHovering else {
+            showDevicePopover = false
+            return
+        }
+
+        devicePopoverTask = Task { @MainActor in
+            try? await Task.sleep(for: devicePopoverDelay)
+            guard !Task.isCancelled else { return }
+            showDevicePopover = true
+        }
+    }
+
+    private func cancelDevicePopover() {
+        devicePopoverTask?.cancel()
+        devicePopoverTask = nil
+        showDevicePopover = false
     }
     
     private var updatesSection: some View {
@@ -334,7 +362,14 @@ struct GeneralSettingsView: View {
                 .fill(connected ? Color.accentColor.opacity(0.08) : Color.secondary.opacity(0.06))
         )
         .foregroundStyle(connected ? .primary : .secondary)
-        .help(deviceList)
+        .onHover(perform: handleDevicePillHover)
+        .popover(isPresented: $showDevicePopover, arrowEdge: .bottom) {
+            Text(deviceList)
+                .font(.caption)
+                .multilineTextAlignment(.leading)
+                .padding(8)
+                .fixedSize()
+        }
     }
 }
 
