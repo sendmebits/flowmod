@@ -159,10 +159,8 @@ struct SettingsView: View {
         return connected + disconnected
     }
 
-    /// Finder-style scope bar: a centered segmented control selecting which
-    /// mouse is being configured, with a trailing reset menu for customized
-    /// mice. Falls back to a dropdown when there are too many mice for
-    /// segments to stay readable.
+    /// Finder-style scope bar: a centered popup selecting which mouse is
+    /// being configured, with a trailing reset menu for customized mice.
     private var profileScopeBar: some View {
         HStack {
             Spacer(minLength: 40)
@@ -193,34 +191,25 @@ struct SettingsView: View {
     @ViewBuilder
     private var scopePicker: some View {
         let entries = scopeEntries
-        if entries.count <= 3 {
-            Picker("Mouse", selection: $selectedProfileKey) {
-                Text("All Mice").tag(String?.none)
-                ForEach(entries) { entry in
-                    Text(entry.name).tag(Optional(entry.key))
-                }
+        let connectedEntries = entries.filter { $0.connected }
+        let disconnectedEntries = entries.filter { !$0.connected }
+
+        Picker("Mouse", selection: $selectedProfileKey) {
+            Text("All Mice").tag(String?.none)
+            ForEach(connectedEntries) { entry in
+                Text(entry.name).tag(Optional(entry.key))
             }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .fixedSize()
-        } else {
-            // Too many mice for segments — compact centered dropdown
-            Picker("Mouse", selection: $selectedProfileKey) {
-                Text("All Mice").tag(String?.none)
-                ForEach(entries.filter { $0.connected }) { entry in
-                    Text(entry.name).tag(Optional(entry.key))
-                }
-                if entries.contains(where: { !$0.connected }) {
-                    Section("Not Connected") {
-                        ForEach(entries.filter { !$0.connected }) { entry in
-                            Text(entry.name).tag(Optional(entry.key))
-                        }
+            if !disconnectedEntries.isEmpty {
+                Section("Not Connected") {
+                    ForEach(disconnectedEntries) { entry in
+                        Text(entry.name).tag(Optional(entry.key))
                     }
                 }
             }
-            .labelsHidden()
-            .fixedSize()
         }
+        .pickerStyle(.menu)
+        .labelsHidden()
+        .frame(maxWidth: 360)
     }
 
     // MARK: - Tab Content Gating
