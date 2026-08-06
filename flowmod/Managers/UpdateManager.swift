@@ -35,6 +35,7 @@ class UpdateManager {
     var errorMessage: String?
     /// Shown when the app is up to date (after a check or when throttled to avoid repeated GitHub requests).
     var upToDateMessage: String?
+    @ObservationIgnored private var upToDateDismissTask: Task<Void, Never>?
     
     // MARK: - Constants
     
@@ -71,25 +72,29 @@ class UpdateManager {
         }
         // First launch (nil) or interval exceeded — check now
         Task {
-            await checkForUpdates()
+            await checkForUpdates(showUpToDateFeedback: false)
         }
     }
     
     /// Manually check for updates by hitting the GitHub Releases API.
     /// Throttled to at most once per `manualCheckThrottleInterval` to avoid GitHub rate limiting.
-    func checkForUpdates() async {
+    func checkForUpdates(showUpToDateFeedback: Bool = true) async {
         guard !isChecking else { return }
         
         // If we checked very recently, show up-to-date without hitting the API.
         if let lastCheck = lastUpdateCheck, Date().timeIntervalSince(lastCheck) < manualCheckThrottleInterval {
-            upToDateMessage = "You're up to date."
+            if showUpToDateFeedback {
+                showUpToDateFeedbackMessage()
+            } else {
+                clearUpToDateFeedback()
+            }
             errorMessage = nil
             return
         }
         
         isChecking = true
         errorMessage = nil
-        upToDateMessage = nil
+        clearUpToDateFeedback()
         
         defer { isChecking = false }
         
@@ -111,7 +116,9 @@ class UpdateManager {
                 latestVersion = nil
                 downloadURL = nil
                 lastUpdateCheck = Date()
-                upToDateMessage = "You're up to date."
+                if showUpToDateFeedback {
+                    showUpToDateFeedbackMessage()
+                }
                 return
             }
             
@@ -138,12 +145,14 @@ class UpdateManager {
                     downloadURL = nil
                 }
                 updateAvailable = true
-                upToDateMessage = nil
+                clearUpToDateFeedback()
             } else {
                 updateAvailable = false
                 latestVersion = nil
                 downloadURL = nil
-                upToDateMessage = "You're up to date."
+                if showUpToDateFeedback {
+                    showUpToDateFeedbackMessage()
+                }
             }
             
             lastUpdateCheck = Date()
@@ -152,8 +161,25 @@ class UpdateManager {
             // Task cancelled, ignore
         } catch {
             errorMessage = "Failed to check for updates: \(error.localizedDescription)"
-            upToDateMessage = nil
+            clearUpToDateFeedback()
         }
+    }
+
+    private func showUpToDateFeedbackMessage() {
+        upToDateDismissTask?.cancel()
+        upToDateMessage = "You're up to date."
+        upToDateDismissTask = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(3))
+            guard !Task.isCancelled else { return }
+            upToDateMessage = nil
+            upToDateDismissTask = nil
+        }
+    }
+
+    private func clearUpToDateFeedback() {
+        upToDateDismissTask?.cancel()
+        upToDateDismissTask = nil
+        upToDateMessage = nil
     }
     
     /// Downloads the update zip, extracts it, replaces the current app bundle, and relaunches.
