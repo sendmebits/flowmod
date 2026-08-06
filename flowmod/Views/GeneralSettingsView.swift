@@ -189,9 +189,14 @@ struct GeneralSettingsView: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Updates")
                             .font(.subheadline)
-                        Text("Checks once per day for new releases on GitHub")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                        HStack(spacing: 0) {
+                            Text("Checks once per day for new releases on ")
+                                .foregroundStyle(.secondary)
+                            Link("GitHub", destination: URL(string: "https://github.com/sendmebits/flowmod")!)
+                                .underline()
+                                .foregroundStyle(Color.accentColor)
+                        }
+                        .font(.caption)
                     }
 
                     Spacer()
