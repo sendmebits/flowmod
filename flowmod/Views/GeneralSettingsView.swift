@@ -169,6 +169,7 @@ struct GeneralSettingsView: View {
                         Text("Checks once per day for new releases on [GitHub](https://github.com/sendmebits/flowmod)")
                             .font(.caption)
                             .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
 
                     Spacer()
