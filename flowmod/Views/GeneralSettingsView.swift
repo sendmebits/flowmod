@@ -397,6 +397,7 @@ struct AdvancedSettingsSheet: View {
                     Text("Captures detailed logs for troubleshooting. May impact performance.")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
 
                     HStack {
                         Button {
@@ -434,7 +435,7 @@ struct AdvancedSettingsSheet: View {
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.vertical, 4)
+                .padding(.vertical, 8)
             }
 
             // Device Detection Override
@@ -449,12 +450,11 @@ struct AdvancedSettingsSheet: View {
                     Text("Enable this if your Bluetooth mouse isn't being detected automatically.")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.vertical, 4)
+                .padding(.vertical, 8)
             }
-
-            Spacer()
 
             // Bottom-right action, standard macOS sheet layout
             HStack {
@@ -467,7 +467,8 @@ struct AdvancedSettingsSheet: View {
             }
         }
         .padding()
-        .frame(width: 400, height: 320)
+        .frame(width: 400)
+        .fixedSize(horizontal: false, vertical: true)
     }
 }
 
