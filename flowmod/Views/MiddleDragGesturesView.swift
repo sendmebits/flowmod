@@ -5,6 +5,7 @@ struct MiddleDragGesturesView: View {
     @Bindable var profile: ProfileSettings
     /// Global settings (drag threshold is shared across all mice)
     @Bindable var settings: Settings
+    var profileControlsDisabled = false
     @State private var showingCustomShortcut: DragDirection?
     
     var body: some View {
@@ -17,22 +18,11 @@ struct MiddleDragGesturesView: View {
             // Continuous gesture mode — shown first
             GroupBox {
                 VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Image(systemName: "hand.draw")
-                            .font(.body)
-                            .foregroundStyle(Color.accentColor)
-                            .frame(width: 24)
-
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Continuous Gestures")
-                                .font(.subheadline)
-                            Text("Animation follows your drag like a trackpad swipe")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-
-                        Spacer()
-
+                    SettingsControlRow(
+                        icon: "hand.draw",
+                        title: "Continuous Gestures",
+                        description: "Animation follows your drag like a trackpad swipe"
+                    ) {
                         Toggle("Continuous Gestures", isOn: $profile.continuousGestures)
                             .toggleStyle(.switch)
                             .labelsHidden()
@@ -46,10 +36,16 @@ struct MiddleDragGesturesView: View {
                 }
                 .padding(.vertical, 4)
             }
+            .opacity(profileControlsDisabled ? 0.5 : 1.0)
+            .disabled(profileControlsDisabled)
             
             // Direction mappings
             GroupBox {
-                VStack(spacing: 0) {
+                VStack(alignment: .leading, spacing: 0) {
+                    Text("Direction Actions")
+                        .font(.headline)
+                        .padding(.bottom, 12)
+
                     ForEach(DragDirection.allCases) { direction in
                         directionRow(for: direction)
                         
@@ -61,8 +57,8 @@ struct MiddleDragGesturesView: View {
                 }
                 .padding(.vertical, 4)
             }
-            .opacity(profile.continuousGestures ? 0.5 : 1.0)
-            .allowsHitTesting(!profile.continuousGestures)
+            .opacity(profile.continuousGestures || profileControlsDisabled ? 0.5 : 1.0)
+            .disabled(profile.continuousGestures || profileControlsDisabled)
             
             // Threshold slider
             GroupBox {

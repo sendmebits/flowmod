@@ -112,6 +112,9 @@ struct MouseButtonsView: View {
                     .foregroundStyle(.secondary)
             }
             .buttonStyle(.plain)
+            .help("Remove \(mapping.displayName) mapping")
+            .accessibilityLabel("Remove \(mapping.displayName) mapping")
+            .accessibilityHint("Deletes this mouse button mapping")
         }
     }
     

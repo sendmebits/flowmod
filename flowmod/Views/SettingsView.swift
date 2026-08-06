@@ -1,5 +1,50 @@
 import SwiftUI
 
+/// Consistent title, description, icon, and trailing control layout for settings.
+struct SettingsControlRow<Control: View>: View {
+    let icon: String
+    let title: String
+    let description: String
+    private let control: Control
+
+    init(
+        icon: String,
+        title: String,
+        description: String,
+        @ViewBuilder control: () -> Control
+    ) {
+        self.icon = icon
+        self.title = title
+        self.description = description
+        self.control = control()
+    }
+
+    var body: some View {
+        HStack {
+            Image(systemName: icon)
+                .font(.body)
+                .foregroundStyle(Color.accentColor)
+                .frame(width: 24)
+                .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.subheadline)
+                Text(description)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .accessibilityHidden(true)
+
+            Spacer()
+
+            control
+                .accessibilityLabel(title)
+                .accessibilityHint(description)
+        }
+    }
+}
+
 /// Main settings view with a clean tabbed interface
 struct SettingsView: View {
     @Bindable var settings: Settings
@@ -57,9 +102,7 @@ struct SettingsView: View {
                 }
                 .tag(Tab.buttons)
 
-                behaviorTab { profile in
-                    MiddleDragGesturesView(profile: profile, settings: settings)
-                }
+                gesturesTab
                 .tabItem {
                     Label("Gestures", systemImage: "hand.draw")
                 }
@@ -67,9 +110,14 @@ struct SettingsView: View {
             }
             .padding()
         }
-        // Constant height so the window doesn't jump when the scope bar
-        // appears or disappears
-        .frame(width: 500, height: 478)
+        // Keep the compact width while allowing additional vertical space.
+        .frame(
+            minWidth: 500,
+            idealWidth: 500,
+            maxWidth: 500,
+            minHeight: 478,
+            idealHeight: 478
+        )
         .background(.regularMaterial)
         .onChange(of: settings.perMouseSettingsEnabled) { _, enabled in
             if !enabled { selectedProfileKey = nil }
@@ -182,6 +230,8 @@ struct SettingsView: View {
                 .fixedSize()
                 .padding(.trailing, 14)
                 .help("Profile options")
+                .accessibilityLabel("Profile options")
+                .accessibilityHint("Reset \(selectedDeviceName) to the default settings")
             }
         }
         .padding(.top, 10)
@@ -230,6 +280,25 @@ struct SettingsView: View {
                 content(settings.defaultProfile)
                     .disabled(true)
                     .opacity(0.5)
+            }
+        }
+    }
+
+    /// Gestures include a global drag-distance control, so only the
+    /// profile-specific controls become read-only in preview mode.
+    @ViewBuilder
+    private var gesturesTab: some View {
+        if let profile = selectedProfile {
+            MiddleDragGesturesView(profile: profile, settings: settings)
+        } else {
+            VStack(spacing: 10) {
+                customizeBanner
+
+                MiddleDragGesturesView(
+                    profile: settings.defaultProfile,
+                    settings: settings,
+                    profileControlsDisabled: true
+                )
             }
         }
     }

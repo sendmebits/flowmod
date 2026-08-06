@@ -32,6 +32,10 @@ struct FlowModApp: App {
             let isActive = permissionManager.hasAccessibilityPermission
                 && inputInterceptor.isRunning
             Image(nsImage: Self.menuBarImage(active: isActive, updateAvailable: updateManager.updateAvailable))
+                .accessibilityLabel(Self.menuBarAccessibilityLabel(
+                    active: isActive,
+                    updateAvailable: updateManager.updateAvailable
+                ))
         }
         .menuBarExtraStyle(.menu)
         
@@ -107,6 +111,14 @@ struct FlowModApp: App {
     }
 
     // MARK: - Menu Bar Icon Builder
+
+    private static func menuBarAccessibilityLabel(active: Bool, updateAvailable: Bool) -> String {
+        var components = ["FlowMod", active ? "enabled" : "disabled"]
+        if updateAvailable {
+            components.append("update available")
+        }
+        return components.joined(separator: ", ")
+    }
 
     /// Creates a template NSImage for the menu bar icon.
     /// When inactive, draws a diagonal slash across the mouse symbol.

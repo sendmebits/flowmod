@@ -11,9 +11,6 @@ struct GeneralSettingsView: View {
     @State private var launchAtLoginError: String?
     @State private var showAdvanced = false
     @State private var showDevicePopover = false
-    @State private var devicePopoverTask: Task<Void, Never>?
-
-    private let devicePopoverDelay: Duration = .milliseconds(250)
     
     /// Get the app version from Bundle info
     private var appVersionString: String {
@@ -33,22 +30,11 @@ struct GeneralSettingsView: View {
                 // Launch at Login
                 GroupBox {
                     VStack(alignment: .leading, spacing: 6) {
-                        HStack {
-                            Image(systemName: "power")
-                                .font(.body)
-                                .foregroundStyle(Color.accentColor)
-                                .frame(width: 24)
-
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("Launch at Login")
-                                    .font(.subheadline)
-                                Text("Start FlowMod automatically when you log in")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-
-                            Spacer()
-
+                        SettingsControlRow(
+                            icon: "power",
+                            title: "Launch at Login",
+                            description: "Start FlowMod automatically when you log in"
+                        ) {
                             Toggle("Launch at Login", isOn: $launchAtLoginEnabled)
                                 .toggleStyle(.switch)
                                 .labelsHidden()
@@ -68,28 +54,17 @@ struct GeneralSettingsView: View {
                             }
                         }
                     }
+                    .padding(.vertical, 4)
                 }
-                .padding(.vertical, 4)
 
                 // Per-mouse settings
                 GroupBox {
                     VStack(alignment: .leading, spacing: 6) {
-                        HStack {
-                            Image(systemName: "computermouse")
-                                .font(.body)
-                                .foregroundStyle(Color.accentColor)
-                                .frame(width: 24)
-
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("Separate Settings Per Mouse")
-                                    .font(.subheadline)
-                                Text("Give each mouse its own scroll, button, and gesture settings")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-
-                            Spacer()
-
+                        SettingsControlRow(
+                            icon: "computermouse",
+                            title: "Separate Settings Per Mouse",
+                            description: "Give each mouse its own scroll, button, and gesture settings"
+                        ) {
                             Toggle("Separate Settings Per Mouse", isOn: $settings.perMouseSettingsEnabled)
                                 .toggleStyle(.switch)
                                 .labelsHidden()
@@ -101,8 +76,8 @@ struct GeneralSettingsView: View {
                                 .foregroundStyle(.tertiary)
                         }
                     }
+                    .padding(.vertical, 4)
                 }
-                .padding(.vertical, 4)
 
                 // Updates
                 updatesSection
@@ -127,8 +102,30 @@ struct GeneralSettingsView: View {
         .sheet(isPresented: $showAdvanced) {
             AdvancedSettingsSheet(settings: settings)
         }
-        .onDisappear {
-            cancelDevicePopover()
+        .onChange(of: updateManager.isChecking) { _, isChecking in
+            if isChecking {
+                AccessibilityNotification.Announcement("Checking for updates").post()
+            }
+        }
+        .onChange(of: updateManager.isDownloading) { _, isDownloading in
+            if isDownloading {
+                AccessibilityNotification.Announcement("Downloading update").post()
+            }
+        }
+        .onChange(of: updateManager.upToDateMessage) { _, message in
+            if let message {
+                AccessibilityNotification.Announcement(message).post()
+            }
+        }
+        .onChange(of: updateManager.updateAvailable) { _, isAvailable in
+            if isAvailable, let version = updateManager.latestVersion {
+                AccessibilityNotification.Announcement("FlowMod version \(version) is available").post()
+            }
+        }
+        .onChange(of: updateManager.errorMessage) { _, error in
+            if let error {
+                AccessibilityNotification.Announcement("Update error: \(error)").post()
+            }
         }
     }
     
@@ -156,27 +153,6 @@ struct GeneralSettingsView: View {
         }
     }
 
-    private func handleDevicePillHover(_ isHovering: Bool) {
-        devicePopoverTask?.cancel()
-
-        guard isHovering else {
-            showDevicePopover = false
-            return
-        }
-
-        devicePopoverTask = Task { @MainActor in
-            try? await Task.sleep(for: devicePopoverDelay)
-            guard !Task.isCancelled else { return }
-            showDevicePopover = true
-        }
-    }
-
-    private func cancelDevicePopover() {
-        devicePopoverTask?.cancel()
-        devicePopoverTask = nil
-        showDevicePopover = false
-    }
-    
     private var updatesSection: some View {
         GroupBox {
             VStack(alignment: .leading, spacing: 10) {
@@ -185,18 +161,14 @@ struct GeneralSettingsView: View {
                         .font(.body)
                         .foregroundStyle(Color.accentColor)
                         .frame(width: 24)
+                        .accessibilityHidden(true)
 
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Updates")
                             .font(.subheadline)
-                        HStack(spacing: 0) {
-                            Text("Checks once per day for new releases on ")
-                                .foregroundStyle(.secondary)
-                            Link("GitHub", destination: URL(string: "https://github.com/sendmebits/flowmod")!)
-                                .underline()
-                                .foregroundStyle(Color.accentColor)
-                        }
-                        .font(.caption)
+                        Text("Checks once per day for new releases on [GitHub](https://github.com/sendmebits/flowmod)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
 
                     Spacer()
@@ -277,9 +249,12 @@ struct GeneralSettingsView: View {
                 if updateManager.isDownloading {
                     VStack(alignment: .leading, spacing: 4) {
                         ProgressView(value: updateManager.downloadProgress)
+                            .accessibilityLabel("Downloading update")
+                            .accessibilityValue("\(Int(updateManager.downloadProgress * 100)) percent")
                         Text("Downloading update… \(Int(updateManager.downloadProgress * 100))%")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
+                            .accessibilityHidden(true)
                     }
                 }
                 
@@ -350,16 +325,21 @@ struct GeneralSettingsView: View {
             ? "No external \(label.lowercased()) detected"
             : uniqueDeviceNames.joined(separator: "\n")
 
-        return HStack(spacing: 6) {
-            Image(systemName: icon)
-                .font(.caption2)
-            Text(label)
-                .font(.caption)
-                .fontWeight(.medium)
-            Circle()
-                .fill(connected ? Color.green : Color.gray.opacity(0.3))
-                .frame(width: 6, height: 6)
+        return Button {
+            showDevicePopover.toggle()
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: icon)
+                    .font(.caption2)
+                Text(label)
+                    .font(.caption)
+                    .fontWeight(.medium)
+                Circle()
+                    .fill(connected ? Color.green : Color.gray.opacity(0.3))
+                    .frame(width: 6, height: 6)
+            }
         }
+        .buttonStyle(.plain)
         .padding(.horizontal, 10)
         .padding(.vertical, 5)
         .background(
@@ -367,7 +347,8 @@ struct GeneralSettingsView: View {
                 .fill(connected ? Color.accentColor.opacity(0.08) : Color.secondary.opacity(0.06))
         )
         .foregroundStyle(connected ? .primary : .secondary)
-        .onHover(perform: handleDevicePillHover)
+        .accessibilityLabel(connected ? "\(label), connected" : "\(label), not connected")
+        .accessibilityHint("Shows connected mouse details")
         .popover(isPresented: $showDevicePopover, arrowEdge: .bottom) {
             Text(deviceList)
                 .font(.caption)
@@ -408,6 +389,7 @@ struct AdvancedSettingsSheet: View {
                         Button {
                             LogManager.shared.copyLogsToClipboard()
                             showCopiedConfirmation = true
+                            AccessibilityNotification.Announcement("Logs copied").post()
                             Task {
                                 try? await Task.sleep(for: .seconds(2))
                                 showCopiedConfirmation = false
@@ -468,7 +450,7 @@ struct AdvancedSettingsSheet: View {
                     dismiss()
                 }
                 .buttonStyle(.borderedProminent)
-                .keyboardShortcut(.cancelAction)
+                .keyboardShortcut(.defaultAction)
             }
         }
         .padding()

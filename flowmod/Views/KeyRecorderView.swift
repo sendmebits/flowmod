@@ -140,8 +140,10 @@ struct KeyRecorderSheet: View {
             modifiers |= CGEventFlags.maskCommand.rawValue
         }
         
-        recordedCombo = KeyCombo(keyCode: keyCode, modifiers: modifiers)
+        let combo = KeyCombo(keyCode: keyCode, modifiers: modifiers)
+        recordedCombo = combo
         isRecording = false
+        AccessibilityNotification.Announcement("Recorded \(combo.displayName)").post()
         
         // Stop monitoring after successful recording
         cleanup()
@@ -173,8 +175,10 @@ struct KeyRecorderSheet: View {
             if otherFlags.contains(.shift) { modifiers |= CGEventFlags.maskShift.rawValue }
             if otherFlags.contains(.command) { modifiers |= CGEventFlags.maskCommand.rawValue }
             
-            recordedCombo = KeyCombo(keyCode: primaryKeyCode, modifiers: modifiers)
+            let combo = KeyCombo(keyCode: primaryKeyCode, modifiers: modifiers)
+            recordedCombo = combo
             isRecording = false
+            AccessibilityNotification.Announcement("Recorded \(combo.displayName)").post()
             
             // Reset state and stop monitoring
             pendingModifierKeyCode = nil
@@ -318,6 +322,7 @@ struct MouseButtonRecorderSheet: View {
                         onComplete(recordResult)
                     }
                     .buttonStyle(.borderedProminent)
+                    .keyboardShortcut(.defaultAction)
                 }
             }
         }
@@ -357,16 +362,19 @@ struct MouseButtonRecorderSheet: View {
         // Check if it's a primary button (left/right click)
         if buttonNumber == 0 || buttonNumber == 1 {
             recordResult = .primaryButton
+            AccessibilityNotification.Announcement("Primary mouse buttons cannot be remapped").post()
             return nil
         }
         
         // Check if it's already in custom mappings
         if existingButtonNumbers.contains(buttonNumber) {
             recordResult = .alreadyMapped("Mouse Button \(buttonNumber + 1)")
+            AccessibilityNotification.Announcement("Mouse Button \(buttonNumber + 1) is already configured").post()
             return nil
         }
         
         recordResult = .success(buttonNumber)
+        AccessibilityNotification.Announcement("Mouse Button \(buttonNumber + 1) recorded").post()
         return nil
     }
     
