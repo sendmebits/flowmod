@@ -10,6 +10,9 @@ class InputInterceptor {
     static let shared = InputInterceptor()
     
     private(set) var isRunning = false
+    /// A user-facing explanation when the required session event tap fails to start.
+    /// Kept separate from `isRunning` so an intentional stop doesn't look like an error.
+    private(set) var startupError: String?
     
     // Made internal for callback access
     var eventTap: CFMachPort?
@@ -172,6 +175,8 @@ class InputInterceptor {
     @MainActor
     func start(settings: Settings, deviceManager: DeviceManager) {
         guard !isRunning else { return }
+
+        startupError = nil
         
         self.settings = settings
         self.deviceManager = deviceManager
@@ -220,19 +225,28 @@ class InputInterceptor {
             callback: callback,
             userInfo: Unmanaged.passUnretained(self).toOpaque()
         ) else {
+            startupError = "FlowMod couldn't start mouse interception. Accessibility access may need to be refreshed."
+            self.settings = nil
+            self.deviceManager = nil
             print("Failed to create event tap. Check accessibility permissions.")
             return
         }
         
         eventTap = tap
-        runLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
-        
-        if let source = runLoopSource {
-            CFRunLoopAddSource(CFRunLoopGetCurrent(), source, .commonModes)
-            CGEvent.tapEnable(tap: tap, enable: true)
-            isRunning = true
-            print("Input interceptor started")
+        guard let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0) else {
+            eventTap = nil
+            startupError = "FlowMod created its mouse interceptor but couldn't attach it to the app. Try again or restart FlowMod."
+            self.settings = nil
+            self.deviceManager = nil
+            print("Failed to create event tap run-loop source")
+            return
         }
+
+        runLoopSource = source
+        CFRunLoopAddSource(CFRunLoopGetCurrent(), source, .commonModes)
+        CGEvent.tapEnable(tap: tap, enable: true)
+        isRunning = true
+        print("Input interceptor started")
         
         // Create HID-level event tap for mouse drags during continuous gestures.
         // This tap is at kCGHIDEventTap (before WindowServer), so it receives
@@ -337,6 +351,7 @@ class InputInterceptor {
         runtimeProfileConfigs = [:]
         runtimeConfigLock.unlock()
         isRunning = false
+        startupError = nil
         print("Input interceptor stopped")
     }
     

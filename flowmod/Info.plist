@@ -11,6 +11,6 @@
 	<key>NSHumanReadableCopyright</key>
 	<string>Copyright © 2026 Sendmebits. All rights reserved.</string>
 	<key>NSAccessibilityUsageDescription</key>
-	<string>FlowMod needs accessibility permission to intercept and remap mouse and keyboard input from external devices.</string>
+	<string>FlowMod needs Accessibility access to customize external-mouse scrolling, buttons, and gestures, and to perform actions you assign.</string>
 </dict>
 </plist>

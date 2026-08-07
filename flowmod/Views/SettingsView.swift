@@ -88,6 +88,7 @@ struct SettingsView: View {
     @Bindable var settings: Settings
     var deviceManager: DeviceManager
     var permissionManager: PermissionManager
+    var inputInterceptor: InputInterceptor
 
     private enum Tab: Hashable {
         case general, scroll, buttons, gestures
@@ -111,6 +112,8 @@ struct SettingsView: View {
             // Permission warning if needed
             if !permissionManager.hasAccessibilityPermission {
                 permissionWarning
+            } else if let startupError = inputInterceptor.startupError {
+                interceptorWarning(startupError)
             }
 
             // Mouse scope bar — Finder-style filter under the toolbar,
@@ -387,7 +390,7 @@ struct SettingsView: View {
             Spacer()
 
             Button("Grant Access") {
-                permissionManager.requestPermission()
+                OnboardingWindowController.shared.show()
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.small)
@@ -395,12 +398,45 @@ struct SettingsView: View {
         .padding()
         .background(Color.yellow.opacity(0.1))
     }
+
+    private func interceptorWarning(_ message: String) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("FlowMod couldn't start")
+                    .font(.callout)
+                    .fontWeight(.medium)
+                Text(message)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+
+            Spacer()
+
+            Button("Accessibility Settings") {
+                permissionManager.openAccessibilitySettings()
+            }
+            .controlSize(.small)
+
+            Button("Try Again") {
+                inputInterceptor.start(settings: settings, deviceManager: deviceManager)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+        }
+        .padding()
+        .background(Color.orange.opacity(0.1))
+    }
 }
 
 #Preview {
     SettingsView(
         settings: Settings.shared,
         deviceManager: DeviceManager.shared,
-        permissionManager: PermissionManager.shared
+        permissionManager: PermissionManager.shared,
+        inputInterceptor: InputInterceptor.shared
     )
 }

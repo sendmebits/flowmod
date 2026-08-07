@@ -10,13 +10,12 @@ import AppKit
 
 @main
 struct FlowModApp: App {
-    private static let hasPromptedForAccessibilityKey = "hasPromptedForAccessibility"
-    
     @State private var settings = Settings.shared
     @State private var deviceManager = DeviceManager.shared
     @State private var permissionManager = PermissionManager.shared
     @State private var inputInterceptor = InputInterceptor.shared
     @State private var updateManager = UpdateManager.shared
+    @State private var onboardingManager = OnboardingManager.shared
     
     var body: some Scene {
         // Menu bar item
@@ -26,7 +25,8 @@ struct FlowModApp: App {
                 deviceManager: deviceManager,
                 permissionManager: permissionManager,
                 inputInterceptor: inputInterceptor,
-                updateManager: updateManager
+                updateManager: updateManager,
+                onboardingManager: onboardingManager
             )
         } label: {
             let isActive = permissionManager.hasAccessibilityPermission
@@ -44,7 +44,8 @@ struct FlowModApp: App {
             SettingsView(
                 settings: settings,
                 deviceManager: deviceManager,
-                permissionManager: permissionManager
+                permissionManager: permissionManager,
+                inputInterceptor: inputInterceptor
             )
             .onAppear {
                 Self.foregroundSettingsWindow(afterDelays: [0.1])
@@ -60,15 +61,18 @@ struct FlowModApp: App {
             }
         }
         
-        // Start the input interceptor on launch if we have permission
+        // Start immediately for returning users. New users get a visible setup
+        // window and choose when to request Accessibility access.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             Task { @MainActor in
                 if PermissionManager.shared.hasAccessibilityPermission {
                     Self.startInputInterceptorIfNeeded()
-                } else if !UserDefaults.standard.bool(forKey: Self.hasPromptedForAccessibilityKey) {
-                    UserDefaults.standard.set(true, forKey: Self.hasPromptedForAccessibilityKey)
-                    PermissionManager.shared.requestPermission()
                 }
+
+                if !OnboardingManager.shared.isCompleted {
+                    OnboardingWindowController.shared.show()
+                }
+
                 // Check for updates on launch (respects auto-check setting and 24h interval)
                 UpdateManager.shared.checkIfNeeded()
             }
@@ -210,6 +214,7 @@ struct MenuBarContent: View {
     var permissionManager: PermissionManager
     var inputInterceptor: InputInterceptor
     var updateManager: UpdateManager
+    var onboardingManager: OnboardingManager
     @Environment(\.openSettings) private var openSettings
 
     private var appVersion: String {
@@ -236,6 +241,12 @@ struct MenuBarContent: View {
             FlowModApp.foregroundSettingsWindow(afterDelays: [0.1, 0.3])
         }
 
+        if !onboardingManager.isCompleted {
+            Button("Finish Setup…") {
+                OnboardingWindowController.shared.show()
+            }
+        }
+
         Divider()
 
         if inputInterceptor.isRunning {
@@ -244,11 +255,17 @@ struct MenuBarContent: View {
             }
         } else if !permissionManager.hasAccessibilityPermission {
             Button("Grant Accessibility Access…") {
-                startInterceptor()
+                OnboardingWindowController.shared.show()
             }
         } else {
-            Button("Enable FlowMod") {
+            Button(inputInterceptor.startupError == nil ? "Enable FlowMod" : "Try Starting FlowMod Again") {
                 startInterceptor()
+            }
+
+            if inputInterceptor.startupError != nil {
+                Button("Open Accessibility Settings…") {
+                    permissionManager.openAccessibilitySettings()
+                }
             }
         }
 

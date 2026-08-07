@@ -440,6 +440,24 @@ struct AdvancedSettingsSheet: View {
                 .padding(.vertical, 8)
             }
 
+            // Setup troubleshooting
+            GroupBox {
+                SettingsControlRow(
+                    icon: "checklist",
+                    title: "Setup Assistant",
+                    description: "Review Accessibility access and verify that FlowMod can start"
+                ) {
+                    Button("Run Setup Again…") {
+                        dismiss()
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                            OnboardingWindowController.shared.show()
+                        }
+                    }
+                    .controlSize(.small)
+                }
+                .padding(.vertical, 8)
+            }
+
             // Bottom-right action, standard macOS sheet layout
             HStack {
                 Spacer()

@@ -36,6 +36,10 @@ class PermissionManager {
             if !hadPermission {
                 onPermissionGranted?()
             }
+        } else if hadPermission {
+            // Permission can be revoked while FlowMod is running. Resume
+            // monitoring so the UI and recovery flow reflect that change.
+            startPermissionMonitoring(resetBackoff: true)
         }
     }
     
@@ -43,14 +47,18 @@ class PermissionManager {
     func requestPermission() {
         let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary
         _ = AXIsProcessTrustedWithOptions(options)
-        openAccessibilitySettings()
-        
+
         // Start monitoring for permission grant
         startPermissionMonitoring(resetBackoff: true)
     }
     
     /// Open System Settings to Accessibility pane
     func openAccessibilitySettings() {
+        checkPermission()
+        if !hasAccessibilityPermission, checkTimer == nil {
+            startPermissionMonitoring(resetBackoff: true)
+        }
+
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
             NSWorkspace.shared.open(url)
         }
