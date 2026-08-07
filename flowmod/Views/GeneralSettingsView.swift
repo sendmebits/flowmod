@@ -21,62 +21,70 @@ struct GeneralSettingsView: View {
     
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
+            VStack(alignment: .leading, spacing: 16) {
                 // App header with icon, name, version, and device indicators
                 headerView
                 
                 Divider()
                 
                 // Launch at Login
-                GroupBox {
-                    VStack(alignment: .leading, spacing: 6) {
-                        SettingsControlRow(
-                            icon: "power",
-                            title: "Launch at Login",
-                            description: "Start FlowMod automatically when you log in"
-                        ) {
-                            Toggle("Launch at Login", isOn: $launchAtLoginEnabled)
-                                .toggleStyle(.switch)
-                                .labelsHidden()
-                                .onChange(of: launchAtLoginEnabled) { _, newValue in
-                                    setLaunchAtLogin(newValue)
-                                }
-                        }
+                VStack(alignment: .leading, spacing: 6) {
+                    SettingsSectionHeader(title: "Startup")
 
-                        if let error = launchAtLoginError {
-                            HStack(spacing: 4) {
-                                Image(systemName: "exclamationmark.triangle.fill")
-                                    .foregroundStyle(.yellow)
-                                    .font(.caption)
-                                Text(error)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
+                    GroupBox {
+                        VStack(alignment: .leading, spacing: 12) {
+                            SettingsControlRow(
+                                icon: "power",
+                                title: "Launch at Login",
+                                description: "Start FlowMod automatically when you log in"
+                            ) {
+                                Toggle("Launch at Login", isOn: $launchAtLoginEnabled)
+                                    .toggleStyle(.switch)
+                                    .labelsHidden()
+                                    .onChange(of: launchAtLoginEnabled) { _, newValue in
+                                        setLaunchAtLogin(newValue)
+                                    }
+                            }
+
+                            if let error = launchAtLoginError {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "exclamationmark.triangle.fill")
+                                        .foregroundStyle(.yellow)
+                                        .font(.caption)
+                                    Text(error)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
                             }
                         }
+                        .padding(.vertical, 4)
                     }
-                    .padding(.vertical, 4)
                 }
 
                 // Per-mouse settings
-                GroupBox {
-                    VStack(alignment: .leading, spacing: 6) {
-                        SettingsControlRow(
-                            icon: "computermouse",
-                            title: "Separate Settings Per Mouse",
-                            description: "Give each mouse its own scroll, button, and gesture settings"
-                        ) {
-                            Toggle("Separate Settings Per Mouse", isOn: $settings.perMouseSettingsEnabled)
-                                .toggleStyle(.switch)
-                                .labelsHidden()
-                        }
+                VStack(alignment: .leading, spacing: 6) {
+                    SettingsSectionHeader(title: "Mouse Profiles")
 
-                        if settings.perMouseSettingsEnabled {
-                            Text("Choose a mouse at the top of the Scroll, Buttons, and Gestures tabs to customize it.")
-                                .font(.caption2)
-                                .foregroundStyle(.tertiary)
+                    GroupBox {
+                        VStack(alignment: .leading, spacing: 12) {
+                            SettingsControlRow(
+                                icon: "computermouse",
+                                title: "Separate Settings Per Mouse",
+                                description: "Give each mouse its own scroll, button, and gesture settings"
+                            ) {
+                                Toggle("Separate Settings Per Mouse", isOn: $settings.perMouseSettingsEnabled)
+                                    .toggleStyle(.switch)
+                                    .labelsHidden()
+                            }
+
+                            if settings.perMouseSettingsEnabled {
+                                Text("Choose a mouse at the top of the Scroll, Buttons, and Gestures tabs to customize it.")
+                                    .font(.caption2)
+                                    .foregroundStyle(.tertiary)
+                            }
                         }
+                        .padding(.vertical, 4)
                     }
-                    .padding(.vertical, 4)
                 }
 
                 // Updates
@@ -154,124 +162,116 @@ struct GeneralSettingsView: View {
     }
 
     private var updatesSection: some View {
-        GroupBox {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack {
-                    Image(systemName: "arrow.triangle.2.circlepath")
-                        .font(.body)
-                        .foregroundStyle(Color.accentColor)
-                        .frame(width: 24)
-                        .accessibilityHidden(true)
+        VStack(alignment: .leading, spacing: 6) {
+            SettingsSectionHeader(title: "Updates")
 
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Updates")
-                            .font(.subheadline)
-                        Text("Checks once per day for new releases on [GitHub](https://github.com/sendmebits/flowmod)")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
+            GroupBox {
+                VStack(alignment: .leading, spacing: 12) {
+                    SettingsControlRow(
+                        icon: "arrow.triangle.2.circlepath",
+                        title: "Automatic Updates",
+                        description: "Checks once per day for new releases on [GitHub](https://github.com/sendmebits/flowmod)",
+                        accessibilityDescription: "Checks once per day for new releases on GitHub"
+                    ) {
+                        Toggle("Check for Updates Automatically", isOn: Binding(
+                            get: { updateManager.autoCheckForUpdates },
+                            set: { updateManager.autoCheckForUpdates = $0 }
+                        ))
+                        .toggleStyle(.switch)
+                        .labelsHidden()
                     }
 
-                    Spacer()
+                    SettingsRowDivider()
 
-                    Toggle("Check for Updates Automatically", isOn: Binding(
-                        get: { updateManager.autoCheckForUpdates },
-                        set: { updateManager.autoCheckForUpdates = $0 }
-                    ))
-                    .toggleStyle(.switch)
-                    .labelsHidden()
-                }
-                
-                Divider()
-                
-                HStack(spacing: 10) {
-                    Button {
-                        Task {
-                            await updateManager.checkForUpdates()
-                        }
-                    } label: {
-                        Label("Check for Updates", systemImage: "arrow.clockwise")
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .disabled(updateManager.isChecking || updateManager.isDownloading)
-                    
-                    if updateManager.isChecking {
-                        ProgressView()
-                            .controlSize(.small)
-                        Text("Checking…")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    } else if let message = updateManager.upToDateMessage {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundStyle(.secondary)
-                            .font(.caption)
-                        Text(message)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    
-                    Spacer()
-                }
-                
-                // Update available banner
-                if updateManager.updateAvailable, let version = updateManager.latestVersion {
-                    HStack(spacing: 8) {
-                        Image(systemName: "arrow.up.circle.fill")
-                            .foregroundStyle(.green)
-
-                        Text("Version \(version) is available")
-                            .font(.callout)
-                            .fontWeight(.medium)
-                        
-                        Spacer()
-                        
-                        if updateManager.downloadURL != nil {
-                            Button {
-                                Task {
-                                    await updateManager.downloadAndInstall()
-                                }
-                            } label: {
-                                Label("Download & Install", systemImage: "arrow.down.circle.fill")
+                    HStack(spacing: 10) {
+                        Button {
+                            Task {
+                                await updateManager.checkForUpdates()
                             }
-                            .buttonStyle(.borderedProminent)
-                            .controlSize(.small)
-                            .disabled(updateManager.isDownloading)
+                        } label: {
+                            Label("Check for Updates", systemImage: "arrow.clockwise")
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .disabled(updateManager.isChecking || updateManager.isDownloading)
+
+                        if updateManager.isChecking {
+                            ProgressView()
+                                .controlSize(.small)
+                            Text("Checking…")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        } else if let message = updateManager.upToDateMessage {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundStyle(.secondary)
+                                .font(.caption)
+                            Text(message)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+
+                        Spacer()
+                    }
+
+                    // Update available banner
+                    if updateManager.updateAvailable, let version = updateManager.latestVersion {
+                        HStack(spacing: 8) {
+                            Image(systemName: "arrow.up.circle.fill")
+                                .foregroundStyle(.green)
+
+                            Text("Version \(version) is available")
+                                .font(.callout)
+                                .fontWeight(.medium)
+
+                            Spacer()
+
+                            if updateManager.downloadURL != nil {
+                                Button {
+                                    Task {
+                                        await updateManager.downloadAndInstall()
+                                    }
+                                } label: {
+                                    Label("Download & Install", systemImage: "arrow.down.circle.fill")
+                                }
+                                .buttonStyle(.borderedProminent)
+                                .controlSize(.small)
+                                .disabled(updateManager.isDownloading)
+                            }
+                        }
+                        .padding(8)
+                        .background(
+                            RoundedRectangle(cornerRadius: 6)
+                                .fill(Color.green.opacity(0.08))
+                        )
+                    }
+
+                    // Download progress
+                    if updateManager.isDownloading {
+                        VStack(alignment: .leading, spacing: 4) {
+                            ProgressView(value: updateManager.downloadProgress)
+                                .accessibilityLabel("Downloading update")
+                                .accessibilityValue("\(Int(updateManager.downloadProgress * 100)) percent")
+                            Text("Downloading update… \(Int(updateManager.downloadProgress * 100))%")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .accessibilityHidden(true)
                         }
                     }
-                    .padding(8)
-                    .background(
-                        RoundedRectangle(cornerRadius: 6)
-                            .fill(Color.green.opacity(0.08))
-                    )
-                }
-                
-                // Download progress
-                if updateManager.isDownloading {
-                    VStack(alignment: .leading, spacing: 4) {
-                        ProgressView(value: updateManager.downloadProgress)
-                            .accessibilityLabel("Downloading update")
-                            .accessibilityValue("\(Int(updateManager.downloadProgress * 100)) percent")
-                        Text("Downloading update… \(Int(updateManager.downloadProgress * 100))%")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                            .accessibilityHidden(true)
+
+                    // Error message
+                    if let error = updateManager.errorMessage {
+                        HStack(spacing: 4) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundStyle(.yellow)
+                                .font(.caption)
+                            Text(error)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
-                
-                // Error message
-                if let error = updateManager.errorMessage {
-                    HStack(spacing: 4) {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .foregroundStyle(.yellow)
-                            .font(.caption)
-                        Text(error)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
+                .padding(.vertical, 4)
             }
-            .padding(.vertical, 4)
         }
     }
     
@@ -292,15 +292,13 @@ struct GeneralSettingsView: View {
                     .foregroundStyle(.tertiary)
             }
             
-            // Device connection pills — centered
-            HStack(spacing: 10) {
-                devicePill(
-                    connected: deviceManager.externalMouseConnected,
-                    icon: "computermouse",
-                    label: mousePillLabel,
-                    devices: externalMice
-                )
-            }
+            // Device connection pill — centered
+            devicePill(
+                connected: deviceManager.externalMouseConnected,
+                icon: "computermouse",
+                label: mousePillLabel,
+                devices: externalMice
+            )
         }
         .frame(maxWidth: .infinity)
     }
@@ -375,16 +373,15 @@ struct AdvancedSettingsSheet: View {
             // Debug Logging
             GroupBox {
                 VStack(alignment: .leading, spacing: 12) {
-                    Label("Debug Logging", systemImage: "ladybug")
-                        .font(.headline)
-
-                    Toggle("Enable Debug Logging", isOn: $settings.debugLogging)
-                        .font(.callout)
-
-                    Text("Captures detailed logs for troubleshooting. May impact performance.")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                    SettingsControlRow(
+                        icon: "ladybug",
+                        title: "Debug Logging",
+                        description: "Captures detailed logs for troubleshooting. May impact performance."
+                    ) {
+                        Toggle("Enable Debug Logging", isOn: $settings.debugLogging)
+                            .toggleStyle(.switch)
+                            .labelsHidden()
+                    }
 
                     HStack {
                         Button {
@@ -429,16 +426,15 @@ struct AdvancedSettingsSheet: View {
             // Device Detection Override
             GroupBox {
                 VStack(alignment: .leading, spacing: 12) {
-                    Label("Device Detection", systemImage: "cable.connector")
-                        .font(.headline)
-
-                    Toggle("Assume external mouse is connected", isOn: $settings.assumeExternalMouse)
-                        .font(.callout)
-
-                    Text("Enable this if your Bluetooth mouse isn't being detected automatically.")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                    SettingsControlRow(
+                        icon: "cable.connector",
+                        title: "Device Detection",
+                        description: "Assume an external mouse is connected if Bluetooth detection is unreliable"
+                    ) {
+                        Toggle("Assume external mouse is connected", isOn: $settings.assumeExternalMouse)
+                            .toggleStyle(.switch)
+                            .labelsHidden()
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.vertical, 8)

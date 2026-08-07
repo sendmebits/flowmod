@@ -11,80 +11,91 @@ struct MiddleDragGesturesView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                Text("Hold middle mouse button and drag in a direction to trigger an action")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                // Continuous gesture mode — shown first
+                VStack(alignment: .leading, spacing: 6) {
+                    SettingsSectionHeader(title: "Gesture Mode")
 
-            // Continuous gesture mode — shown first
-            GroupBox {
-                VStack(alignment: .leading, spacing: 8) {
-                    SettingsControlRow(
-                        icon: "hand.draw",
-                        title: "Continuous Gestures",
-                        description: "Animation follows your drag like a trackpad swipe"
-                    ) {
-                        Toggle("Continuous Gestures", isOn: $profile.continuousGestures)
-                            .toggleStyle(.switch)
-                            .labelsHidden()
-                    }
-                    
-                    if profile.continuousGestures {
-                        Text("Works with Mission Control, App Exposé, Switch Spaces, Show Desktop, and Launchpad. Direction settings below are not used in this mode.")
-                            .font(.caption2)
-                            .foregroundStyle(.tertiary)
-                    }
-                }
-                .padding(.vertical, 4)
-            }
-            .opacity(profileControlsDisabled ? 0.5 : 1.0)
-            .disabled(profileControlsDisabled)
-            
-            // Direction mappings
-            GroupBox {
-                VStack(alignment: .leading, spacing: 0) {
-                    Text("Direction Actions")
-                        .font(.headline)
-                        .padding(.bottom, 12)
+                    GroupBox {
+                        VStack(alignment: .leading, spacing: 12) {
+                            SettingsControlRow(
+                                icon: "hand.draw",
+                                title: "Continuous Gestures",
+                                description: "Animation follows your drag like a trackpad swipe"
+                            ) {
+                                Toggle("Continuous Gestures", isOn: $profile.continuousGestures)
+                                    .toggleStyle(.switch)
+                                    .labelsHidden()
+                            }
 
-                    ForEach(DragDirection.allCases) { direction in
-                        directionRow(for: direction)
-                        
-                        if direction != DragDirection.allCases.last {
-                            Divider()
-                                .padding(.vertical, 8)
+                            if profile.continuousGestures {
+                                Text("Works with Mission Control, App Exposé, Switch Spaces, Show Desktop, and Launchpad. Direction settings below are not used in this mode.")
+                                    .font(.caption2)
+                                    .foregroundStyle(.tertiary)
+                            }
                         }
+                        .padding(.vertical, 4)
                     }
                 }
-                .padding(.vertical, 4)
-            }
-            .opacity(profile.continuousGestures || profileControlsDisabled ? 0.5 : 1.0)
-            .disabled(profile.continuousGestures || profileControlsDisabled)
-            
-            // Threshold slider
-            GroupBox {
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Text("Drag Distance")
-                            .font(.subheadline)
-                        Spacer()
-                        Text("\(Int(settings.dragThreshold))px")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
+                .opacity(profileControlsDisabled ? 0.5 : 1.0)
+                .disabled(profileControlsDisabled)
 
-                    Slider(value: $settings.dragThreshold, in: 10...100, step: 5) {
-                        Text("Drag Distance")
-                    }
-                    .labelsHidden()
+                // Direction mappings
+                VStack(alignment: .leading, spacing: 6) {
+                    SettingsSectionHeader(title: "Direction Actions")
 
-                    Text("How far to drag before a gesture triggers — shorter distances start gestures sooner. Applies to all mice.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    GroupBox {
+                        VStack(alignment: .leading, spacing: 0) {
+                            ForEach(DragDirection.allCases) { direction in
+                                directionRow(for: direction)
+
+                                if direction != DragDirection.allCases.last {
+                                    SettingsRowDivider()
+                                }
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    }
                 }
-                .padding(.vertical, 4)
+                .opacity(profile.continuousGestures || profileControlsDisabled ? 0.5 : 1.0)
+                .disabled(profile.continuousGestures || profileControlsDisabled)
+
+                // Threshold slider
+                VStack(alignment: .leading, spacing: 6) {
+                    SettingsSectionHeader(title: "Gesture Threshold")
+
+                    GroupBox {
+                        HStack(alignment: .top) {
+                            Image(systemName: "arrow.left.and.right")
+                                .font(.body)
+                                .foregroundStyle(Color.accentColor)
+                                .frame(width: 24)
+                                .accessibilityHidden(true)
+
+                            VStack(alignment: .leading, spacing: 8) {
+                                HStack {
+                                    Text("Drag Distance")
+                                        .font(.subheadline)
+                                    Spacer()
+                                    Text("\(Int(settings.dragThreshold))px")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+
+                                Slider(value: $settings.dragThreshold, in: 10...100, step: 5) {
+                                    Text("Drag Distance")
+                                }
+                                .labelsHidden()
+
+                                Text("How far to drag before a gesture triggers. Shorter distances start gestures sooner. Applies to all mice.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    }
+                }
             }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .sheet(item: $showingCustomShortcut) { direction in
             KeyRecorderSheet(title: "Record Shortcut for Drag \(direction.rawValue)") { combo in
@@ -99,11 +110,12 @@ struct MiddleDragGesturesView: View {
     private func directionRow(for direction: DragDirection) -> some View {
         HStack {
             Image(systemName: direction.icon)
-                .font(.title3)
+                .font(.body)
                 .foregroundStyle(Color.accentColor)
                 .frame(width: 24)
             
             Text(direction.rawValue)
+                .font(.subheadline)
                 .frame(minWidth: 100, alignment: .leading)
             
             Spacer()

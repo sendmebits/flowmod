@@ -14,20 +14,19 @@ struct MouseButtonsView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                HStack {
-                    Text("Configure what each mouse button does")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-
+                HStack(alignment: .center) {
+                    SettingsSectionHeader(title: "Mouse Buttons")
                     Spacer()
 
-                    Button {
-                        showingButtonRecorder = true
-                    } label: {
-                        Label("Add Button…", systemImage: "plus")
+                    if !profile.customMouseButtonMappings.isEmpty {
+                        Button {
+                            showingButtonRecorder = true
+                        } label: {
+                            Label("Add Button…", systemImage: "plus")
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
                     }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
                 }
 
                 GroupBox {
@@ -41,10 +40,18 @@ struct MouseButtonsView: View {
                                 .font(.headline)
                                 .foregroundStyle(.secondary)
                             
-                            Text("Click \"Add Button…\" to configure extra mouse buttons")
+                            Text("Configure extra mouse buttons with custom actions or shortcuts.")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                                 .multilineTextAlignment(.center)
+
+                            Button {
+                                showingButtonRecorder = true
+                            } label: {
+                                Label("Add Button…", systemImage: "plus")
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .controlSize(.small)
                         }
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 20)
@@ -54,8 +61,7 @@ struct MouseButtonsView: View {
                                 buttonRow(for: mapping)
                             
                                 if mapping.id != profile.customMouseButtonMappings.last?.id {
-                                    Divider()
-                                        .padding(.vertical, 8)
+                                    SettingsRowDivider()
                                 }
                             }
                         }
@@ -94,11 +100,12 @@ struct MouseButtonsView: View {
     private func buttonRow(for mapping: CustomMouseButtonMapping) -> some View {
         HStack {
             Image(systemName: mapping.icon)
-                .font(.title3)
+                .font(.body)
                 .foregroundStyle(Color.accentColor)
                 .frame(width: 24)
             
             Text(mapping.displayName)
+                .font(.subheadline)
                 .frame(minWidth: 150, alignment: .leading)
             
             Spacer()

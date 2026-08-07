@@ -1,5 +1,10 @@
 import SwiftUI
 
+private enum RecorderSheetMetrics {
+    static let sheetWidth: CGFloat = 350
+    static let recordingAreaSize = CGSize(width: 280, height: 120)
+}
+
 /// A sheet for recording a keyboard shortcut
 struct KeyRecorderSheet: View {
     let title: String
@@ -36,6 +41,8 @@ struct KeyRecorderSheet: View {
                         Text(combo.displayName)
                             .font(.system(size: 32, weight: .medium, design: .rounded))
                             .foregroundStyle(.primary)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
                         
                         Text("Key recorded")
                             .font(.caption)
@@ -43,7 +50,7 @@ struct KeyRecorderSheet: View {
                     }
                 }
             }
-            .frame(width: 250, height: 100)
+            .frame(width: RecorderSheetMetrics.recordingAreaSize.width, height: RecorderSheetMetrics.recordingAreaSize.height)
             .background(.quaternary)
             .cornerRadius(12)
             
@@ -75,7 +82,7 @@ struct KeyRecorderSheet: View {
             }
         }
         .padding(24)
-        .frame(width: 320)
+        .frame(width: RecorderSheetMetrics.sheetWidth)
         .onAppear {
             startRecording()
         }
@@ -260,6 +267,8 @@ struct MouseButtonRecorderSheet: View {
                             Text("Mouse Button \(buttonNum + 1)")
                                 .font(.system(size: 32, weight: .medium, design: .rounded))
                                 .foregroundStyle(.primary)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.7)
                             
                             Text("Button recorded")
                                 .font(.caption)
@@ -294,7 +303,7 @@ struct MouseButtonRecorderSheet: View {
                     }
                 }
             }
-            .frame(width: 280, height: 120)
+            .frame(width: RecorderSheetMetrics.recordingAreaSize.width, height: RecorderSheetMetrics.recordingAreaSize.height)
             .background(.quaternary)
             .cornerRadius(12)
             
@@ -327,7 +336,7 @@ struct MouseButtonRecorderSheet: View {
             }
         }
         .padding(24)
-        .frame(width: 350)
+        .frame(width: RecorderSheetMetrics.sheetWidth)
         .onAppear {
             startRecording()
         }

@@ -4,7 +4,8 @@ import SwiftUI
 struct SettingsControlRow<Control: View>: View {
     let icon: String
     let title: String
-    let description: String
+    private let descriptionText: Text
+    private let accessibilityDescription: String
     private let control: Control
 
     init(
@@ -15,7 +16,22 @@ struct SettingsControlRow<Control: View>: View {
     ) {
         self.icon = icon
         self.title = title
-        self.description = description
+        self.descriptionText = Text(description)
+        self.accessibilityDescription = description
+        self.control = control()
+    }
+
+    init(
+        icon: String,
+        title: String,
+        description: LocalizedStringKey,
+        accessibilityDescription: String,
+        @ViewBuilder control: () -> Control
+    ) {
+        self.icon = icon
+        self.title = title
+        self.descriptionText = Text(description)
+        self.accessibilityDescription = accessibilityDescription
         self.control = control()
     }
 
@@ -30,9 +46,10 @@ struct SettingsControlRow<Control: View>: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
                     .font(.subheadline)
-                Text(description)
+                descriptionText
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             .accessibilityHidden(true)
 
@@ -40,8 +57,29 @@ struct SettingsControlRow<Control: View>: View {
 
             control
                 .accessibilityLabel(title)
-                .accessibilityHint(description)
+                .accessibilityHint(accessibilityDescription)
         }
+    }
+}
+
+/// Small, consistent label used above settings groups.
+struct SettingsSectionHeader: View {
+    let title: String
+
+    var body: some View {
+        Text(title)
+            .font(.caption)
+            .fontWeight(.semibold)
+            .foregroundStyle(.secondary)
+            .textCase(.uppercase)
+    }
+}
+
+/// Shared divider spacing for row-based settings groups.
+struct SettingsRowDivider: View {
+    var body: some View {
+        Divider()
+            .padding(.vertical, 8)
     }
 }
 
@@ -225,7 +263,7 @@ struct SettingsView: View {
                 .menuStyle(.borderlessButton)
                 .menuIndicator(.hidden)
                 .fixedSize()
-                .padding(.trailing, 14)
+                .padding(.trailing, 16)
                 .help("Profile options")
                 .accessibilityLabel("Profile options")
                 .accessibilityHint("Reset \(selectedDeviceName) to the default settings")
