@@ -60,6 +60,9 @@ struct SettingsView: View {
     @State private var showRemoveConfirmation = false
     @State private var selectedTab: Tab = .general
 
+    private static let windowSize = CGSize(width: 500, height: 560)
+    private static let scopeBarHeight: CGFloat = 38
+
     /// The mouse scope bar is only relevant on the per-mouse behavior tabs.
     private var showsScopeBar: Bool {
         settings.perMouseSettingsEnabled && selectedTab != .general
@@ -110,14 +113,8 @@ struct SettingsView: View {
             }
             .padding()
         }
-        // Keep the compact width while allowing additional vertical space.
-        .frame(
-            minWidth: 500,
-            idealWidth: 500,
-            maxWidth: 500,
-            minHeight: 478,
-            idealHeight: 478
-        )
+        // Keep a stable System Settings-style window; tab scroll views handle overflow.
+        .frame(width: Self.windowSize.width, height: Self.windowSize.height)
         .background(.regularMaterial)
         .onChange(of: settings.perMouseSettingsEnabled) { _, enabled in
             if !enabled { selectedProfileKey = nil }
@@ -236,6 +233,7 @@ struct SettingsView: View {
         }
         .padding(.top, 10)
         .padding(.bottom, 2)
+        .frame(height: Self.scopeBarHeight)
     }
 
     @ViewBuilder

@@ -50,6 +50,7 @@ struct FlowModApp: App {
                 Self.foregroundSettingsWindow(afterDelays: [0.1])
             }
         }
+        .windowResizability(.contentSize)
     }
     
     init() {
