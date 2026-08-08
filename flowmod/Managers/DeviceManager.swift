@@ -157,11 +157,10 @@ class DeviceManager {
         let selfPtr = Unmanaged.passUnretained(self).toOpaque()
         IOHIDManagerRegisterDeviceMatchingCallback(manager, matchCallback, selfPtr)
         IOHIDManagerRegisterDeviceRemovalCallback(manager, removeCallback, selfPtr)
-        
-        let result = IOHIDManagerOpen(manager, IOOptionBits(kIOHIDOptionsTypeNone))
-        if result != kIOReturnSuccess {
-            print("Failed to open HID Manager: \(result)")
-        }
+
+        // Device discovery and metadata access do not require opening the HID
+        // devices. Opening them would unnecessarily request Input Monitoring
+        // access even though FlowMod receives mouse input through CGEvent taps.
         
         refreshDevices()
     }
