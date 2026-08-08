@@ -36,8 +36,8 @@ FlowMod is **free and open source**, with **no paywalls** and **no tracking.**
   - **Up** → Mission Control
   - **Down** → App Exposé
   - **Left / Right** → switch spaces (defaults map left drag to “space right” and right drag to “space left”)
-- You can assign other actions to a direction — for example **Show Desktop** or **Launchpad**. With **continuous mode** on, those use a pinch-style DockSwipe under the hood.
-- **Continuous mode** — system animations follow your drag like a trackpad swipe (via reverse-engineered DockSwipe events). While continuous mode is on, per-direction mappings are not used; turn it off to rely on the direction → action table above.
+- With continuous mode off, you can assign other actions to a direction — for example **Show Desktop** or **Launchpad**.
+- **Continuous mode** — fixed three-finger trackpad-style swipes make system animations follow your drag (via reverse-engineered DockSwipe events): up opens Mission Control, down opens App Exposé, and left/right switch Spaces. The configurable direction mappings are not used in this mode.
 
 ### 🐭 Multiple mice
 

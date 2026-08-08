@@ -240,6 +240,7 @@ struct MouseButtonRecorderSheet: View {
     @State private var isRecording = true
     @State private var mouseMonitor: Any?
     @State private var globalMouseMonitor: Any?
+    @State private var interceptorBypassActive = false
     
     var body: some View {
         VStack(spacing: 20) {
@@ -347,6 +348,11 @@ struct MouseButtonRecorderSheet: View {
     
     private func startRecording() {
         cleanup()
+
+        if !interceptorBypassActive {
+            InputInterceptor.shared.beginMouseButtonRecording()
+            interceptorBypassActive = true
+        }
         
         // Monitor for mouse button clicks (other mouse buttons)
         // Local monitor for events in the app
@@ -366,7 +372,10 @@ struct MouseButtonRecorderSheet: View {
         let buttonNumber = Int64(event.buttonNumber)
         
         isRecording = false
-        cleanup()
+        // Keep the interceptor bypass active until the sheet is dismissed so
+        // the matching physical mouse-up also passes through. Ending bypass on
+        // mouse-down can produce an orphan/synthetic up, especially for middle click.
+        stopEventMonitors()
         
         // Check if it's a primary button (left/right click)
         if buttonNumber == 0 || buttonNumber == 1 {
@@ -388,6 +397,14 @@ struct MouseButtonRecorderSheet: View {
     }
     
     private func cleanup() {
+        stopEventMonitors()
+        if interceptorBypassActive {
+            InputInterceptor.shared.endMouseButtonRecording()
+            interceptorBypassActive = false
+        }
+    }
+
+    private func stopEventMonitors() {
         if let monitor = mouseMonitor {
             NSEvent.removeMonitor(monitor)
             mouseMonitor = nil

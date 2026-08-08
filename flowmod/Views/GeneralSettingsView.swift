@@ -304,22 +304,31 @@ struct GeneralSettingsView: View {
     }
 
     private var externalMice: [DeviceManager.HIDDevice] {
-        deviceManager.connectedDevices.filter { $0.isMouse && !$0.isAppleDevice }
+        var seen = Set<String>()
+        return deviceManager.connectedDevices.filter {
+            $0.isMouse && !$0.isAppleDevice && seen.insert($0.deviceKey).inserted
+        }
     }
 
     /// Pill label: the device name when one mouse is connected, a count when
     /// several are, or "Mouse" when none is detected.
     private var mousePillLabel: String {
-        let names = Array(Set(externalMice.map { $0.displayName })).sorted()
-        switch names.count {
+        switch externalMice.count {
         case 0: return "Mouse"
-        case 1: return names[0]
-        default: return "\(names.count) Mice"
+        case 1: return externalMice[0].displayName
+        default: return "\(externalMice.count) Mice"
         }
     }
     
     private func devicePill(connected: Bool, icon: String, label: String, devices: [DeviceManager.HIDDevice]) -> some View {
-        let uniqueDeviceNames = Array(Set(devices.map { $0.displayName })).sorted()
+        let duplicateNames = Dictionary(grouping: devices, by: \.displayName)
+        let uniqueDeviceNames = devices.map { device in
+            guard (duplicateNames[device.displayName]?.count ?? 0) > 1,
+                  let qualifier = device.profileQualifier else {
+                return device.displayName
+            }
+            return "\(device.displayName) (\(qualifier))"
+        }.sorted()
         let deviceList = uniqueDeviceNames.isEmpty
             ? "No external \(label.lowercased()) detected"
             : uniqueDeviceNames.joined(separator: "\n")

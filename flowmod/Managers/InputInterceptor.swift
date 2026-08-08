@@ -38,11 +38,18 @@ class InputInterceptor {
     private var continuousGestureActive = false
     private var continuousGestureAxisLocked = false
     private var continuousGestureAxis: ContinuousAxis = .horizontal
+    private var continuousGestureSwipeType: DockSwipeSimulator.SwipeType = .horizontal
+
+    // Mouse-button recording happens downstream in AppKit. While a recorder is
+    // open, the event tap must pass mouse-button events through instead of
+    // executing/suppressing mappings before the recorder can observe them.
+    private let mouseButtonRecordingLock = NSLock()
+    private var mouseButtonRecordingCount = 0
     
     private enum ContinuousAxis {
         case horizontal, vertical
     }
-    
+
     // Smooth scrolling state - physics engine for trackpad-like feel
     private var smoothScrollVelocityY: Double = 0
     private var displayLink: CADisplayLink?
@@ -171,7 +178,7 @@ class InputInterceptor {
             return DispatchQueue.main.sync { block() }
         }
     }
-    
+
     @MainActor
     func start(settings: Settings, deviceManager: DeviceManager) {
         guard !isRunning else { return }
@@ -309,10 +316,17 @@ class InputInterceptor {
     
     @MainActor
     func stop() {
-        // Stop smooth scrolling display link
-        stopDisplayLink()
+        // Finish synthetic gesture streams before disabling their timers/taps.
+        // Leaving a began/changed stream open can make the receiving app treat
+        // the next event after re-enabling FlowMod as part of the old gesture.
+        finishSmoothScrollingForShutdown()
+
         zoomEndTimer?.cancel()
         zoomEndTimer = nil
+        if zoomGestureActive {
+            postMagnificationEvent(magnification: 0, phase: 4) // ended
+            zoomGestureActive = false
+        }
         
         // Cancel any active continuous gesture
         if continuousGestureActive {
@@ -350,6 +364,14 @@ class InputInterceptor {
         runtimeConfig = .default
         runtimeProfileConfigs = [:]
         runtimeConfigLock.unlock()
+
+        middleButtonDown = false
+        middleButtonStartPoint = .zero
+        middleDragTriggered = false
+        middleDragProfileKey = nil
+        continuousGestureAxisLocked = false
+        continuousGestureAxis = .horizontal
+        continuousGestureSwipeType = .horizontal
         isRunning = false
         startupError = nil
         print("Input interceptor stopped")
@@ -360,6 +382,11 @@ class InputInterceptor {
     func handleEvent(_ event: CGEvent, type: CGEventType) -> CGEvent? {
         // Pass through synthetic events we posted ourselves
         if event.getIntegerValueField(.eventSourceUserData) == InputInterceptor.syntheticEventMarker {
+            return event
+        }
+
+        if isMouseButtonRecorderActive,
+           type == .otherMouseDown || type == .otherMouseUp || type == .otherMouseDragged {
             return event
         }
         
@@ -488,12 +515,9 @@ class InputInterceptor {
             pointDeltaY = 0
         }
         
-        // Determine if Option is being used to bypass smooth scrolling
-        let optionBypassesSmooth = optionHeld && smoothScrolling != .off && isMouseScroll
-        
-        // Apply Option modifier: slow down scroll for precision (applies to both X and Y)
-        // Don't apply precision when Option is being used to bypass smooth scrolling
-        let precisionScale: Double = (optionHeld && optionPrecision && isMouseScroll && !optionBypassesSmooth) ? precisionMultiplier : 1.0
+        // Option bypasses animation for immediate wheel response, but it still
+        // applies the advertised precision multiplier.
+        let precisionScale: Double = (optionHeld && optionPrecision && isMouseScroll) ? precisionMultiplier : 1.0
         
         // Apply Control modifier: speed up scroll (applies to both X and Y)
         let fastScale: Double = (controlHeld && controlFast && isMouseScroll) ? fastMultiplier : 1.0
@@ -512,6 +536,7 @@ class InputInterceptor {
         
         // Determine if this is a horizontal scroll (Shift held)
         let isHorizontalScroll = shiftHeld && shiftHorizontal && isMouseScroll
+        let hasNativeHorizontalComponent = deltaX != 0 || pixelDeltaX != 0 || pointDeltaX != 0
         
         // If smooth scrolling is enabled for mouse events, use the smooth scroll system
         // BUT: horizontal scroll (Shift+Scroll) always bypasses smooth scrolling
@@ -519,7 +544,8 @@ class InputInterceptor {
         // Control+Scroll also bypasses smooth scrolling for immediate fast scroll
         let controlBypassesSmooth = controlHeld && controlFast && isMouseScroll
         
-        if smoothScrolling != .off && isMouseScroll && !isHorizontalScroll && !optionHeld && !controlBypassesSmooth {
+        if smoothScrolling != .off && isMouseScroll && !isHorizontalScroll &&
+            !hasNativeHorizontalComponent && !optionHeld && !controlBypassesSmooth {
             smoothScrollLock.lock()
             
             // Calculate pixels to scroll for this tick
@@ -662,6 +688,36 @@ class InputInterceptor {
         displayLink?.invalidate()
         displayLink = nil
         lastFrameTime = 0
+    }
+
+    /// End and clear the smooth-scroll state when interception stops.
+    /// Synthetic end events are only posted if a gesture was actually active.
+    private func finishSmoothScrollingForShutdown() {
+        stopDisplayLink()
+
+        smoothScrollLock.lock()
+        let phase = smoothScrollPhase
+        smoothScrollVelocityY = 0
+        smoothScrollPhase = .idle
+        lastFrameTime = 0
+        lastInputTime = 0
+        needsScrollBegan = true
+        momentumBegan = false
+        animationDuration = 0
+        animationStartTime = 0
+        targetScrollDistance = 0
+        alreadyScrolledDistance = 0
+        smoothScrollLock.unlock()
+
+        switch phase {
+        case .idle:
+            break
+        case .animating:
+            postSmoothScrollEvent(deltaY: 0, deltaX: 0, phase: .ended, momentumPhase: 0)
+        case .momentum:
+            postSmoothScrollEvent(deltaY: 0, deltaX: 0, phase: nil, momentumPhase: 3)
+            postSmoothScrollEvent(deltaY: 0, deltaX: 0, phase: .ended, momentumPhase: 0)
+        }
     }
     
     @objc private func displayLinkCallback(_ link: CADisplayLink) {
@@ -1014,47 +1070,37 @@ class InputInterceptor {
                     }
                     continuousGestureAxisLocked = true
                     
-                    // Check if the mapped actions for this axis support continuous gestures
-                    if axisSupportsContinuous(axis: continuousGestureAxis) {
-                        // Determine the initial DockSwipe type from the dominant direction
-                        let initialDirection: DragDirection
-                        if continuousGestureAxis == .horizontal {
-                            initialDirection = deltaX < 0 ? .left : .right
-                        } else {
-                            initialDirection = deltaY < 0 ? .up : .down
-                        }
-                        
-                        let action: MouseAction = onMain {
-                            self.settings?.profile(forKey: self.middleDragProfileKey).getAction(for: initialDirection) ?? .none
-                        }
-                        
-                        let swipeType = dockSwipeType(for: action)
-                        
-                        // Calculate initial delta from accumulated movement
-                        let initialDelta: Double
-                        if continuousGestureAxis == .horizontal {
-                            initialDelta = -DockSwipeSimulator.pixelToDockSwipe(deltaX, type: swipeType)
-                        } else {
-                            initialDelta = -DockSwipeSimulator.pixelToDockSwipe(deltaY, type: swipeType)
-                        }
-                        
-                        continuousGestureActive = true
-                        middleDragTriggered = true
-                        
-                        // Enable HID-level event tap to receive drags during gesture
-                        if let hidTap = dragHIDTap {
-                            CGEvent.tapEnable(tap: hidTap, enable: true)
-                        }
-                        
-                        // Freeze cursor position during gesture
-                        CGAssociateMouseAndMouseCursorPosition(0)
-                        
-                        dockSwipeSimulator.begin(type: swipeType, delta: initialDelta, dragThreshold: threshold)
-                        
-                        LogManager.shared.log("Continuous gesture began: \(swipeType) axis=\(continuousGestureAxis)", category: "Gesture")
-                        return nil
+                    // Continuous mode is a fixed three-finger trackpad-swipe
+                    // simulation. It deliberately ignores the configurable
+                    // direction actions: horizontal swipes switch Spaces and
+                    // vertical swipes drive Mission Control/App Exposé.
+                    let swipeType: DockSwipeSimulator.SwipeType =
+                        continuousGestureAxis == .horizontal ? .horizontal : .vertical
+
+                    // Calculate initial delta from accumulated movement.
+                    let initialDelta: Double
+                    if continuousGestureAxis == .horizontal {
+                        initialDelta = -DockSwipeSimulator.pixelToDockSwipe(deltaX, type: swipeType)
+                    } else {
+                        initialDelta = -DockSwipeSimulator.pixelToDockSwipe(deltaY, type: swipeType)
                     }
-                    // If continuous not supported for this axis, fall through to trigger mode
+
+                    continuousGestureActive = true
+                    continuousGestureSwipeType = swipeType
+                    middleDragTriggered = true
+
+                    // Enable HID-level event tap to receive drags during gesture
+                    if let hidTap = dragHIDTap {
+                        CGEvent.tapEnable(tap: hidTap, enable: true)
+                    }
+
+                    // Freeze cursor position during gesture
+                    CGAssociateMouseAndMouseCursorPosition(0)
+
+                    dockSwipeSimulator.begin(type: swipeType, delta: initialDelta, dragThreshold: threshold)
+
+                    LogManager.shared.log("Continuous gesture began: \(swipeType) axis=\(continuousGestureAxis)", category: "Gesture")
+                    return nil
                 }
             }
         }
@@ -1289,54 +1335,34 @@ class InputInterceptor {
         
         // Convert pixel deltas to DockSwipe units using cached scaling
         if continuousGestureAxis == .horizontal {
-            let swipeDelta = -dockSwipeSimulator.pixelToDockSwipeScaled(pixelDX, type: .horizontal)
+            let swipeDelta = -dockSwipeSimulator.pixelToDockSwipeScaled(pixelDX, type: continuousGestureSwipeType)
             dockSwipeSimulator.update(delta: swipeDelta)
         } else {
-            let swipeDelta = -dockSwipeSimulator.pixelToDockSwipeScaled(pixelDY, type: .vertical)
+            let swipeDelta = -dockSwipeSimulator.pixelToDockSwipeScaled(pixelDY, type: continuousGestureSwipeType)
             dockSwipeSimulator.update(delta: swipeDelta)
         }
     }
     
     // MARK: - Continuous Gesture Helpers
     
-    /// Whether a mouse action supports continuous DockSwipe gesture simulation.
-    /// Only system-level animations that correspond to trackpad three-finger swipes.
-    private func actionSupportsContinuousGesture(_ action: MouseAction) -> Bool {
-        switch action {
-        case .missionControl, .appExpose, .switchSpaceLeft, .switchSpaceRight,
-             .showDesktop, .launchpad:
-            return true
-        default:
-            return false
-        }
+    @MainActor
+    func beginMouseButtonRecording() {
+        mouseButtonRecordingLock.lock()
+        mouseButtonRecordingCount += 1
+        mouseButtonRecordingLock.unlock()
     }
-    
-    /// Determine the DockSwipe type for a mapped action.
-    private func dockSwipeType(for action: MouseAction) -> DockSwipeSimulator.SwipeType {
-        switch action {
-        case .switchSpaceLeft, .switchSpaceRight:
-            return .horizontal
-        case .missionControl, .appExpose:
-            return .vertical
-        case .showDesktop, .launchpad:
-            return .pinch
-        default:
-            return .horizontal
-        }
+
+    @MainActor
+    func endMouseButtonRecording() {
+        mouseButtonRecordingLock.lock()
+        mouseButtonRecordingCount = max(0, mouseButtonRecordingCount - 1)
+        mouseButtonRecordingLock.unlock()
     }
-    
-    /// Check if any action in the given axis direction supports continuous gestures.
-    private func axisSupportsContinuous(axis: ContinuousAxis) -> Bool {
-        let (action1, action2): (MouseAction, MouseAction) = onMain {
-            guard let s = self.settings else { return (.none, .none) }
-            let profile = s.profile(forKey: self.middleDragProfileKey)
-            if axis == .horizontal {
-                return (profile.getAction(for: .left), profile.getAction(for: .right))
-            } else {
-                return (profile.getAction(for: .up), profile.getAction(for: .down))
-            }
-        }
-        return actionSupportsContinuousGesture(action1) || actionSupportsContinuousGesture(action2)
+
+    private var isMouseButtonRecorderActive: Bool {
+        mouseButtonRecordingLock.lock()
+        defer { mouseButtonRecordingLock.unlock() }
+        return mouseButtonRecordingCount > 0
     }
     
     private func currentRuntimeConfig() -> RuntimeConfig {
@@ -1353,6 +1379,12 @@ class InputInterceptor {
         defer { runtimeConfigLock.unlock() }
         if let key, let config = runtimeProfileConfigs[key] {
             return config
+        }
+        if let key {
+            let legacyKey = Settings.legacyProfileKey(for: key)
+            if legacyKey != key, let config = runtimeProfileConfigs[legacyKey] {
+                return config
+            }
         }
         return runtimeConfig
     }

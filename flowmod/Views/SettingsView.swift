@@ -168,17 +168,17 @@ struct SettingsView: View {
             }
         }
         .confirmationDialog(
-            "Reset \(selectedDeviceName) to the default settings?",
+            "Reset \(selectedDeviceName) to shared settings?",
             isPresented: $showRemoveConfirmation
         ) {
-            Button("Reset to Default", role: .destructive) {
+            Button("Reset to Shared Settings", role: .destructive) {
                 if let key = selectedProfileKey {
                     settings.removeProfile(forKey: key)
                 }
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This mouse will go back to following the default settings.")
+            Text("This mouse will go back to following the settings it inherits for this model.")
         }
     }
 
@@ -196,14 +196,17 @@ struct SettingsView: View {
     /// Saved profiles for mice that aren't currently connected.
     private var disconnectedProfileKeys: [String] {
         let connectedKeys = Set(connectedMice.map { $0.deviceKey })
+        let inheritedLegacyKeys = Set(connectedMice.compactMap { device in
+            device.deviceKey == device.legacyDeviceKey ? nil : device.legacyDeviceKey
+        })
         return settings.mouseProfiles.keys
-            .filter { !connectedKeys.contains($0) }
+            .filter { !connectedKeys.contains($0) && !inheritedLegacyKeys.contains($0) }
             .sorted { profileName(forKey: $0) < profileName(forKey: $1) }
     }
 
     /// Every key currently offered by the picker.
     private var availableProfileKeys: Set<String> {
-        Set(connectedMice.map { $0.deviceKey }).union(settings.mouseProfiles.keys)
+        Set(connectedMice.map { $0.deviceKey }).union(disconnectedProfileKeys)
     }
 
     /// The profile for the current selection, or nil when the selected mouse
@@ -213,12 +216,26 @@ struct SettingsView: View {
         return settings.mouseProfiles[key]
     }
 
+    /// The settings an uncustomized selected mouse currently inherits. This may
+    /// be a legacy vendor/product profile after upgrading, not always defaults.
+    private var inheritedProfile: ProfileSettings {
+        settings.profile(forKey: selectedProfileKey)
+    }
+
     private func profileName(forKey key: String) -> String {
         if let device = connectedMice.first(where: { $0.deviceKey == key }) {
-            return device.displayName
+            return displayNameForScope(device)
         }
         let name = settings.mouseProfiles[key]?.displayName ?? ""
         return name.isEmpty ? "Mouse" : name
+    }
+
+    private func displayNameForScope(_ device: DeviceManager.HIDDevice) -> String {
+        let sameNameCount = connectedMice.filter { $0.displayName == device.displayName }.count
+        guard sameNameCount > 1, let qualifier = device.profileQualifier else {
+            return device.displayName
+        }
+        return "\(device.displayName) (\(qualifier))"
     }
 
     private var selectedDeviceName: String {
@@ -237,7 +254,7 @@ struct SettingsView: View {
 
     private var scopeEntries: [ScopeEntry] {
         let connected = connectedMice.map {
-            ScopeEntry(key: $0.deviceKey, name: $0.displayName, connected: true)
+            ScopeEntry(key: $0.deviceKey, name: displayNameForScope($0), connected: true)
         }
         let disconnected = disconnectedProfileKeys.map {
             ScopeEntry(key: $0, name: profileName(forKey: $0), connected: false)
@@ -316,7 +333,7 @@ struct SettingsView: View {
             VStack(spacing: 10) {
                 customizeBanner
 
-                content(settings.defaultProfile)
+                content(inheritedProfile)
                     .disabled(true)
                     .opacity(0.5)
             }
@@ -334,7 +351,7 @@ struct SettingsView: View {
                 customizeBanner
 
                 MiddleDragGesturesView(
-                    profile: settings.defaultProfile,
+                    profile: inheritedProfile,
                     settings: settings,
                     profileControlsDisabled: true
                 )
@@ -349,7 +366,7 @@ struct SettingsView: View {
                 .foregroundStyle(Color.accentColor)
 
             VStack(alignment: .leading, spacing: 1) {
-                Text("\(selectedDeviceName) is following the default settings")
+                Text("\(selectedDeviceName) is following shared settings")
                     .font(.callout)
                     .fontWeight(.medium)
                 Text("Customize to give it its own settings, starting from a copy of these.")

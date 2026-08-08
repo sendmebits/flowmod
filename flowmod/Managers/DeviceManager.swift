@@ -35,15 +35,47 @@ class DeviceManager {
         let productID: Int
         let vendorName: String
         let productName: String
+        let physicalDeviceUniqueID: String
+        let serialNumber: String
+        let locationID: Int
         let isMouse: Bool
         let isAppleDevice: Bool
         /// IORegistryEntry ID for this device; used to match CGEvent source (undocumented field 87).
         let registryID: UInt64
 
-        /// Stable identity used to key per-mouse settings profiles.
-        /// Survives reconnection/re-enumeration (unlike `registryID`).
-        var deviceKey: String {
+        /// Legacy profile identity used by versions before physical-device IDs.
+        var legacyDeviceKey: String {
             "\(vendorID):\(productID)"
+        }
+
+        /// The most stable physical identity the HID device exposes. Serial and
+        /// physical unique IDs survive reconnection; location ID distinguishes
+        /// otherwise-identical devices connected at different locations. The
+        /// legacy key remains the fallback for hardware exposing none of them.
+        var deviceKey: String {
+            if !physicalDeviceUniqueID.isEmpty {
+                return "\(legacyDeviceKey):physical:\(Self.encodeKeyComponent(physicalDeviceUniqueID))"
+            }
+            if !serialNumber.isEmpty {
+                return "\(legacyDeviceKey):serial:\(Self.encodeKeyComponent(serialNumber))"
+            }
+            if locationID != 0 {
+                return "\(legacyDeviceKey):location:\(locationID)"
+            }
+            return legacyDeviceKey
+        }
+
+        var profileQualifier: String? {
+            if !physicalDeviceUniqueID.isEmpty {
+                return "ID \(String(physicalDeviceUniqueID.suffix(6)))"
+            }
+            if !serialNumber.isEmpty {
+                return "S/N \(String(serialNumber.suffix(6)))"
+            }
+            if locationID != 0 {
+                return String(format: "Port %08X", locationID)
+            }
+            return nil
         }
 
         var displayName: String {
@@ -62,9 +94,16 @@ class DeviceManager {
             lhs.productID == rhs.productID &&
             lhs.vendorName == rhs.vendorName &&
             lhs.productName == rhs.productName &&
+            lhs.physicalDeviceUniqueID == rhs.physicalDeviceUniqueID &&
+            lhs.serialNumber == rhs.serialNumber &&
+            lhs.locationID == rhs.locationID &&
             lhs.isMouse == rhs.isMouse &&
             lhs.isAppleDevice == rhs.isAppleDevice &&
             lhs.registryID == rhs.registryID
+        }
+
+        private static func encodeKeyComponent(_ value: String) -> String {
+            Data(value.utf8).base64EncodedString()
         }
     }
     
@@ -222,11 +261,51 @@ class DeviceManager {
         }
 
         // Fallback: some service layouts don't have the IOHIDDevice as a direct
-        // ancestor — match by VendorID/ProductID properties instead.
+        // ancestor. Preserve physical-device attribution when those properties
+        // are available; vendor/product alone is only the last resort.
         let searchOptions = IOOptionBits(kIORegistryIterateRecursively | kIORegistryIterateParents)
         if let vendorID = IORegistryEntrySearchCFProperty(entry, kIOServicePlane, kIOHIDVendorIDKey as CFString, kCFAllocatorDefault, searchOptions) as? Int,
            let productID = IORegistryEntrySearchCFProperty(entry, kIOServicePlane, kIOHIDProductIDKey as CFString, kCFAllocatorDefault, searchOptions) as? Int {
-            return devices.first { $0.vendorID == vendorID && $0.productID == productID }
+            let candidates = devices.filter { $0.vendorID == vendorID && $0.productID == productID }
+            if candidates.count <= 1 { return candidates.first }
+
+            let physicalDeviceUniqueID = IORegistryEntrySearchCFProperty(
+                entry,
+                kIOServicePlane,
+                kIOHIDPhysicalDeviceUniqueIDKey as CFString,
+                kCFAllocatorDefault,
+                searchOptions
+            ) as? String
+            if let physicalDeviceUniqueID,
+               let match = candidates.first(where: { $0.physicalDeviceUniqueID == physicalDeviceUniqueID }) {
+                return match
+            }
+
+            let serialNumber = IORegistryEntrySearchCFProperty(
+                entry,
+                kIOServicePlane,
+                kIOHIDSerialNumberKey as CFString,
+                kCFAllocatorDefault,
+                searchOptions
+            ) as? String
+            if let serialNumber,
+               let match = candidates.first(where: { $0.serialNumber == serialNumber }) {
+                return match
+            }
+
+            let locationID = IORegistryEntrySearchCFProperty(
+                entry,
+                kIOServicePlane,
+                kIOHIDLocationIDKey as CFString,
+                kCFAllocatorDefault,
+                searchOptions
+            ) as? Int
+            if let locationID,
+               let match = candidates.first(where: { $0.locationID == locationID }) {
+                return match
+            }
+
+            return candidates.first
         }
         return nil
     }
@@ -236,6 +315,10 @@ class DeviceManager {
         let productID = IOHIDDeviceGetProperty(device, kIOHIDProductIDKey as CFString) as? Int ?? 0
         let vendorName = IOHIDDeviceGetProperty(device, kIOHIDManufacturerKey as CFString) as? String ?? ""
         let productName = IOHIDDeviceGetProperty(device, kIOHIDProductKey as CFString) as? String ?? ""
+        let physicalDeviceUniqueID =
+            IOHIDDeviceGetProperty(device, kIOHIDPhysicalDeviceUniqueIDKey as CFString) as? String ?? ""
+        let serialNumber = IOHIDDeviceGetProperty(device, kIOHIDSerialNumberKey as CFString) as? String ?? ""
+        let locationID = IOHIDDeviceGetProperty(device, kIOHIDLocationIDKey as CFString) as? Int ?? 0
         
         let usagePage = IOHIDDeviceGetProperty(device, kIOHIDPrimaryUsagePageKey as CFString) as? Int ?? 0
         let usage = IOHIDDeviceGetProperty(device, kIOHIDPrimaryUsageKey as CFString) as? Int ?? 0
@@ -259,6 +342,9 @@ class DeviceManager {
             productID: productID,
             vendorName: vendorName,
             productName: productName,
+            physicalDeviceUniqueID: physicalDeviceUniqueID,
+            serialNumber: serialNumber,
+            locationID: locationID,
             isMouse: isMouse,
             isAppleDevice: isAppleDevice,
             registryID: registryID

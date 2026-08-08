@@ -28,7 +28,7 @@ struct MiddleDragGesturesView: View {
                             }
 
                             if profile.continuousGestures {
-                                Text("Works with Mission Control, App Exposé, Switch Spaces, Show Desktop, and Launchpad. Direction settings below are not used in this mode.")
+                                Text("Mimics three-finger trackpad swipes: up opens Mission Control, down opens App Exposé, and left or right switches Spaces. Direction settings below are not used in this mode.")
                                     .font(.caption2)
                                     .foregroundStyle(.tertiary)
                             }

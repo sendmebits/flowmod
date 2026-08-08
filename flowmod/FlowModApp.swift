@@ -59,6 +59,9 @@ struct FlowModApp: App {
             PermissionManager.shared.onPermissionGranted = {
                 Self.startInputInterceptorIfNeeded()
             }
+            PermissionManager.shared.onPermissionRevoked = {
+                InputInterceptor.shared.stop()
+            }
         }
         
         // Start immediately for returning users. New users get a visible setup

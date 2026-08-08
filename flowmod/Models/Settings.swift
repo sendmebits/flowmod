@@ -45,10 +45,10 @@ class Settings {
     /// Resolve the profile to use for a device key (nil key = unattributed
     /// event or no device). Falls back to the default profile.
     func profile(forKey key: String?) -> ProfileSettings {
-        guard perMouseSettingsEnabled, let key, let profile = mouseProfiles[key] else {
+        guard perMouseSettingsEnabled, let key else {
             return defaultProfile
         }
-        return profile
+        return storedProfile(forKey: key) ?? defaultProfile
     }
 
     /// Create a profile for a mouse, starting as a copy of the current
@@ -57,7 +57,9 @@ class Settings {
     func createProfile(forKey key: String, displayName: String) -> ProfileSettings {
         if let existing = mouseProfiles[key] { return existing }
         let profile = ProfileSettings()
-        profile.copyValues(from: defaultProfile)
+        // A pre-1.0.5 vendor/product profile remains the starting point when a
+        // physical device gets its new serial/unique/location-specific profile.
+        profile.copyValues(from: storedProfile(forKey: key) ?? defaultProfile)
         profile.displayName = displayName
         profile.onChange = { [weak self] in self?.saveMouseProfiles() }
         mouseProfiles[key] = profile
@@ -71,6 +73,21 @@ class Settings {
         guard mouseProfiles.removeValue(forKey: key) != nil else { return }
         saveMouseProfiles()
         LogManager.shared.log("Removed profile [\(key)]", category: "Settings")
+    }
+
+    private func storedProfile(forKey key: String) -> ProfileSettings? {
+        if let exact = mouseProfiles[key] {
+            return exact
+        }
+        let legacyKey = Self.legacyProfileKey(for: key)
+        guard legacyKey != key else { return nil }
+        return mouseProfiles[legacyKey]
+    }
+
+    nonisolated static func legacyProfileKey(for key: String) -> String {
+        let components = key.split(separator: ":", maxSplits: 2, omittingEmptySubsequences: false)
+        guard components.count >= 2 else { return key }
+        return "\(components[0]):\(components[1])"
     }
 
     // MARK: - Master Toggles
