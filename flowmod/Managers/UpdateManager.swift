@@ -46,8 +46,8 @@ class UpdateManager {
     private let checkInterval: TimeInterval = 24 * 60 * 60 // 24 hours
     /// Minimum time between manual "Check for Updates" requests to avoid GitHub rate limiting.
     private let manualCheckThrottleInterval: TimeInterval = 30
-    private let expectedBundleIdentifier = "com.sendmebits.flowmod"
-    private let expectedSigningTeamIdentifier = "8383UU5VZ7"
+    private static let expectedBundleIdentifier = "com.sendmebits.flowmod"
+    private static let expectedSigningTeamIdentifier = "8383UU5VZ7"
     
     // MARK: - Initialization
     
@@ -230,29 +230,41 @@ class UpdateManager {
             
             try FileManager.default.moveItem(at: localURL, to: zipPath)
 
-            // GitHub supplies a SHA-256 digest for release assets. It is not a
-            // substitute for code signing, but it catches corruption between
-            // release metadata retrieval and installation.
-            if let expectedDigest = downloadDigest {
-                try verifyDigest(of: zipPath, expectedDigest: expectedDigest)
-            }
-            
-            // 2. Unzip
-            let unzipResult = try runProcess("/usr/bin/unzip", arguments: ["-o", zipPath.path, "-d", tempDir.path])
-            guard unzipResult == 0 else {
-                errorMessage = "Failed to extract update (exit code \(unzipResult))."
-                return
-            }
-            
-            // 3. Find the extracted .app bundle
-            let contents = try FileManager.default.contentsOfDirectory(at: tempDir, includingPropertiesForKeys: nil)
-            let appBundles = contents.filter { $0.pathExtension.lowercased() == "app" }
-            guard appBundles.count == 1, let newAppBundle = appBundles.first else {
-                errorMessage = "Could not find app bundle in update."
-                return
+            let expectedDigest = downloadDigest
+            guard let expectedVersion = latestVersion else {
+                throw UpdateInstallError.unexpectedVersion
             }
 
-            try validateUpdateBundle(newAppBundle)
+            // 2-3. Extract and validate off the main actor; these checks can
+            // block on process execution, hashing, and Gatekeeper assessment.
+            let newAppBundle = try await Task.detached(priority: .userInitiated) {
+                // GitHub supplies a SHA-256 digest for release assets. It is not a
+                // substitute for code signing, but it catches corruption between
+                // release metadata retrieval and installation.
+                if let expectedDigest {
+                    try Self.verifyDigest(of: zipPath, expectedDigest: expectedDigest)
+                }
+
+                let unzipResult = try Self.runProcess("/usr/bin/unzip", arguments: ["-o", zipPath.path, "-d", tempDir.path])
+                guard unzipResult == 0 else {
+                    throw UpdateInstallError.extractionFailed(unzipResult)
+                }
+
+                let contents = try FileManager.default.contentsOfDirectory(at: tempDir, includingPropertiesForKeys: nil)
+                let appBundles = contents.filter { $0.pathExtension.lowercased() == "app" }
+                guard appBundles.count == 1, let newAppBundle = appBundles.first else {
+                    throw UpdateInstallError.appBundleNotFound
+                }
+
+                try Self.validateUpdateBundle(
+                    newAppBundle,
+                    expectedVersion: expectedVersion,
+                    expectedBundleIdentifier: Self.expectedBundleIdentifier,
+                    expectedSigningTeamIdentifier: Self.expectedSigningTeamIdentifier
+                )
+
+                return newAppBundle
+            }.value
             
             // 4. Replace the current app bundle
             let currentBundleURL = Bundle.main.bundleURL
@@ -328,7 +340,7 @@ class UpdateManager {
     // MARK: - Process Helper
     
     /// Runs a command-line process synchronously and returns the exit code.
-    private func runProcess(_ path: String, arguments: [String]) throws -> Int32 {
+    nonisolated private static func runProcess(_ path: String, arguments: [String]) throws -> Int32 {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: path)
         process.arguments = arguments
@@ -345,7 +357,7 @@ class UpdateManager {
         try? FileManager.default.removeItem(at: directory)
     }
 
-    private func verifyDigest(of fileURL: URL, expectedDigest: String) throws {
+    nonisolated private static func verifyDigest(of fileURL: URL, expectedDigest: String) throws {
         let components = expectedDigest.split(separator: ":", maxSplits: 1).map(String.init)
         guard components.count == 2, components[0].lowercased() == "sha256" else {
             throw UpdateInstallError.invalidDigestMetadata
@@ -358,14 +370,18 @@ class UpdateManager {
         }
     }
 
-    private func validateUpdateBundle(_ appBundleURL: URL) throws {
+    nonisolated private static func validateUpdateBundle(
+        _ appBundleURL: URL,
+        expectedVersion: String,
+        expectedBundleIdentifier: String,
+        expectedSigningTeamIdentifier: String
+    ) throws {
         guard let bundle = Bundle(url: appBundleURL),
               bundle.bundleIdentifier == expectedBundleIdentifier else {
             throw UpdateInstallError.invalidBundleIdentifier
         }
 
-        guard let expectedVersion = latestVersion,
-              let candidateVersion = bundle.infoDictionary?["CFBundleShortVersionString"] as? String,
+        guard let candidateVersion = bundle.infoDictionary?["CFBundleShortVersionString"] as? String,
               candidateVersion == expectedVersion else {
             throw UpdateInstallError.unexpectedVersion
         }
@@ -415,21 +431,13 @@ class UpdateManager {
             throw UpdateInstallError.unexpectedSigner
         }
 
-        // Prefer an offline stapled-ticket check. Zip-distributed builds may not
-        // be stapled; in that case Gatekeeper assessment is best-effort and must
-        // not hard-fail network/transient assess errors after signature checks passed.
+        // Gatekeeper assessment passes offline for stapled builds. If assessment
+        // cannot complete for transient reasons, signature and team checks above
+        // have already validated the bundle identity.
         try validateNotarization(of: appBundleURL)
     }
 
-    private func validateNotarization(of appBundleURL: URL) throws {
-        let staplerStatus = try runProcess(
-            "/usr/bin/xcrun",
-            arguments: ["stapler", "validate", appBundleURL.path]
-        )
-        if staplerStatus == 0 {
-            return
-        }
-
+    nonisolated private static func validateNotarization(of appBundleURL: URL) throws {
         let spctlStatus = try runProcess(
             "/usr/sbin/spctl",
             arguments: ["--assess", "--type", "execute", appBundleURL.path]
@@ -444,7 +452,7 @@ class UpdateManager {
             throw UpdateInstallError.notNotarized
         }
 
-        print("Update notarization could not be confirmed offline (stapler=\(staplerStatus), spctl=\(spctlStatus)); proceeding after signature validation.")
+        print("Update notarization could not be confirmed (spctl=\(spctlStatus)); proceeding after signature validation.")
     }
 
     /// Copy the candidate beside the installed app before moving the current
@@ -513,6 +521,8 @@ class UpdateManager {
 private enum UpdateInstallError: LocalizedError {
     case invalidDigestMetadata
     case digestMismatch
+    case extractionFailed(Int32)
+    case appBundleNotFound
     case invalidBundleIdentifier
     case unexpectedVersion
     case invalidCodeSignature(OSStatus)
@@ -525,6 +535,10 @@ private enum UpdateInstallError: LocalizedError {
             return "The release provided invalid checksum metadata."
         case .digestMismatch:
             return "The downloaded update did not match its release checksum."
+        case .extractionFailed(let status):
+            return "Failed to extract update (exit code \(status))."
+        case .appBundleNotFound:
+            return "Could not find app bundle in update."
         case .invalidBundleIdentifier:
             return "The update is not a FlowMod application bundle."
         case .unexpectedVersion:
