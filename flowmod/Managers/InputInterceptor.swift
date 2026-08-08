@@ -41,7 +41,7 @@ class InputInterceptor {
     private var continuousGestureSwipeType: DockSwipeSimulator.SwipeType = .horizontal
     /// Cancels a continuous gesture if mouse-up is lost (tap timeout / secure input).
     private var continuousGestureMaxDurationWatchdog: DispatchWorkItem?
-    /// Hard cap so a wedged gesture cannot freeze the cursor indefinitely.
+    /// Hard cap so a wedged gesture cannot keep HID drag suppression active indefinitely.
     /// Long enough for intentional Spaces/Mission Control browsing; short enough
     /// to recover from a dropped mouse-up without requiring a relaunch.
     private let continuousGestureMaxDuration: TimeInterval = 15.0
@@ -1103,9 +1103,6 @@ class InputInterceptor {
                         CGEvent.tapEnable(tap: hidTap, enable: true)
                     }
 
-                    // Freeze cursor position during gesture
-                    CGAssociateMouseAndMouseCursorPosition(0)
-
                     dockSwipeSimulator.begin(type: swipeType, delta: initialDelta, dragThreshold: threshold)
                     armContinuousGestureWatchdogs()
 
@@ -1359,7 +1356,7 @@ class InputInterceptor {
     // MARK: - Continuous Gesture Helpers
 
     /// Re-enable after timeout immediately. For user-input disable (secure
-    /// input / system policy), cancel any frozen gesture and retry enable
+    /// input / system policy), cancel any stuck gesture and retry enable
     /// shortly afterward so the session tap is not left permanently dead.
     /// The HID drag tap is only re-enabled while a continuous gesture is active.
     private func handleTapDisabled(type: CGEventType, tap: CFMachPort?) {
@@ -1430,7 +1427,6 @@ class InputInterceptor {
         if let hidTap = dragHIDTap {
             CGEvent.tapEnable(tap: hidTap, enable: false)
         }
-        CGAssociateMouseAndMouseCursorPosition(1)
         LogManager.shared.log(
             force ? "Continuous gesture cancelled (\(reason))" : "Continuous gesture ended (\(reason))",
             category: "Gesture"
@@ -1566,7 +1562,7 @@ class InputInterceptor {
             runtimeConfigLock.unlock()
 
             // mouseEnabled can flip without going through stop(). Clear any
-            // frozen continuous gesture so the cursor cannot stay wedged.
+            // active continuous gesture so HID drag suppression cannot stay wedged.
             if !mouseEnabled {
                 abandonActiveMouseInteraction(reason: "mouseEnabled turned off")
             }
