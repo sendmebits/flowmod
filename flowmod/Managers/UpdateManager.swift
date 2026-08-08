@@ -46,8 +46,8 @@ class UpdateManager {
     private let checkInterval: TimeInterval = 24 * 60 * 60 // 24 hours
     /// Minimum time between manual "Check for Updates" requests to avoid GitHub rate limiting.
     private let manualCheckThrottleInterval: TimeInterval = 30
-    private static let expectedBundleIdentifier = "com.sendmebits.flowmod"
-    private static let expectedSigningTeamIdentifier = "8383UU5VZ7"
+    private nonisolated static let expectedBundleIdentifier = "com.sendmebits.flowmod"
+    private nonisolated static let expectedSigningTeamIdentifier = "8383UU5VZ7"
     
     // MARK: - Initialization
     
