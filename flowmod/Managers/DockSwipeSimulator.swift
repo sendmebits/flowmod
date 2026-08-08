@@ -14,8 +14,7 @@ private func CGSCopyManagedDisplaySpaces(_ conn: Int32) -> CFArray?
 
 /// Simulates macOS trackpad DockSwipe gestures via synthesized CGEvents.
 /// This enables continuous, drag-following animations for Mission Control,
-/// App Exposé, Switch Spaces, Show Desktop, and Launchpad — identical to
-/// three-finger trackpad swipes.
+/// App Exposé, and Switch Spaces — identical to three-finger trackpad swipes.
 ///
 /// Based on reverse-engineered DockSwipe event format:
 /// - Event type 29 (NSEventTypeGesture) — companion event
@@ -31,7 +30,6 @@ class DockSwipeSimulator {
     enum SwipeType: Int {
         case horizontal = 1  // Switch Spaces left/right
         case vertical = 2    // Mission Control (up) / App Exposé (down)
-        case pinch = 3       // Show Desktop / Launchpad
     }
     
     /// IOHIDEvent phase values
@@ -67,7 +65,6 @@ class DockSwipeSimulator {
     private static let typeConstants: [SwipeType: Double] = [
         .horizontal: 1.401298464324817e-45,
         .vertical:   2.802596928649634e-45,
-        .pinch:      4.203895392974451e-45,
     ]
     
     // MARK: - Pixel-to-DockSwipe Scaling
@@ -86,8 +83,6 @@ class DockSwipeSimulator {
             let spaceSeparatorWidth: Double = 63
             return pixels * originOffsetForOneSpace / (screenSize.width + spaceSeparatorWidth)
         case .vertical:
-            return pixels / screenSize.height
-        case .pinch:
             return pixels / screenSize.height
         }
     }
@@ -127,7 +122,7 @@ class DockSwipeSimulator {
     
     /// Begin a new DockSwipe gesture.
     /// - Parameters:
-    ///   - type: The gesture type (horizontal/vertical/pinch)
+    ///   - type: The gesture type (horizontal/vertical)
     ///   - delta: Initial delta in DockSwipe units
     ///   - dragThreshold: User-configured drag sensitivity in pixels
     ///   - invertedFromDevice: Whether natural scrolling direction is active
@@ -373,7 +368,7 @@ class DockSwipeSimulator {
         case .horizontal:
             let sensitivity = horizontalCommitSensitivity()
             return 0.15 - (0.06 * sensitivity)
-        case .vertical, .pinch:
+        case .vertical:
             return 0.05
         }
     }
@@ -383,7 +378,7 @@ class DockSwipeSimulator {
         case .horizontal:
             let sensitivity = horizontalCommitSensitivity()
             return 0.30 + (0.08 * sensitivity)
-        case .vertical, .pinch:
+        case .vertical:
             return 0.15
         }
     }
@@ -395,7 +390,7 @@ class DockSwipeSimulator {
             let baseVelocity = isSmallOffset ? 0.06 : 0.03
             let adjustment = isSmallOffset ? 0.02 : 0.01
             return max(0.015, baseVelocity + (adjustment * sensitivity))
-        case .vertical, .pinch:
+        case .vertical:
             return isSmallOffset ? 0.06 : 0.03
         }
     }
