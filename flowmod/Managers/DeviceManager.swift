@@ -13,7 +13,10 @@ class DeviceManager {
     private(set) var connectedDevices: [HIDDevice] = []
     
     private var hidManager: IOHIDManager?
-    private let appleVendorID: Int = 0x05AC
+    private let appleVendorIDs: Set<Int> = [
+        0x05AC, // Apple USB
+        0x004C  // Apple Bluetooth
+    ]
     private var refreshTimer: Timer?
 
     /// Attribution state read from the event-tap thread (see `device(forEventSenderID:)`).
@@ -327,7 +330,7 @@ class DeviceManager {
         
         guard isMouse else { return nil }
         
-        let isAppleDevice = vendorID == appleVendorID ||
+        let isAppleDevice = appleVendorIDs.contains(vendorID) ||
             productName.lowercased().contains("apple") ||
             vendorName.lowercased().contains("apple")
         

@@ -1,6 +1,5 @@
 import Foundation
 import Observation
-import ServiceManagement
 
 /// Smooth scrolling intensity options
 enum SmoothScrolling: String, CaseIterable, Identifiable, Codable {
@@ -98,6 +97,8 @@ class Settings {
     }
 
     // MARK: - General Settings
+    /// Prefer launch-at-login by default, but do not silently register a login
+    /// item on first launch — General settings applies the preference explicitly.
     var launchAtLogin: Bool = true {
         didSet { if !isLoading { UserDefaults.standard.set(launchAtLogin, forKey: "launchAtLogin") } }
     }
@@ -137,12 +138,9 @@ class Settings {
         if UserDefaults.standard.object(forKey: "launchAtLogin") != nil {
             launchAtLogin = UserDefaults.standard.bool(forKey: "launchAtLogin")
         } else {
-            // First launch: default to true and register
+            // First launch preference only — registration happens from General settings.
             launchAtLogin = true
             UserDefaults.standard.set(true, forKey: "launchAtLogin")
-            if #available(macOS 13.0, *) {
-                try? SMAppService.mainApp.register()
-            }
         }
 
         if UserDefaults.standard.object(forKey: "dragThreshold") != nil {
@@ -171,6 +169,12 @@ class Settings {
     private let customMouseButtonMappingsKey = "customMouseButtonMappings"
     private let middleDragMappingsKey = "middleDragMappings"
     private let mouseProfilesKey = "mouseProfiles"
+
+    /// When persisted JSON exists but fails to decode, refuse later saves for
+    /// that blob so we never overwrite recoverable UserDefaults with empty data.
+    private var customMouseButtonMappingsCorrupt = false
+    private var middleDragMappingsCorrupt = false
+    private var mouseProfilesCorrupt = false
 
     private func loadDefaultProfile() {
         let defaults = UserDefaults.standard
@@ -206,17 +210,31 @@ class Settings {
             p.continuousGestures = defaults.bool(forKey: "continuousGestures")
         }
 
-        if let data = defaults.data(forKey: customMouseButtonMappingsKey),
-           let mappings = try? JSONDecoder().decode([CustomMouseButtonMapping].self, from: data) {
-            p.customMouseButtonMappings = mappings
+        if let data = defaults.data(forKey: customMouseButtonMappingsKey) {
+            do {
+                p.customMouseButtonMappings = try JSONDecoder().decode([CustomMouseButtonMapping].self, from: data)
+            } catch {
+                customMouseButtonMappingsCorrupt = true
+                LogManager.shared.log(
+                    "Failed to decode customMouseButtonMappings; leaving stored data untouched: \(error.localizedDescription)",
+                    category: "Settings"
+                )
+            }
         }
 
-        if let data = defaults.data(forKey: middleDragMappingsKey),
-           let mappings = try? JSONDecoder().decode([DragDirection: MouseAction].self, from: data) {
-            p.middleDragMappings = mappings
+        if let data = defaults.data(forKey: middleDragMappingsKey) {
+            do {
+                p.middleDragMappings = try JSONDecoder().decode([DragDirection: MouseAction].self, from: data)
+            } catch {
+                middleDragMappingsCorrupt = true
+                LogManager.shared.log(
+                    "Failed to decode middleDragMappings; leaving stored data untouched: \(error.localizedDescription)",
+                    category: "Settings"
+                )
+            }
         }
 
-        if p.middleDragMappings.isEmpty {
+        if p.middleDragMappings.isEmpty && !middleDragMappingsCorrupt {
             p.middleDragMappings = [
                 .up: .missionControl,
                 .down: .appExpose,
@@ -240,10 +258,12 @@ class Settings {
         defaults.set(p.commandZoomScroll, forKey: "commandZoomScroll")
         defaults.set(p.continuousGestures, forKey: "continuousGestures")
 
-        if let data = try? JSONEncoder().encode(p.customMouseButtonMappings) {
+        if !customMouseButtonMappingsCorrupt,
+           let data = try? JSONEncoder().encode(p.customMouseButtonMappings) {
             defaults.set(data, forKey: customMouseButtonMappingsKey)
         }
-        if let data = try? JSONEncoder().encode(p.middleDragMappings) {
+        if !middleDragMappingsCorrupt,
+           let data = try? JSONEncoder().encode(p.middleDragMappings) {
             defaults.set(data, forKey: middleDragMappingsKey)
         }
     }
@@ -251,14 +271,29 @@ class Settings {
     // MARK: - Mouse Profile Persistence
 
     private func loadMouseProfiles() {
-        guard let data = UserDefaults.standard.data(forKey: mouseProfilesKey),
-              let decoded = try? JSONDecoder().decode([String: ProfileData].self, from: data) else {
+        guard let data = UserDefaults.standard.data(forKey: mouseProfilesKey) else {
             return
         }
-        mouseProfiles = decoded.mapValues { ProfileSettings(data: $0) }
+        do {
+            let decoded = try JSONDecoder().decode([String: ProfileData].self, from: data)
+            mouseProfiles = decoded.mapValues { ProfileSettings(data: $0) }
+        } catch {
+            mouseProfilesCorrupt = true
+            LogManager.shared.log(
+                "Failed to decode mouseProfiles; leaving stored data untouched: \(error.localizedDescription)",
+                category: "Settings"
+            )
+        }
     }
 
     private func saveMouseProfiles() {
+        guard !mouseProfilesCorrupt else {
+            LogManager.shared.log(
+                "Refusing to save mouseProfiles after a decode failure to avoid wiping stored profiles",
+                category: "Settings"
+            )
+            return
+        }
         let snapshot = mouseProfiles.mapValues { $0.data }
         if let data = try? JSONEncoder().encode(snapshot) {
             UserDefaults.standard.set(data, forKey: mouseProfilesKey)

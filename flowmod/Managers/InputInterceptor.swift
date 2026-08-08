@@ -39,6 +39,20 @@ class InputInterceptor {
     private var continuousGestureAxisLocked = false
     private var continuousGestureAxis: ContinuousAxis = .horizontal
     private var continuousGestureSwipeType: DockSwipeSimulator.SwipeType = .horizontal
+    /// Cancels a continuous gesture if mouse-up is lost (tap timeout / secure input).
+    private var continuousGestureMaxDurationWatchdog: DispatchWorkItem?
+    /// Hard cap so a wedged gesture cannot freeze the cursor indefinitely.
+    /// Long enough for intentional Spaces/Mission Control browsing; short enough
+    /// to recover from a dropped mouse-up without requiring a relaunch.
+    private let continuousGestureMaxDuration: TimeInterval = 15.0
+
+    /// When middle-click is remapped to a non-passthrough action, gesture
+    /// tracking is skipped and the action runs on mouse-up instead.
+    private var pendingMiddleButtonAction: MouseAction?
+
+    /// Profile key captured at side-button mouse-down so mouse-up uses the
+    /// same profile even if field-87 attribution differs.
+    private var activeSideButtonProfileKeys: [Int64: String?] = [:]
 
     // Mouse-button recording happens downstream in AppKit. While a recorder is
     // open, the event tap must pass mouse-button events through instead of
@@ -199,13 +213,12 @@ class InputInterceptor {
         
         // Create event tap with inline closure that can be converted to C function pointer
         let callback: CGEventTapCallBack = { proxy, type, event, userInfo in
-            // Handle tap disabled events (system may disable tap temporarily)
+            // Timeout: system paused a slow callback — safe to re-enable.
+            // User-input disable usually means secure input / policy; do not fight it.
             if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
                 if let userInfo = userInfo {
                     let interceptor = Unmanaged<InputInterceptor>.fromOpaque(userInfo).takeUnretainedValue()
-                    if let tap = interceptor.eventTap {
-                        CGEvent.tapEnable(tap: tap, enable: true)
-                    }
+                    interceptor.handleTapDisabled(type: type, tap: interceptor.eventTap)
                 }
                 return Unmanaged.passUnretained(event)
             }
@@ -267,9 +280,7 @@ class InputInterceptor {
             if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
                 if let userInfo = userInfo {
                     let interceptor = Unmanaged<InputInterceptor>.fromOpaque(userInfo).takeUnretainedValue()
-                    if let tap = interceptor.dragHIDTap {
-                        CGEvent.tapEnable(tap: tap, enable: true)
-                    }
+                    interceptor.handleTapDisabled(type: type, tap: interceptor.dragHIDTap)
                 }
                 return Unmanaged.passUnretained(event)
             }
@@ -328,15 +339,8 @@ class InputInterceptor {
             zoomGestureActive = false
         }
         
-        // Cancel any active continuous gesture
-        if continuousGestureActive {
-            continuousGestureActive = false
-            dockSwipeSimulator.forceCancel()
-            if let hidTap = dragHIDTap {
-                CGEvent.tapEnable(tap: hidTap, enable: false)
-            }
-            CGAssociateMouseAndMouseCursorPosition(1)
-        }
+        cancelContinuousGesture(force: true, reason: "interceptor stopped")
+        clearButtonTrackingState()
         
         // Disable and clean up HID drag tap
         if let hidTap = dragHIDTap {
@@ -365,13 +369,6 @@ class InputInterceptor {
         runtimeProfileConfigs = [:]
         runtimeConfigLock.unlock()
 
-        middleButtonDown = false
-        middleButtonStartPoint = .zero
-        middleDragTriggered = false
-        middleDragProfileKey = nil
-        continuousGestureAxisLocked = false
-        continuousGestureAxis = .horizontal
-        continuousGestureSwipeType = .horizontal
         isRunning = false
         startupError = nil
         print("Input interceptor stopped")
@@ -397,13 +394,22 @@ class InputInterceptor {
             guard config.mouseEnabled else { return event }
             return handleScrollEvent(event)
         case .otherMouseDown:
-            guard config.mouseEnabled else { return event }
+            guard config.mouseEnabled else {
+                abandonActiveMouseInteraction(reason: "mouse disabled")
+                return event
+            }
             return handleOtherMouseDown(event)
         case .otherMouseUp:
-            guard config.mouseEnabled else { return event }
+            guard config.mouseEnabled else {
+                abandonActiveMouseInteraction(reason: "mouse disabled")
+                return event
+            }
             return handleOtherMouseUp(event)
         case .otherMouseDragged:
-            guard config.mouseEnabled else { return event }
+            guard config.mouseEnabled else {
+                abandonActiveMouseInteraction(reason: "mouse disabled")
+                return event
+            }
             return handleOtherMouseDragged(event)
         default:
             return event
@@ -917,22 +923,14 @@ class InputInterceptor {
 
         // Middle button (button 2) - start tracking for drag gesture
         if buttonNumber == 2 {
-            middleButtonDown = true
-            middleButtonStartPoint = event.location
-            middleDragTriggered = false
-            middleDragProfileKey = profileKey
-            
             // Properly end any leftover continuous gesture from a previous interaction
             // (e.g. if a mouseUp was lost due to tap being disabled by timeout)
-            if continuousGestureActive {
-                continuousGestureActive = false
-                dockSwipeSimulator.forceCancel()
-                if let hidTap = dragHIDTap {
-                    CGEvent.tapEnable(tap: hidTap, enable: false)
-                }
-                CGAssociateMouseAndMouseCursorPosition(1)
-            }
+            cancelContinuousGesture(force: true, reason: "new middle-button press")
             continuousGestureAxisLocked = false
+            pendingMiddleButtonAction = nil
+            middleDragTriggered = false
+            middleDragProfileKey = profileKey
+            middleButtonStartPoint = event.location
             
             // Check if middle click has a mapping AND if drag gestures are configured
             let (action, hasDragGestures): (MouseAction?, Bool) = onMain {
@@ -940,19 +938,25 @@ class InputInterceptor {
                 return (profile.getAction(forButtonNumber: 2), !profile.middleDragMappings.isEmpty)
             }
 
-            // If no mapping or action is just middle click, check for drag gestures
-            if action == nil || action == .middleClick {
-                if hasDragGestures {
-                    // Suppress mouseDown: drag gesture detection needs to decide
-                    // whether this is a click or a gesture. If no gesture triggers,
-                    // we'll send a synthetic middle click on mouseUp.
-                    return nil
-                }
-                return event
+            // Remapped middle button (including explicit .none): do not run drag
+            // gestures — only the mapped click action (or swallow for .none).
+            if let action, action != .middleClick {
+                middleButtonDown = false
+                pendingMiddleButtonAction = action
+                return nil
             }
-            
-            // Non-middleClick mapping: suppress the event (we'll handle on mouse up or drag)
-            return nil
+
+            // Passthrough middle click (unmapped or .middleClick): optional gestures
+            middleButtonDown = true
+            pendingMiddleButtonAction = nil
+
+            if hasDragGestures {
+                // Suppress mouseDown: drag gesture detection needs to decide
+                // whether this is a click or a gesture. If no gesture triggers,
+                // we'll send a synthetic middle click on mouseUp.
+                return nil
+            }
+            return event
         }
         
         // All other buttons (3, 4, 5+) - check for custom mappings
@@ -972,32 +976,32 @@ class InputInterceptor {
             // Use the profile captured at mouseDown so the up-decision matches
             // the down-decision even if attribution differs.
             let profileKey = middleDragProfileKey
+            let pendingAction = pendingMiddleButtonAction
             defer {
                 middleButtonDown = false
                 middleDragTriggered = false
                 middleDragProfileKey = nil
                 continuousGestureAxisLocked = false
+                pendingMiddleButtonAction = nil
             }
             
             // End continuous gesture if active
             if continuousGestureActive {
-                continuousGestureActive = false
-                dockSwipeSimulator.end(cancel: false)
-                
-                // Disable HID-level drag tap
-                if let hidTap = dragHIDTap {
-                    CGEvent.tapEnable(tap: hidTap, enable: false)
-                }
-                
-                // Unfreeze cursor
-                CGAssociateMouseAndMouseCursorPosition(1)
-                
-                LogManager.shared.log("Continuous gesture ended", category: "Gesture")
+                cancelContinuousGesture(force: false, reason: "middle-button release")
                 return nil
             }
             
             // If drag gesture was triggered, suppress the mouse up
             if middleDragTriggered {
+                return nil
+            }
+
+            // Remapped middle button: execute (or swallow .none) using the
+            // action captured at mouse-down.
+            if let pendingAction {
+                if pendingAction != .none {
+                    executeAction(pendingAction, at: event.location)
+                }
                 return nil
             }
             
@@ -1019,11 +1023,16 @@ class InputInterceptor {
             }
             
             // Execute the custom action on mouse up (for click-style actions)
-            executeAction(action!)
+            executeAction(action!, at: event.location)
             return nil
         }
         
-        // Suppress up events for buttons that have mappings
+        // Suppress up events for buttons that had mappings on mouse-down,
+        // using the profile captured then so attribution can't desync the pair.
+        if activeSideButtonProfileKeys.removeValue(forKey: buttonNumber) != nil {
+            return nil
+        }
+
         let hasMapping: Bool = onMain {
             settings?.profile(forKey: eventSource.profileKey).getAction(forButtonNumber: buttonNumber) != nil
         }
@@ -1098,6 +1107,7 @@ class InputInterceptor {
                     CGAssociateMouseAndMouseCursorPosition(0)
 
                     dockSwipeSimulator.begin(type: swipeType, delta: initialDelta, dragThreshold: threshold)
+                    armContinuousGestureWatchdogs()
 
                     LogManager.shared.log("Continuous gesture began: \(swipeType) axis=\(continuousGestureAxis)", category: "Gesture")
                     return nil
@@ -1131,7 +1141,7 @@ class InputInterceptor {
             }
             
             if action != .none {
-                executeAction(action)
+                executeAction(action, at: currentPoint)
             }
         }
         
@@ -1145,22 +1155,26 @@ class InputInterceptor {
         
         // If no mapping, pass through the event
         guard let action = action else {
+            activeSideButtonProfileKeys.removeValue(forKey: buttonNumber)
             return originalEvent
         }
+
+        // Remember that we consumed this button so mouse-up stays paired.
+        activeSideButtonProfileKeys[buttonNumber] = profileKey
         
         // For .none, suppress the event entirely
         if action == .none {
             return nil
         }
         
-        // Execute the action
-        executeAction(action)
+        // Execute the action (including synthesizing a middle click when mapped)
+        executeAction(action, at: originalEvent.location)
         return nil  // Suppress the original mouse button event
     }
     
     // MARK: - Action Execution
     
-    private func executeAction(_ action: MouseAction) {
+    private func executeAction(_ action: MouseAction, at location: CGPoint = .zero) {
         LogManager.shared.log("Executing action: \(action.displayName)", category: "Action")
         
         switch action {
@@ -1183,8 +1197,7 @@ class InputInterceptor {
             sendKeyCombo(KeyCombo(keyCode: 0x1E, modifiers: CGEventFlags.maskCommand.rawValue)) // ⌘]
             
         case .middleClick:
-            // Shouldn't reach here normally
-            break
+            postSyntheticMiddleClick(at: location)
             
         case .copy:
             sendKeyCombo(KeyCombo(keyCode: 0x08, modifiers: CGEventFlags.maskCommand.rawValue)) // ⌘C
@@ -1344,6 +1357,101 @@ class InputInterceptor {
     }
     
     // MARK: - Continuous Gesture Helpers
+
+    /// Re-enable after timeout immediately. For user-input disable (secure
+    /// input / system policy), cancel any frozen gesture and retry enable
+    /// shortly afterward so the session tap is not left permanently dead.
+    /// The HID drag tap is only re-enabled while a continuous gesture is active.
+    private func handleTapDisabled(type: CGEventType, tap: CFMachPort?) {
+        if continuousGestureActive || middleButtonDown || pendingMiddleButtonAction != nil {
+            abandonActiveMouseInteraction(reason: "event tap disabled (\(type.rawValue))")
+        }
+
+        guard let tap else { return }
+
+        let reenable: () -> Void = { [weak self] in
+            guard let self, self.isRunning else { return }
+            if let eventTap = self.eventTap, CFEqual(tap, eventTap) {
+                CGEvent.tapEnable(tap: eventTap, enable: true)
+            } else if let hidTap = self.dragHIDTap, CFEqual(tap, hidTap) {
+                // HID tap must stay off except during an active continuous gesture.
+                CGEvent.tapEnable(tap: hidTap, enable: self.continuousGestureActive)
+            }
+        }
+
+        if type == .tapDisabledByTimeout {
+            reenable()
+            return
+        }
+
+        if type == .tapDisabledByUserInput {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: reenable)
+        }
+    }
+
+    private func abandonActiveMouseInteraction(reason: String) {
+        let wasContinuous = continuousGestureActive
+        let wasTrackingMiddle = middleButtonDown
+        let hadPendingMiddleAction = pendingMiddleButtonAction != nil
+        cancelContinuousGesture(force: true, reason: reason)
+        clearButtonTrackingState()
+        // If middle-down was suppressed for gesture detection, continuous mode,
+        // or a remapped middle action, the eventual mouse-up must not click or
+        // re-fire the action.
+        if wasContinuous || wasTrackingMiddle || hadPendingMiddleAction {
+            middleDragTriggered = true
+        }
+    }
+
+    private func clearButtonTrackingState() {
+        middleButtonDown = false
+        middleButtonStartPoint = .zero
+        middleDragTriggered = false
+        middleDragProfileKey = nil
+        continuousGestureAxisLocked = false
+        continuousGestureAxis = .horizontal
+        continuousGestureSwipeType = .horizontal
+        pendingMiddleButtonAction = nil
+        activeSideButtonProfileKeys.removeAll()
+    }
+
+    private func cancelContinuousGesture(force: Bool, reason: String) {
+        continuousGestureMaxDurationWatchdog?.cancel()
+        continuousGestureMaxDurationWatchdog = nil
+
+        guard continuousGestureActive else { return }
+
+        continuousGestureActive = false
+        if force {
+            dockSwipeSimulator.forceCancel()
+        } else {
+            dockSwipeSimulator.end(cancel: false)
+        }
+        if let hidTap = dragHIDTap {
+            CGEvent.tapEnable(tap: hidTap, enable: false)
+        }
+        CGAssociateMouseAndMouseCursorPosition(1)
+        LogManager.shared.log(
+            force ? "Continuous gesture cancelled (\(reason))" : "Continuous gesture ended (\(reason))",
+            category: "Gesture"
+        )
+    }
+
+    private func armContinuousGestureWatchdogs() {
+        continuousGestureMaxDurationWatchdog?.cancel()
+        let maxWork = DispatchWorkItem { [weak self] in
+            self?.watchdogCancelContinuousGesture(reason: "max duration timeout")
+        }
+        continuousGestureMaxDurationWatchdog = maxWork
+        DispatchQueue.main.asyncAfter(deadline: .now() + continuousGestureMaxDuration, execute: maxWork)
+    }
+
+    private func watchdogCancelContinuousGesture(reason: String) {
+        guard continuousGestureActive else { return }
+        abandonActiveMouseInteraction(reason: reason)
+    }
+
+    // MARK: - Mouse Button Recording
     
     @MainActor
     func beginMouseButtonRecording() {
@@ -1456,6 +1564,12 @@ class InputInterceptor {
             runtimeConfig = snapshot
             runtimeProfileConfigs = profileSnapshots
             runtimeConfigLock.unlock()
+
+            // mouseEnabled can flip without going through stop(). Clear any
+            // frozen continuous gesture so the cursor cannot stay wedged.
+            if !mouseEnabled {
+                abandonActiveMouseInteraction(reason: "mouseEnabled turned off")
+            }
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 self?.observeRuntimeConfigChanges()

@@ -414,6 +414,37 @@ class UpdateManager {
               teamIdentifier == expectedSigningTeamIdentifier else {
             throw UpdateInstallError.unexpectedSigner
         }
+
+        // Prefer an offline stapled-ticket check. Zip-distributed builds may not
+        // be stapled; in that case Gatekeeper assessment is best-effort and must
+        // not hard-fail network/transient assess errors after signature checks passed.
+        try validateNotarization(of: appBundleURL)
+    }
+
+    private func validateNotarization(of appBundleURL: URL) throws {
+        let staplerStatus = try runProcess(
+            "/usr/bin/xcrun",
+            arguments: ["stapler", "validate", appBundleURL.path]
+        )
+        if staplerStatus == 0 {
+            return
+        }
+
+        let spctlStatus = try runProcess(
+            "/usr/sbin/spctl",
+            arguments: ["--assess", "--type", "execute", appBundleURL.path]
+        )
+        if spctlStatus == 0 {
+            return
+        }
+
+        // Signature + team were already validated. Reject only when Gatekeeper
+        // explicitly assesses the bundle as invalid (commonly status 3).
+        if spctlStatus == 3 {
+            throw UpdateInstallError.notNotarized
+        }
+
+        print("Update notarization could not be confirmed offline (stapler=\(staplerStatus), spctl=\(spctlStatus)); proceeding after signature validation.")
     }
 
     /// Copy the candidate beside the installed app before moving the current
@@ -486,6 +517,7 @@ private enum UpdateInstallError: LocalizedError {
     case unexpectedVersion
     case invalidCodeSignature(OSStatus)
     case unexpectedSigner
+    case notNotarized
 
     var errorDescription: String? {
         switch self {
@@ -501,6 +533,8 @@ private enum UpdateInstallError: LocalizedError {
             return "The update's code signature is invalid (status \(status))."
         case .unexpectedSigner:
             return "The update was not signed by the FlowMod developer."
+        case .notNotarized:
+            return "The update failed Gatekeeper/notarization assessment."
         }
     }
 }

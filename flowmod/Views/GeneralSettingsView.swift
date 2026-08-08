@@ -139,7 +139,12 @@ struct GeneralSettingsView: View {
     
     private func checkLaunchAtLoginStatus() {
         if #available(macOS 13.0, *) {
-            launchAtLoginEnabled = SMAppService.mainApp.status == .enabled
+            let enabled = SMAppService.mainApp.status == .enabled
+            launchAtLoginEnabled = enabled
+            // Keep the stored preference aligned with the real login-item state.
+            if settings.launchAtLogin != enabled {
+                settings.launchAtLogin = enabled
+            }
         }
     }
     

@@ -89,7 +89,9 @@ struct MouseButtonsView: View {
                 if case .success(let buttonNumber) = result {
                     let newMapping = CustomMouseButtonMapping(
                         buttonNumber: buttonNumber,
-                        action: .none
+                        // Middle button defaults to a working middle-click;
+                        // side buttons default to Back, a common remap.
+                        action: buttonNumber == 2 ? .middleClick : .back
                     )
                     profile.customMouseButtonMappings.append(newMapping)
                 }

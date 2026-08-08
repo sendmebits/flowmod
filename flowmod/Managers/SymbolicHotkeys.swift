@@ -108,11 +108,15 @@ struct SymbolicHotkeys {
         // Post the key down and up events
         let keyCode = UInt16(virtualKeyCode)
         
-        let keyDown = CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: true)!
+        guard let keyDown = CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: true),
+              let keyUp = CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: false) else {
+            throw NSError(domain: "SymbolicHotkeys", code: 1, userInfo: [
+                NSLocalizedDescriptionKey: "Failed to create keyboard events for symbolic hotkey"
+            ])
+        }
         keyDown.flags = flags
         keyDown.setIntegerValueField(.eventSourceUserData, value: syntheticEventMarker)
         
-        let keyUp = CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: false)!
         keyUp.flags = flags
         keyUp.setIntegerValueField(.eventSourceUserData, value: syntheticEventMarker)
         
