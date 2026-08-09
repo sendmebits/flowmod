@@ -17,6 +17,9 @@ class InputInterceptor {
     // Made internal for callback access
     var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
+    private var tapThread: Thread?
+    private var tapRunLoop: CFRunLoop?
+    private let tapThreadLock = NSLock()
     
     // HID-level event tap for mouse drags during continuous gestures.
     // When macOS enters DockSwipe gesture mode, the WindowServer stops
@@ -53,6 +56,11 @@ class InputInterceptor {
     /// Profile key captured at side-button mouse-down so mouse-up uses the
     /// same profile even if field-87 attribution differs.
     private var activeSideButtonProfileKeys: [Int64: String?] = [:]
+
+    /// Guards interaction state shared by the event-tap thread, watchdogs, and
+    /// main-thread stop/settings callbacks. Recursive because teardown helpers
+    /// intentionally call each other.
+    private let interactionLock = NSRecursiveLock()
 
     // Mouse-button recording happens downstream in AppKit. While a recorder is
     // open, the event tap must pass mouse-button events through instead of
@@ -99,7 +107,8 @@ class InputInterceptor {
         case momentum    // Drag physics after wheel stopped
     }
     
-    // Settings reference (accessed on callback thread, needs care)
+    // Settings references are used only to rebuild runtime snapshots on the
+    // main actor. Event callbacks read the lock-protected snapshots below.
     private var settings: Settings?
     private var deviceManager: DeviceManager?
     
@@ -124,6 +133,10 @@ class InputInterceptor {
         var controlFast: Bool
         var fastMultiplier: Double
         var commandZoom: Bool
+        var dragThreshold: Double
+        var continuousGestures: Bool
+        var middleDragMappings: [DragDirection: MouseAction]
+        var buttonMappings: [Int64: MouseAction]
         
         static let `default` = RuntimeConfig(
             mouseEnabled: true,
@@ -135,13 +148,23 @@ class InputInterceptor {
             precisionMultiplier: 0.33,
             controlFast: true,
             fastMultiplier: 3.0,
-            commandZoom: true
+            commandZoom: true,
+            dragThreshold: 10.0,
+            continuousGestures: true,
+            middleDragMappings: [
+                .up: .missionControl,
+                .down: .appExpose,
+                .left: .switchSpaceRight,
+                .right: .switchSpaceLeft
+            ],
+            buttonMappings: [:]
         )
     }
     
     // Command+Scroll zoom gesture state
     private var zoomGestureActive = false
     private var zoomEndTimer: DispatchWorkItem?
+    private var runtimeObservationGeneration = 0
     
     // Marker for synthetic events we post ourselves (to avoid re-processing)
     private static let syntheticEventMarker: Int64 = 0x464C4F574D4F44  // "FLOWMOD" in hex
@@ -181,15 +204,66 @@ class InputInterceptor {
     }
     
     private init() {}
-    
-    // MARK: - Thread-safe Settings Access
-    
-    /// Safely execute a closure on the main thread, avoiding deadlock if already on main
-    private func onMain<T>(_ block: () -> T) -> T {
-        if Thread.isMainThread {
-            return block()
-        } else {
-            return DispatchQueue.main.sync { block() }
+
+    private func startTapRunLoopThread() -> CFRunLoop? {
+        let ready = DispatchSemaphore(value: 0)
+        let thread = Thread { [weak self] in
+            let runLoop = CFRunLoopGetCurrent()
+
+            var context = CFRunLoopSourceContext()
+            let keepAliveSource = CFRunLoopSourceCreate(kCFAllocatorDefault, 0, &context)
+            if let keepAliveSource {
+                CFRunLoopAddSource(runLoop, keepAliveSource, .commonModes)
+            }
+
+            self?.tapThreadLock.lock()
+            self?.tapRunLoop = runLoop
+            self?.tapThreadLock.unlock()
+            ready.signal()
+
+            CFRunLoopRun()
+
+            if let keepAliveSource {
+                CFRunLoopRemoveSource(runLoop, keepAliveSource, .commonModes)
+            }
+
+            self?.tapThreadLock.lock()
+            if let currentRunLoop = self?.tapRunLoop, CFEqual(currentRunLoop, runLoop) {
+                self?.tapRunLoop = nil
+            }
+            self?.tapThreadLock.unlock()
+        }
+
+        thread.name = "com.flowmod.event-tap"
+        thread.qualityOfService = .userInteractive
+
+        tapThreadLock.lock()
+        tapThread = thread
+        tapThreadLock.unlock()
+
+        thread.start()
+        guard ready.wait(timeout: .now() + 1.0) == .success else {
+            tapThreadLock.lock()
+            tapThread = nil
+            tapThreadLock.unlock()
+            return nil
+        }
+
+        tapThreadLock.lock()
+        let runLoop = tapRunLoop
+        tapThreadLock.unlock()
+        return runLoop
+    }
+
+    private func stopTapRunLoopThread() {
+        tapThreadLock.lock()
+        let runLoop = tapRunLoop
+        tapRunLoop = nil
+        tapThread = nil
+        tapThreadLock.unlock()
+
+        if let runLoop {
+            CFRunLoopStop(runLoop)
         }
     }
 
@@ -248,25 +322,19 @@ class InputInterceptor {
             startupError = "FlowMod couldn't start mouse interception. Accessibility access may need to be refreshed."
             self.settings = nil
             self.deviceManager = nil
+            runtimeObservationGeneration += 1
             print("Failed to create event tap. Check accessibility permissions.")
             return
         }
         
-        eventTap = tap
         guard let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0) else {
-            eventTap = nil
             startupError = "FlowMod created its mouse interceptor but couldn't attach it to the app. Try again or restart FlowMod."
             self.settings = nil
             self.deviceManager = nil
+            runtimeObservationGeneration += 1
             print("Failed to create event tap run-loop source")
             return
         }
-
-        runLoopSource = source
-        CFRunLoopAddSource(CFRunLoopGetCurrent(), source, .commonModes)
-        CGEvent.tapEnable(tap: tap, enable: true)
-        isRunning = true
-        print("Input interceptor started")
         
         // Create HID-level event tap for mouse drags during continuous gestures.
         // This tap is at kCGHIDEventTap (before WindowServer), so it receives
@@ -292,7 +360,7 @@ class InputInterceptor {
             let interceptor = Unmanaged<InputInterceptor>.fromOpaque(userInfo).takeUnretainedValue()
             
             // Only process during active continuous gesture
-            guard interceptor.continuousGestureActive else {
+            guard interceptor.isContinuousGestureActive else {
                 return Unmanaged.passUnretained(event)
             }
             
@@ -312,26 +380,58 @@ class InputInterceptor {
             callback: hidCallback,
             userInfo: Unmanaged.passUnretained(self).toOpaque()
         ) {
-            dragHIDTap = hidTap
-            dragHIDRunLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, hidTap, 0)
-            if let hidSource = dragHIDRunLoopSource {
-                CFRunLoopAddSource(CFRunLoopGetCurrent(), hidSource, .commonModes)
-                // Start DISABLED — enabled only during continuous gestures
-                CGEvent.tapEnable(tap: hidTap, enable: false)
-                print("HID drag event tap created (disabled)")
+            if let hidSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, hidTap, 0) {
+                dragHIDTap = hidTap
+                dragHIDRunLoopSource = hidSource
+            } else {
+                print("Warning: Failed to create HID-level drag event tap run-loop source")
             }
         } else {
             print("Warning: Failed to create HID-level drag event tap")
         }
+
+        guard let tapRunLoop = startTapRunLoopThread() else {
+            startupError = "FlowMod created its mouse interceptor but couldn't start its event-processing thread. Try again or restart FlowMod."
+            self.settings = nil
+            self.deviceManager = nil
+            runtimeObservationGeneration += 1
+            dragHIDTap = nil
+            dragHIDRunLoopSource = nil
+            print("Failed to start event tap run-loop thread")
+            return
+        }
+
+        eventTap = tap
+        runLoopSource = source
+        CFRunLoopAddSource(tapRunLoop, source, .commonModes)
+        if let hidSource = dragHIDRunLoopSource {
+            CFRunLoopAddSource(tapRunLoop, hidSource, .commonModes)
+        }
+        CFRunLoopWakeUp(tapRunLoop)
+
+        CGEvent.tapEnable(tap: tap, enable: true)
+        if let hidTap = dragHIDTap {
+            // Start DISABLED — enabled only during continuous gestures
+            CGEvent.tapEnable(tap: hidTap, enable: false)
+            print("HID drag event tap created (disabled)")
+        }
+
+        isRunning = true
+        print("Input interceptor started")
     }
     
     @MainActor
     func stop() {
+        let wasRunning = isRunning
+        isRunning = false
+        runtimeObservationGeneration += 1
+
         // Finish synthetic gesture streams before disabling their timers/taps.
         // Leaving a began/changed stream open can make the receiving app treat
         // the next event after re-enabling FlowMod as part of the old gesture.
         finishSmoothScrollingForShutdown()
 
+        interactionLock.lock()
         zoomEndTimer?.cancel()
         zoomEndTimer = nil
         if zoomGestureActive {
@@ -341,13 +441,19 @@ class InputInterceptor {
         
         cancelContinuousGesture(force: true, reason: "interceptor stopped")
         clearButtonTrackingState()
+        interactionLock.unlock()
         
         // Disable and clean up HID drag tap
         if let hidTap = dragHIDTap {
             CGEvent.tapEnable(tap: hidTap, enable: false)
         }
+        tapThreadLock.lock()
+        let eventRunLoop = tapRunLoop
+        tapThreadLock.unlock()
         if let hidSource = dragHIDRunLoopSource {
-            CFRunLoopRemoveSource(CFRunLoopGetCurrent(), hidSource, .commonModes)
+            if let eventRunLoop {
+                CFRunLoopRemoveSource(eventRunLoop, hidSource, .commonModes)
+            }
         }
         dragHIDTap = nil
         dragHIDRunLoopSource = nil
@@ -357,8 +463,11 @@ class InputInterceptor {
         }
         
         if let source = runLoopSource {
-            CFRunLoopRemoveSource(CFRunLoopGetCurrent(), source, .commonModes)
+            if let eventRunLoop {
+                CFRunLoopRemoveSource(eventRunLoop, source, .commonModes)
+            }
         }
+        stopTapRunLoopThread()
         
         eventTap = nil
         runLoopSource = nil
@@ -369,9 +478,10 @@ class InputInterceptor {
         runtimeProfileConfigs = [:]
         runtimeConfigLock.unlock()
 
-        isRunning = false
         startupError = nil
-        print("Input interceptor stopped")
+        if wasRunning {
+            print("Input interceptor stopped")
+        }
     }
     
     // MARK: - Event Handling
@@ -414,6 +524,12 @@ class InputInterceptor {
         default:
             return event
         }
+    }
+
+    private var isContinuousGestureActive: Bool {
+        interactionLock.lock()
+        defer { interactionLock.unlock() }
+        return continuousGestureActive
     }
     
     // MARK: - Scroll Handling
@@ -489,26 +605,40 @@ class InputInterceptor {
         // Command + Scroll = Zoom: convert scroll to pinch-to-zoom magnification gesture
         // Posts trackpad-style magnification events that work universally across apps
         if commandHeld && commandZoom && isMouseScroll {
-            // End any active zoom from a previous modifier release that hasn't timed out
-            let scrollDelta = deltaY != 0 ? deltaY : deltaX
+            let scrollDelta: Double
+            if deltaY != 0 || deltaX != 0 {
+                scrollDelta = Double(deltaY != 0 ? deltaY : deltaX)
+            } else {
+                let highResolutionDelta = pixelDeltaY != 0 ? pixelDeltaY : pixelDeltaX != 0 ? pixelDeltaX : pointDeltaY != 0 ? pointDeltaY : pointDeltaX
+                scrollDelta = highResolutionDelta / pxPerTick
+            }
             // Negate so wheel direction matches typical “scroll up = zoom in” expectation for external mice.
-            let magnification = -Double(scrollDelta) / 50.0
-            
+            let magnification = -scrollDelta / 50.0
+
+            guard magnification != 0 else {
+                return nil
+            }
+
+            interactionLock.lock()
             if !zoomGestureActive {
                 zoomGestureActive = true
                 postMagnificationEvent(magnification: 0, phase: 1) // began
             }
             postMagnificationEvent(magnification: magnification, phase: 2) // changed
             scheduleZoomEnd()
+            interactionLock.unlock()
             return nil // Suppress original scroll event
         }
         
         // If zoom was active but Command is no longer held, end it immediately
+        interactionLock.lock()
         if zoomGestureActive && !commandHeld {
             zoomEndTimer?.cancel()
+            zoomEndTimer = nil
             postMagnificationEvent(magnification: 0, phase: 4) // ended
             zoomGestureActive = false
         }
+        interactionLock.unlock()
         
         // Apply Shift modifier: convert vertical scroll to horizontal
         if shiftHeld && shiftHorizontal && isMouseScroll {
@@ -645,11 +775,18 @@ class InputInterceptor {
     
     /// End an active zoom gesture after a delay (when scrolling stops)
     private func scheduleZoomEnd() {
+        interactionLock.lock()
+        defer { interactionLock.unlock() }
+
         zoomEndTimer?.cancel()
         let timer = DispatchWorkItem { [weak self] in
-            guard let self = self, self.zoomGestureActive else { return }
+            guard let self else { return }
+            self.interactionLock.lock()
+            defer { self.interactionLock.unlock() }
+            guard self.zoomGestureActive else { return }
             self.postMagnificationEvent(magnification: 0, phase: 4) // ended
             self.zoomGestureActive = false
+            self.zoomEndTimer = nil
         }
         zoomEndTimer = timer
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: timer)
@@ -921,6 +1058,9 @@ class InputInterceptor {
 
         let buttonNumber = event.getIntegerValueField(.mouseEventButtonNumber)
 
+        interactionLock.lock()
+        defer { interactionLock.unlock() }
+
         // Middle button (button 2) - start tracking for drag gesture
         if buttonNumber == 2 {
             // Properly end any leftover continuous gesture from a previous interaction
@@ -932,11 +1072,10 @@ class InputInterceptor {
             middleDragProfileKey = profileKey
             middleButtonStartPoint = event.location
             
-            // Check if middle click has a mapping AND if drag gestures are configured
-            let (action, hasDragGestures): (MouseAction?, Bool) = onMain {
-                guard let profile = settings?.profile(forKey: profileKey) else { return (nil, false) }
-                return (profile.getAction(forButtonNumber: 2), !profile.middleDragMappings.isEmpty)
-            }
+            // Check if middle click has a mapping AND if drag gestures are configured.
+            let config = runtimeConfig(forProfileKey: profileKey)
+            let action = config.buttonMappings[2]
+            let hasDragGestures = !config.middleDragMappings.isEmpty
 
             // Remapped middle button (including explicit .none): do not run drag
             // gestures — only the mapped click action (or swallow for .none).
@@ -972,6 +1111,9 @@ class InputInterceptor {
 
         let buttonNumber = event.getIntegerValueField(.mouseEventButtonNumber)
 
+        interactionLock.lock()
+        defer { interactionLock.unlock() }
+
         if buttonNumber == 2 {
             // Use the profile captured at mouseDown so the up-decision matches
             // the down-decision even if attribution differs.
@@ -1005,11 +1147,10 @@ class InputInterceptor {
                 return nil
             }
             
-            // Otherwise, check middle click action and drag gesture configuration
-            let (action, hasDragGestures): (MouseAction?, Bool) = onMain {
-                guard let profile = settings?.profile(forKey: profileKey) else { return (nil, false) }
-                return (profile.getAction(forButtonNumber: 2), !profile.middleDragMappings.isEmpty)
-            }
+            // Otherwise, check middle click action and drag gesture configuration.
+            let config = runtimeConfig(forProfileKey: profileKey)
+            let action = config.buttonMappings[2]
+            let hasDragGestures = !config.middleDragMappings.isEmpty
             
             // If no mapping or action is just middle click
             if action == nil || action == .middleClick {
@@ -1033,9 +1174,7 @@ class InputInterceptor {
             return nil
         }
 
-        let hasMapping: Bool = onMain {
-            settings?.profile(forKey: eventSource.profileKey).getAction(forButtonNumber: buttonNumber) != nil
-        }
+        let hasMapping = runtimeConfig(forProfileKey: eventSource.profileKey).buttonMappings[buttonNumber] != nil
         if hasMapping {
             return nil
         }
@@ -1044,6 +1183,9 @@ class InputInterceptor {
     }
     
     private func handleOtherMouseDragged(_ event: CGEvent) -> CGEvent? {
+        interactionLock.lock()
+        defer { interactionLock.unlock() }
+
         guard middleButtonDown else { return event }
         
         // If a continuous gesture is already active, the HID-level tap handles updates.
@@ -1059,10 +1201,9 @@ class InputInterceptor {
         let deltaX = currentPoint.x - middleButtonStartPoint.x
         let deltaY = currentPoint.y - middleButtonStartPoint.y
         
-        let (threshold, useContinuous): (Double, Bool) = onMain {
-            guard let settings else { return (10, true) }
-            return (settings.dragThreshold, settings.profile(forKey: middleDragProfileKey).continuousGestures)
-        }
+        let config = runtimeConfig(forProfileKey: middleDragProfileKey)
+        let threshold = config.dragThreshold
+        let useContinuous = config.continuousGestures
         
         // For continuous mode, determine axis early with a smaller dead zone
         // and begin the DockSwipe gesture immediately
@@ -1133,9 +1274,7 @@ class InputInterceptor {
         if let dir = direction {
             middleDragTriggered = true
             
-            let action: MouseAction = onMain {
-                settings?.profile(forKey: middleDragProfileKey).getAction(for: dir) ?? .none
-            }
+            let action = config.middleDragMappings[dir] ?? .none
             
             if action != .none {
                 executeAction(action, at: currentPoint)
@@ -1146,9 +1285,10 @@ class InputInterceptor {
     }
     
     private func handleMouseButtonAction(buttonNumber: Int64, profileKey: String?, originalEvent: CGEvent) -> CGEvent? {
-        let action: MouseAction? = onMain {
-            settings?.profile(forKey: profileKey).getAction(forButtonNumber: buttonNumber)
-        }
+        interactionLock.lock()
+        defer { interactionLock.unlock() }
+
+        let action = runtimeConfig(forProfileKey: profileKey).buttonMappings[buttonNumber]
         
         // If no mapping, pass through the event
         guard let action = action else {
@@ -1338,6 +1478,11 @@ class InputInterceptor {
     /// This receives otherMouseDragged events even while macOS is in DockSwipe
     /// gesture mode (Spaces animation), which blocks session-level taps.
     func handleHIDDragDuringContinuousGesture(_ event: CGEvent) {
+        interactionLock.lock()
+        defer { interactionLock.unlock() }
+
+        guard continuousGestureActive else { return }
+
         let pixelDX = Double(event.getIntegerValueField(.mouseEventDeltaX))
         let pixelDY = Double(event.getIntegerValueField(.mouseEventDeltaY))
         
@@ -1360,7 +1505,11 @@ class InputInterceptor {
     /// shortly afterward so the session tap is not left permanently dead.
     /// The HID drag tap is only re-enabled while a continuous gesture is active.
     private func handleTapDisabled(type: CGEventType, tap: CFMachPort?) {
-        if continuousGestureActive || middleButtonDown || pendingMiddleButtonAction != nil {
+        interactionLock.lock()
+        let hasActiveInteraction = continuousGestureActive || middleButtonDown || pendingMiddleButtonAction != nil
+        interactionLock.unlock()
+
+        if hasActiveInteraction {
             abandonActiveMouseInteraction(reason: "event tap disabled (\(type.rawValue))")
         }
 
@@ -1372,7 +1521,7 @@ class InputInterceptor {
                 CGEvent.tapEnable(tap: eventTap, enable: true)
             } else if let hidTap = self.dragHIDTap, CFEqual(tap, hidTap) {
                 // HID tap must stay off except during an active continuous gesture.
-                CGEvent.tapEnable(tap: hidTap, enable: self.continuousGestureActive)
+                CGEvent.tapEnable(tap: hidTap, enable: self.isContinuousGestureActive)
             }
         }
 
@@ -1387,6 +1536,9 @@ class InputInterceptor {
     }
 
     private func abandonActiveMouseInteraction(reason: String) {
+        interactionLock.lock()
+        defer { interactionLock.unlock() }
+
         let wasContinuous = continuousGestureActive
         let wasTrackingMiddle = middleButtonDown
         let hadPendingMiddleAction = pendingMiddleButtonAction != nil
@@ -1401,6 +1553,9 @@ class InputInterceptor {
     }
 
     private func clearButtonTrackingState() {
+        interactionLock.lock()
+        defer { interactionLock.unlock() }
+
         middleButtonDown = false
         middleButtonStartPoint = .zero
         middleDragTriggered = false
@@ -1413,6 +1568,9 @@ class InputInterceptor {
     }
 
     private func cancelContinuousGesture(force: Bool, reason: String) {
+        interactionLock.lock()
+        defer { interactionLock.unlock() }
+
         continuousGestureMaxDurationWatchdog?.cancel()
         continuousGestureMaxDurationWatchdog = nil
 
@@ -1434,6 +1592,9 @@ class InputInterceptor {
     }
 
     private func armContinuousGestureWatchdogs() {
+        interactionLock.lock()
+        defer { interactionLock.unlock() }
+
         continuousGestureMaxDurationWatchdog?.cancel()
         let maxWork = DispatchWorkItem { [weak self] in
             self?.watchdogCancelContinuousGesture(reason: "max duration timeout")
@@ -1443,6 +1604,9 @@ class InputInterceptor {
     }
 
     private func watchdogCancelContinuousGesture(reason: String) {
+        interactionLock.lock()
+        defer { interactionLock.unlock() }
+
         guard continuousGestureActive else { return }
         abandonActiveMouseInteraction(reason: reason)
     }
@@ -1495,7 +1659,8 @@ class InputInterceptor {
     
     @MainActor
     private func startObservingRuntimeConfig() {
-        observeRuntimeConfigChanges()
+        runtimeObservationGeneration += 1
+        observeRuntimeConfigChanges(generation: runtimeObservationGeneration)
     }
     
     /// Build a RuntimeConfig snapshot from a profile plus the global gates.
@@ -1504,7 +1669,8 @@ class InputInterceptor {
         profile: ProfileSettings,
         mouseEnabled: Bool,
         assumeExternalMouse: Bool,
-        externalMouseConnected: Bool
+        externalMouseConnected: Bool,
+        dragThreshold: Double
     ) -> RuntimeConfig {
         let reverse = profile.reverseScrollEnabled && (assumeExternalMouse || externalMouseConnected)
         return RuntimeConfig(
@@ -1517,12 +1683,26 @@ class InputInterceptor {
             precisionMultiplier: profile.precisionScrollMultiplier,
             controlFast: profile.controlFastScroll,
             fastMultiplier: profile.fastScrollMultiplier,
-            commandZoom: profile.commandZoomScroll
+            commandZoom: profile.commandZoomScroll,
+            dragThreshold: dragThreshold,
+            continuousGestures: profile.continuousGestures,
+            middleDragMappings: profile.middleDragMappings,
+            buttonMappings: Self.makeButtonMappings(from: profile.customMouseButtonMappings)
         )
     }
 
+    private static func makeButtonMappings(from mappings: [CustomMouseButtonMapping]) -> [Int64: MouseAction] {
+        var snapshot: [Int64: MouseAction] = [:]
+        for mapping in mappings where snapshot[mapping.buttonNumber] == nil {
+            snapshot[mapping.buttonNumber] = mapping.action
+        }
+        return snapshot
+    }
+
     @MainActor
-    private func observeRuntimeConfigChanges() {
+    private func observeRuntimeConfigChanges(generation: Int) {
+        guard generation == runtimeObservationGeneration else { return }
+
         withObservationTracking {
             guard let settings else {
                 runtimeConfigLock.lock()
@@ -1535,12 +1715,14 @@ class InputInterceptor {
             let mouseEnabled = settings.mouseEnabled
             let assumeExternal = settings.assumeExternalMouse
             let externalConnected = deviceManager?.externalMouseConnected ?? false
+            let dragThreshold = settings.dragThreshold
 
             let snapshot = Self.makeRuntimeConfig(
                 profile: settings.defaultProfile,
                 mouseEnabled: mouseEnabled,
                 assumeExternalMouse: assumeExternal,
-                externalMouseConnected: externalConnected
+                externalMouseConnected: externalConnected,
+                dragThreshold: dragThreshold
             )
 
             // Snapshot each per-mouse profile (only while the feature is on).
@@ -1551,7 +1733,8 @@ class InputInterceptor {
                         profile: profile,
                         mouseEnabled: mouseEnabled,
                         assumeExternalMouse: assumeExternal,
-                        externalMouseConnected: externalConnected
+                        externalMouseConnected: externalConnected,
+                        dragThreshold: dragThreshold
                     )
                 }
             }
@@ -1568,7 +1751,7 @@ class InputInterceptor {
             }
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
-                self?.observeRuntimeConfigChanges()
+                self?.observeRuntimeConfigChanges(generation: generation)
             }
         }
     }

@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import Observation
+import ServiceManagement
 
 /// Tracks whether the current onboarding experience has been completed.
 /// Existing users who saw the legacy automatic permission prompt are migrated
@@ -28,6 +29,9 @@ final class OnboardingManager {
     }
 
     func complete() {
+        if Settings.shared.launchAtLogin {
+            try? SMAppService.mainApp.register()
+        }
         UserDefaults.standard.set(Self.currentVersion, forKey: Self.completedVersionKey)
         isCompleted = true
     }

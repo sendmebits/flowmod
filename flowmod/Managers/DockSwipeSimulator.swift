@@ -22,6 +22,8 @@ private func CGSCopyManagedDisplaySpaces(_ conn: Int32) -> CFArray?
 ///
 /// The animation tracks the cumulative `originOffset` field, making macOS
 /// position the Spaces/Mission Control UI proportionally to the drag.
+/// Callers must serialize access; `InputInterceptor` protects this simulator
+/// behind its interaction lock.
 class DockSwipeSimulator {
     
     // MARK: - Types
@@ -234,17 +236,20 @@ class DockSwipeSimulator {
         let retryType = currentType
         let retryOffset = originOffset
         let retryInverted = invertedFromDevice
+        let retryExitVelocity = exitVelocity
         
         endRetryTimer1 = DispatchWorkItem { [weak self] in
             self?.postDockSwipeEventDirect(
                 type: retryType, offset: retryOffset, delta: 0,
-                phase: retryPhase, invertedFromDevice: retryInverted
+                phase: retryPhase, invertedFromDevice: retryInverted,
+                exitVelocity: retryExitVelocity
             )
         }
         endRetryTimer2 = DispatchWorkItem { [weak self] in
             self?.postDockSwipeEventDirect(
                 type: retryType, offset: retryOffset, delta: 0,
-                phase: retryPhase, invertedFromDevice: retryInverted
+                phase: retryPhase, invertedFromDevice: retryInverted,
+                exitVelocity: retryExitVelocity
             )
         }
         
@@ -256,10 +261,10 @@ class DockSwipeSimulator {
     
     /// Force-cancel any active gesture (e.g. when interceptor stops)
     func forceCancel() {
+        cancelRetryTimers()
         if isActive {
             end(cancel: true)
         }
-        cancelRetryTimers()
     }
     
     // MARK: - CGEvent Posting
@@ -280,7 +285,8 @@ class DockSwipeSimulator {
         offset: Double,
         delta: Double,
         phase: Phase,
-        invertedFromDevice: Bool
+        invertedFromDevice: Bool,
+        exitVelocity: Double? = nil
     ) {
         let weirdTypeOrSum = DockSwipeSimulator.typeConstants[type] ?? 0
         
@@ -332,7 +338,7 @@ class DockSwipeSimulator {
         
         // Exit speed — only set on end/cancelled phase for kinetic completion
         if phase == .ended || phase == .cancelled {
-            let exitSpeed = lastDelta * 100
+            let exitSpeed = (exitVelocity ?? lastDelta) * 100
             e30.setDoubleValueField(CGEventField(rawValue: 129)!, value: exitSpeed)
             e30.setDoubleValueField(CGEventField(rawValue: 130)!, value: exitSpeed)
         }

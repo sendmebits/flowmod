@@ -31,10 +31,11 @@ struct FlowModApp: App {
         } label: {
             let isActive = permissionManager.hasAccessibilityPermission
                 && inputInterceptor.isRunning
-            Image(nsImage: Self.menuBarImage(active: isActive, updateAvailable: updateManager.updateAvailable))
+            let hasInstallableUpdate = updateManager.updateAvailable && updateManager.downloadURL != nil
+            Image(nsImage: Self.menuBarImage(active: isActive, updateAvailable: hasInstallableUpdate))
                 .accessibilityLabel(Self.menuBarAccessibilityLabel(
                     active: isActive,
-                    updateAvailable: updateManager.updateAvailable
+                    updateAvailable: hasInstallableUpdate
                 ))
         }
         .menuBarExtraStyle(.menu)
@@ -115,7 +116,7 @@ struct FlowModApp: App {
     }
 
     private static func isSettingsWindow(_ window: NSWindow) -> Bool {
-        window.title == "Settings" || window.identifier?.rawValue.contains("Settings") == true
+        window.identifier?.rawValue.localizedCaseInsensitiveContains("settings") == true
     }
 
     // MARK: - Menu Bar Icon Builder
@@ -227,7 +228,7 @@ struct MenuBarContent: View {
     var body: some View {
         if updateManager.isDownloading {
             Text("Downloading Update… \(Int(updateManager.downloadProgress * 100))%")
-        } else if updateManager.updateAvailable, let latest = updateManager.latestVersion {
+        } else if updateManager.updateAvailable, updateManager.downloadURL != nil, let latest = updateManager.latestVersion {
             Button {
                 Task { await updateManager.downloadAndInstall() }
             } label: {

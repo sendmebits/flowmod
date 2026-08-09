@@ -305,8 +305,8 @@ class UpdateManager {
     
     /// Returns true if `remote` is a newer semantic version than `local`.
     private func isNewerVersion(remote: String, local: String) -> Bool {
-        let remoteParts = remote.split(separator: ".").compactMap { Int($0) }
-        let localParts = local.split(separator: ".").compactMap { Int($0) }
+        let remoteParts = versionParts(remote)
+        let localParts = versionParts(local)
         
         let maxCount = max(remoteParts.count, localParts.count)
         for i in 0..<maxCount {
@@ -316,6 +316,13 @@ class UpdateManager {
             if r < l { return false }
         }
         return false
+    }
+
+    private func versionParts(_ version: String) -> [Int] {
+        version.split(separator: ".").map { segment in
+            let digits = segment.prefix { $0.isNumber }
+            return Int(digits) ?? 0
+        }
     }
     
     // MARK: - Download Helper

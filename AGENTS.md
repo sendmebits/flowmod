@@ -18,7 +18,7 @@ This file guides AI agents (Cursor, Copilot, etc.) working on the FlowMod codeba
 - **State:** Swift `@Observable` (not Combine) for reactive state.
 - **Persistence:** UserDefaults; complex types via JSON (see `Settings.swift`).
 - **UI:** SwiftUI; use `@Bindable` for settings; tabbed settings in `SettingsView`.
-- **Thread safety:** Event tap runs on a background thread; use `onMain()` when reading `@MainActor` state (e.g. settings) from the tap callback.
+- **Thread safety:** Event taps run on a dedicated background run loop. Do not read `@MainActor` settings from tap callbacks; use lock-protected runtime snapshots and interaction locks in `InputInterceptor`.
 
 ---
 
