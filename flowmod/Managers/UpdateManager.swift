@@ -266,16 +266,19 @@ class UpdateManager {
                 return newAppBundle
             }.value
             
-            // 4. Replace the current app bundle
+            // 4. Replace the current app bundle off the main actor; copying
+            // a full .app bundle can block long enough to beachball the UI.
             let currentBundleURL = Bundle.main.bundleURL
             let parentDir = currentBundleURL.deletingLastPathComponent()
             
             let destinationURL = parentDir.appendingPathComponent(currentBundleURL.lastPathComponent)
-            let backupURL = try installTransactionally(
-                newAppBundle: newAppBundle,
-                currentBundleURL: currentBundleURL,
-                destinationURL: destinationURL
-            )
+            let backupURL = try await Task.detached(priority: .userInitiated) {
+                try Self.installTransactionally(
+                    newAppBundle: newAppBundle,
+                    currentBundleURL: currentBundleURL,
+                    destinationURL: destinationURL
+                )
+            }.value
             
             // 5. Relaunch
             do {
@@ -465,7 +468,7 @@ class UpdateManager {
     /// Copy the candidate beside the installed app before moving the current
     /// bundle. The two final moves are same-volume renames; if the second one
     /// fails, the original bundle is immediately restored.
-    private func installTransactionally(
+    nonisolated private static func installTransactionally(
         newAppBundle: URL,
         currentBundleURL: URL,
         destinationURL: URL
