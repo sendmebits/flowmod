@@ -42,6 +42,8 @@ struct GeneralSettingsView: View {
                                     .toggleStyle(.switch)
                                     .labelsHidden()
                                     .onChange(of: launchAtLoginEnabled) { _, newValue in
+                                        guard #available(macOS 13.0, *) else { return }
+                                        guard newValue != launchAtLoginServiceEnabled else { return }
                                         setLaunchAtLogin(newValue)
                                     }
                             }
@@ -139,8 +141,16 @@ struct GeneralSettingsView: View {
     
     private func checkLaunchAtLoginStatus() {
         if #available(macOS 13.0, *) {
-            launchAtLoginEnabled = SMAppService.mainApp.status == .enabled
+            launchAtLoginEnabled = launchAtLoginServiceEnabled
         }
+    }
+
+    private var launchAtLoginServiceEnabled: Bool {
+        if #available(macOS 13.0, *) {
+            return SMAppService.mainApp.status == .enabled
+        }
+
+        return false
     }
     
     private func setLaunchAtLogin(_ enabled: Bool) {
@@ -152,6 +162,7 @@ struct GeneralSettingsView: View {
                     try SMAppService.mainApp.unregister()
                 }
                 settings.launchAtLogin = enabled
+                launchAtLoginEnabled = launchAtLoginServiceEnabled
                 launchAtLoginError = nil
             } catch {
                 launchAtLoginError = "Couldn't \(enabled ? "enable" : "disable") launch at login: \(error.localizedDescription)"
