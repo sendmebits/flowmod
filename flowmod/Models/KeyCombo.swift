@@ -19,54 +19,25 @@ struct KeyCombo: Codable, Equatable, Hashable {
         
         return parts.joined()
     }
+
+    /// Thread-safe label for event-tap logging. Unlike `displayName`, this
+    /// never consults Text Input Services or the cached keyboard layout.
+    var debugLabel: String {
+        var parts: [String] = []
+
+        let flags = CGEventFlags(rawValue: modifiers)
+        if flags.contains(.maskControl) { parts.append("⌃") }
+        if flags.contains(.maskAlternate) { parts.append("⌥") }
+        if flags.contains(.maskShift) { parts.append("⇧") }
+        if flags.contains(.maskCommand) { parts.append("⌘") }
+
+        parts.append(KeyCombo.specialKeyNames[keyCode] ?? "Key \(keyCode)")
+
+        return parts.joined()
+    }
     
     private func keyCodeToString(_ keyCode: UInt16) -> String {
-        let specialKeys: [UInt16: String] = [
-            0x24: "↩", // Return
-            0x30: "⇥", // Tab
-            0x31: "Space",
-            0x33: "⌫", // Delete
-            0x35: "⎋", // Escape
-            0x36: "⌘",  // Right Command
-            0x37: "⌘",  // Left Command
-            0x38: "⇧",  // Left Shift
-            0x39: "⇪",  // Caps Lock
-            0x3A: "⌥",  // Left Option
-            0x3B: "⌃",  // Left Control
-            0x3C: "⇧",  // Right Shift
-            0x3D: "⌥",  // Right Option
-            0x3E: "⌃",  // Right Control
-            0x7E: "↑",
-            0x7D: "↓",
-            0x7B: "←",
-            0x7C: "→",
-            0x73: "Home",
-            0x77: "End",
-            0x74: "Page Up",
-            0x79: "Page Down",
-            0x75: "Delete ⌦",
-            0x72: "Insert",
-            0x69: "Print Screen",
-            0x6E: "Context Menu",
-            0x60: "F5",
-            0x61: "F6",
-            0x62: "F7",
-            0x63: "F3",
-            0x64: "F8",
-            0x65: "F9",
-            0x67: "F11",
-            0x6D: "F10",
-            0x6F: "F12",
-            0x76: "F4",
-            0x78: "F2",
-            0x7A: "F1",
-            0x6A: "F16",
-            0x40: "F17",
-            0x4F: "F18",
-            0x50: "F19",
-        ]
-        
-        if let special = specialKeys[keyCode] {
+        if let special = KeyCombo.specialKeyNames[keyCode] {
             return special
         }
         
@@ -77,6 +48,51 @@ struct KeyCombo: Codable, Equatable, Hashable {
         
         return "Key \(keyCode)"
     }
+
+    private static let specialKeyNames: [UInt16: String] = [
+        0x24: "↩", // Return
+        0x30: "⇥", // Tab
+        0x31: "Space",
+        0x33: "⌫", // Delete
+        0x35: "⎋", // Escape
+        0x36: "⌘",  // Right Command
+        0x37: "⌘",  // Left Command
+        0x38: "⇧",  // Left Shift
+        0x39: "⇪",  // Caps Lock
+        0x3A: "⌥",  // Left Option
+        0x3B: "⌃",  // Left Control
+        0x3C: "⇧",  // Right Shift
+        0x3D: "⌥",  // Right Option
+        0x3E: "⌃",  // Right Control
+        0x7E: "↑",
+        0x7D: "↓",
+        0x7B: "←",
+        0x7C: "→",
+        0x73: "Home",
+        0x77: "End",
+        0x74: "Page Up",
+        0x79: "Page Down",
+        0x75: "Delete ⌦",
+        0x72: "Insert",
+        0x69: "Print Screen",
+        0x6E: "Context Menu",
+        0x60: "F5",
+        0x61: "F6",
+        0x62: "F7",
+        0x63: "F3",
+        0x64: "F8",
+        0x65: "F9",
+        0x67: "F11",
+        0x6D: "F10",
+        0x6F: "F12",
+        0x76: "F4",
+        0x78: "F2",
+        0x7A: "F1",
+        0x6A: "F16",
+        0x40: "F17",
+        0x4F: "F18",
+        0x50: "F19",
+    ]
     
     private func characterForKeyCode(_ keyCode: UInt16) -> String? {
         return KeyCombo.cachedCharacterForKeyCode(keyCode)

@@ -1,6 +1,5 @@
 import Foundation
 import CoreGraphics
-import AppKit
 
 // MARK: - Private CGS API for Space Count
 
@@ -53,6 +52,9 @@ class DockSwipeSimulator {
     
     /// Cached space count for the duration of a gesture (avoids per-event CGS API calls)
     private var cachedSpaceCount: Int = 2
+
+    /// Cached main-display size for the duration of a gesture.
+    private var cachedScreenSize = CGSize(width: 1920, height: 1080)
     
     /// Recent deltas for smoothed exit velocity calculation
     private var recentDeltas: [Double] = []
@@ -74,8 +76,13 @@ class DockSwipeSimulator {
     /// Convert a pixel delta to DockSwipe units for the given swipe type.
     /// Accounts for screen size and number of Spaces so that the animation
     /// tracks 1:1 with the mouse cursor movement.
-    static func pixelToDockSwipe(_ pixels: Double, type: SwipeType, spaceCount: Int? = nil) -> Double {
-        let screenSize = NSScreen.main?.frame.size ?? CGSize(width: 1920, height: 1080)
+    static func pixelToDockSwipe(
+        _ pixels: Double,
+        type: SwipeType,
+        spaceCount: Int? = nil,
+        screenSize: CGSize? = nil
+    ) -> Double {
+        let screenSize = screenSize ?? mainDisplaySize()
         
         switch type {
         case .horizontal:
@@ -91,7 +98,21 @@ class DockSwipeSimulator {
     
     /// Instance method that uses the cached space count (call after begin())
     func pixelToDockSwipeScaled(_ pixels: Double, type: SwipeType) -> Double {
-        DockSwipeSimulator.pixelToDockSwipe(pixels, type: type, spaceCount: cachedSpaceCount)
+        DockSwipeSimulator.pixelToDockSwipe(
+            pixels,
+            type: type,
+            spaceCount: cachedSpaceCount,
+            screenSize: cachedScreenSize
+        )
+    }
+
+    /// Read the main display size without touching AppKit.
+    private static func mainDisplaySize() -> CGSize {
+        let size = CGDisplayBounds(CGMainDisplayID()).size
+        guard size.width > 0, size.height > 0 else {
+            return CGSize(width: 1920, height: 1080)
+        }
+        return size
     }
     
     /// Query the Window Server for the number of Spaces on the current display.
@@ -138,6 +159,7 @@ class DockSwipeSimulator {
         self.lastDelta = delta
         self.isActive = true
         self.cachedSpaceCount = DockSwipeSimulator.numberOfSpaces()
+        self.cachedScreenSize = DockSwipeSimulator.mainDisplaySize()
         self.recentDeltas = [delta]
         
         postDockSwipeEvent(delta: delta, phase: .began)

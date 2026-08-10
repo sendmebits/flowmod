@@ -66,6 +66,31 @@ enum MouseAction: Codable, Equatable, Hashable, Identifiable, CaseIterable {
         case .customShortcut(let combo): return "Custom: \(combo.displayName)"
         }
     }
+
+    /// Thread-safe label for event-tap logging. Custom shortcuts avoid
+    /// `KeyCombo.displayName` because it touches Text Input Services.
+    var debugLabel: String {
+        switch self {
+        case .none: return "None"
+        case .missionControl: return "Mission Control"
+        case .showDesktop: return "Show Desktop"
+        case .launchpad: return "Launchpad"
+        case .back: return "Back (⌘[)"
+        case .forward: return "Forward (⌘])"
+        case .middleClick: return "Middle Click"
+        case .copy: return "Copy (⌘C)"
+        case .cut: return "Cut (⌘X)"
+        case .paste: return "Paste (⌘V)"
+        case .undo: return "Undo (⌘Z)"
+        case .redo: return "Redo (⇧⌘Z)"
+        case .selectAll: return "Select All (⌘A)"
+        case .fullscreen: return "Fullscreen (⌃⌘F)"
+        case .switchSpaceLeft: return "Switch Space Left"
+        case .switchSpaceRight: return "Switch Space Right"
+        case .appExpose: return "App Exposé"
+        case .customShortcut(let combo): return "Custom: \(combo.debugLabel)"
+        }
+    }
     
     var icon: String {
         switch self {

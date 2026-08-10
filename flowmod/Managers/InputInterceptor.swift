@@ -1227,14 +1227,6 @@ class InputInterceptor {
                     let swipeType: DockSwipeSimulator.SwipeType =
                         continuousGestureAxis == .horizontal ? .horizontal : .vertical
 
-                    // Calculate initial delta from accumulated movement.
-                    let initialDelta: Double
-                    if continuousGestureAxis == .horizontal {
-                        initialDelta = -DockSwipeSimulator.pixelToDockSwipe(deltaX, type: swipeType)
-                    } else {
-                        initialDelta = -DockSwipeSimulator.pixelToDockSwipe(deltaY, type: swipeType)
-                    }
-
                     continuousGestureActive = true
                     continuousGestureSwipeType = swipeType
                     middleDragTriggered = true
@@ -1244,7 +1236,13 @@ class InputInterceptor {
                         CGEvent.tapEnable(tap: hidTap, enable: true)
                     }
 
-                    dockSwipeSimulator.begin(type: swipeType, delta: initialDelta, dragThreshold: threshold)
+                    dockSwipeSimulator.begin(type: swipeType, delta: 0, dragThreshold: threshold)
+
+                    // Convert the movement already accumulated before axis lock
+                    // using the simulator's per-gesture screen-size snapshot.
+                    let initialPixels = continuousGestureAxis == .horizontal ? deltaX : deltaY
+                    let initialDelta = -dockSwipeSimulator.pixelToDockSwipeScaled(initialPixels, type: swipeType)
+                    dockSwipeSimulator.update(delta: initialDelta)
                     armContinuousGestureWatchdogs()
 
                     LogManager.shared.log("Continuous gesture began: \(swipeType) axis=\(continuousGestureAxis)", category: "Gesture")
@@ -1312,7 +1310,7 @@ class InputInterceptor {
     // MARK: - Action Execution
     
     private func executeAction(_ action: MouseAction, at location: CGPoint = .zero) {
-        LogManager.shared.log("Executing action: \(action.displayName)", category: "Action")
+        LogManager.shared.log("Executing action: \(action.debugLabel)", category: "Action")
         
         switch action {
         case .none:
@@ -1372,7 +1370,7 @@ class InputInterceptor {
     }
     
     private func sendKeyCombo(_ combo: KeyCombo) {
-        LogManager.shared.log("Sending key combo: \(combo.displayName)", category: "Input")
+        LogManager.shared.log("Sending key combo: \(combo.debugLabel)", category: "Input")
         
         let source = CGEventSource(stateID: .hidSystemState)
         let flags = CGEventFlags(rawValue: combo.modifiers)

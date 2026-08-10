@@ -52,10 +52,10 @@ class LogManager {
     /// Safe to call from any thread — including the event-tap thread. The entry
     /// is appended on the main actor so the UI's observation of `logEntries`
     /// stays intact and the array is never mutated from two threads at once.
-    nonisolated func log(_ message: String, category: String = "General") {
+    nonisolated func log(_ message: @autoclosure () -> String, category: String = "General") {
         guard debugEnabled else { return }
 
-        let entry = LogEntry(timestamp: Date(), category: category, message: message)
+        let entry = LogEntry(timestamp: Date(), category: category, message: message())
         DispatchQueue.main.async { [weak self] in
             self?.appendEntry(entry)
         }
