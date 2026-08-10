@@ -14,8 +14,9 @@ class InputInterceptor {
     /// Kept separate from `isRunning` so an intentional stop doesn't look like an error.
     private(set) var startupError: String?
     
-    // Made internal for callback access
-    var eventTap: CFMachPort?
+    // Tap lifecycle refs are shared with event-tap callbacks; access through
+    // the interactionLock helpers below.
+    private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
     private var tapThread: Thread?
     private var tapRunLoop: CFRunLoop?
@@ -107,8 +108,9 @@ class InputInterceptor {
         case momentum    // Drag physics after wheel stopped
     }
     
-    // Settings references are used only to rebuild runtime snapshots on the
-    // main actor. Event callbacks read the lock-protected snapshots below.
+    // Settings is used only to rebuild runtime snapshots on the main actor.
+    // Event callbacks read lock-protected snapshots, and copy deviceManager
+    // under interactionLock before using its nonisolated attribution API.
     private var settings: Settings?
     private var deviceManager: DeviceManager?
     
@@ -196,7 +198,8 @@ class InputInterceptor {
         guard senderID != 0 else { return .unknown }
         // Attribution is lock-protected and resolves on this (event-tap) thread —
         // no per-event hop to the main actor.
-        guard let device = deviceManager?.device(forEventSenderID: senderID) else { return .unknown }
+        let manager = currentDeviceManager()
+        guard let device = manager?.device(forEventSenderID: senderID) else { return .unknown }
         if device.isAppleDevice {
             return EventSource(kind: .appleDevice, profileKey: nil)
         }
@@ -204,6 +207,36 @@ class InputInterceptor {
     }
     
     private init() {}
+
+    private func isLifecycleRunning() -> Bool {
+        interactionLock.lock()
+        defer { interactionLock.unlock() }
+        return isRunning
+    }
+
+    private func currentEventTap() -> CFMachPort? {
+        interactionLock.lock()
+        defer { interactionLock.unlock() }
+        return eventTap
+    }
+
+    private func currentDragHIDTap() -> CFMachPort? {
+        interactionLock.lock()
+        defer { interactionLock.unlock() }
+        return dragHIDTap
+    }
+
+    private func setDeviceManager(_ manager: DeviceManager?) {
+        interactionLock.lock()
+        deviceManager = manager
+        interactionLock.unlock()
+    }
+
+    private func currentDeviceManager() -> DeviceManager? {
+        interactionLock.lock()
+        defer { interactionLock.unlock() }
+        return deviceManager
+    }
 
     private func startTapRunLoopThread() -> CFRunLoop? {
         let ready = DispatchSemaphore(value: 0)
@@ -269,12 +302,12 @@ class InputInterceptor {
 
     @MainActor
     func start(settings: Settings, deviceManager: DeviceManager) {
-        guard !isRunning else { return }
+        guard !isLifecycleRunning() else { return }
 
         startupError = nil
         
         self.settings = settings
-        self.deviceManager = deviceManager
+        setDeviceManager(deviceManager)
         startObservingRuntimeConfig()
         
         // Define which events we want to tap
@@ -292,7 +325,7 @@ class InputInterceptor {
             if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
                 if let userInfo = userInfo {
                     let interceptor = Unmanaged<InputInterceptor>.fromOpaque(userInfo).takeUnretainedValue()
-                    interceptor.handleTapDisabled(type: type, tap: interceptor.eventTap)
+                    interceptor.handleTapDisabled(type: type, tap: interceptor.currentEventTap())
                 }
                 return Unmanaged.passUnretained(event)
             }
@@ -321,7 +354,7 @@ class InputInterceptor {
         ) else {
             startupError = "FlowMod couldn't start mouse interception. Accessibility access may need to be refreshed."
             self.settings = nil
-            self.deviceManager = nil
+            setDeviceManager(nil)
             runtimeObservationGeneration += 1
             print("Failed to create event tap. Check accessibility permissions.")
             return
@@ -330,7 +363,7 @@ class InputInterceptor {
         guard let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0) else {
             startupError = "FlowMod created its mouse interceptor but couldn't attach it to the app. Try again or restart FlowMod."
             self.settings = nil
-            self.deviceManager = nil
+            setDeviceManager(nil)
             runtimeObservationGeneration += 1
             print("Failed to create event tap run-loop source")
             return
@@ -343,12 +376,14 @@ class InputInterceptor {
         let hidDragMask: CGEventMask = (
             (1 << CGEventType.otherMouseDragged.rawValue)
         )
+        var createdDragHIDTap: CFMachPort?
+        var createdDragHIDRunLoopSource: CFRunLoopSource?
         
         let hidCallback: CGEventTapCallBack = { proxy, type, event, userInfo in
             if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
                 if let userInfo = userInfo {
                     let interceptor = Unmanaged<InputInterceptor>.fromOpaque(userInfo).takeUnretainedValue()
-                    interceptor.handleTapDisabled(type: type, tap: interceptor.dragHIDTap)
+                    interceptor.handleTapDisabled(type: type, tap: interceptor.currentDragHIDTap())
                 }
                 return Unmanaged.passUnretained(event)
             }
@@ -381,8 +416,8 @@ class InputInterceptor {
             userInfo: Unmanaged.passUnretained(self).toOpaque()
         ) {
             if let hidSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, hidTap, 0) {
-                dragHIDTap = hidTap
-                dragHIDRunLoopSource = hidSource
+                createdDragHIDTap = hidTap
+                createdDragHIDRunLoopSource = hidSource
             } else {
                 print("Warning: Failed to create HID-level drag event tap run-loop source")
             }
@@ -393,38 +428,49 @@ class InputInterceptor {
         guard let tapRunLoop = startTapRunLoopThread() else {
             startupError = "FlowMod created its mouse interceptor but couldn't start its event-processing thread. Try again or restart FlowMod."
             self.settings = nil
-            self.deviceManager = nil
+            setDeviceManager(nil)
             runtimeObservationGeneration += 1
-            dragHIDTap = nil
             dragHIDRunLoopSource = nil
             print("Failed to start event tap run-loop thread")
             return
         }
 
-        eventTap = tap
         runLoopSource = source
+        dragHIDRunLoopSource = createdDragHIDRunLoopSource
         CFRunLoopAddSource(tapRunLoop, source, .commonModes)
-        if let hidSource = dragHIDRunLoopSource {
+        if let hidSource = createdDragHIDRunLoopSource {
             CFRunLoopAddSource(tapRunLoop, hidSource, .commonModes)
         }
         CFRunLoopWakeUp(tapRunLoop)
 
+        interactionLock.lock()
+        eventTap = tap
+        dragHIDTap = createdDragHIDTap
+        isRunning = true
+        interactionLock.unlock()
+
         CGEvent.tapEnable(tap: tap, enable: true)
-        if let hidTap = dragHIDTap {
+        if let hidTap = createdDragHIDTap {
             // Start DISABLED — enabled only during continuous gestures
             CGEvent.tapEnable(tap: hidTap, enable: false)
             print("HID drag event tap created (disabled)")
         }
 
-        isRunning = true
         print("Input interceptor started")
     }
     
     @MainActor
     func stop() {
-        let wasRunning = isRunning
-        isRunning = false
+        var wasRunning = false
+        var tapToDisable: CFMachPort?
+        var hidTapToDisable: CFMachPort?
+
         runtimeObservationGeneration += 1
+
+        interactionLock.lock()
+        wasRunning = isRunning
+        isRunning = false
+        interactionLock.unlock()
 
         // Finish synthetic gesture streams before disabling their timers/taps.
         // Leaving a began/changed stream open can make the receiving app treat
@@ -441,10 +487,15 @@ class InputInterceptor {
         
         cancelContinuousGesture(force: true, reason: "interceptor stopped")
         clearButtonTrackingState()
+        tapToDisable = eventTap
+        hidTapToDisable = dragHIDTap
+        eventTap = nil
+        dragHIDTap = nil
+        deviceManager = nil
         interactionLock.unlock()
         
         // Disable and clean up HID drag tap
-        if let hidTap = dragHIDTap {
+        if let hidTap = hidTapToDisable {
             CGEvent.tapEnable(tap: hidTap, enable: false)
         }
         tapThreadLock.lock()
@@ -455,10 +506,9 @@ class InputInterceptor {
                 CFRunLoopRemoveSource(eventRunLoop, hidSource, .commonModes)
             }
         }
-        dragHIDTap = nil
         dragHIDRunLoopSource = nil
         
-        if let tap = eventTap {
+        if let tap = tapToDisable {
             CGEvent.tapEnable(tap: tap, enable: false)
         }
         
@@ -469,10 +519,8 @@ class InputInterceptor {
         }
         stopTapRunLoopThread()
         
-        eventTap = nil
         runLoopSource = nil
         settings = nil
-        deviceManager = nil
         runtimeConfigLock.lock()
         runtimeConfig = .default
         runtimeProfileConfigs = [:]
@@ -1519,12 +1567,22 @@ class InputInterceptor {
         guard let tap else { return }
 
         let reenable: () -> Void = { [weak self] in
-            guard let self, self.isRunning else { return }
-            if let eventTap = self.eventTap, CFEqual(tap, eventTap) {
-                CGEvent.tapEnable(tap: eventTap, enable: true)
-            } else if let hidTap = self.dragHIDTap, CFEqual(tap, hidTap) {
+            guard let self else { return }
+
+            let tapUpdate: (tap: CFMachPort, enable: Bool)?
+            self.interactionLock.lock()
+            if self.isRunning, let eventTap = self.eventTap, CFEqual(tap, eventTap) {
+                tapUpdate = (eventTap, true)
+            } else if self.isRunning, let hidTap = self.dragHIDTap, CFEqual(tap, hidTap) {
                 // HID tap must stay off except during an active continuous gesture.
-                CGEvent.tapEnable(tap: hidTap, enable: self.isContinuousGestureActive)
+                tapUpdate = (hidTap, self.continuousGestureActive)
+            } else {
+                tapUpdate = nil
+            }
+            self.interactionLock.unlock()
+
+            if let tapUpdate {
+                CGEvent.tapEnable(tap: tapUpdate.tap, enable: tapUpdate.enable)
             }
         }
 
@@ -1717,7 +1775,7 @@ class InputInterceptor {
 
             let mouseEnabled = settings.mouseEnabled
             let assumeExternal = settings.assumeExternalMouse
-            let externalConnected = deviceManager?.externalMouseConnected ?? false
+            let externalConnected = currentDeviceManager()?.externalMouseConnected ?? false
             let dragThreshold = settings.dragThreshold
 
             let snapshot = Self.makeRuntimeConfig(
