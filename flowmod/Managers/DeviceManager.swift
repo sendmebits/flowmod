@@ -230,7 +230,10 @@ class DeviceManager {
         let resolved = DeviceManager.resolveDevice(forSenderID: senderID, in: devices)
 
         attributionLock.lock()
-        senderIDCache[senderID] = resolved
+        // `Dictionary` subscript assignment treats a nil value as removal, even
+        // when the value type itself is Optional. `updateValue` preserves the
+        // outer "key exists" state so unresolved senders are negatively cached.
+        senderIDCache.updateValue(resolved, forKey: senderID)
         attributionLock.unlock()
 
         // Intentionally no logging here: this runs on the event-tap thread and
