@@ -1227,6 +1227,17 @@ class InputInterceptor {
                     let swipeType: DockSwipeSimulator.SwipeType =
                         continuousGestureAxis == .horizontal ? .horizontal : .vertical
 
+                    // Began must carry the accumulated offset. A zero-offset
+                    // began + later changed update regresses Mission Control
+                    // (middle-button swipe up); App Exposé / Spaces are more
+                    // tolerant. Screen size comes from CGDisplayBounds, not
+                    // AppKit NSScreen.
+                    let initialPixels = continuousGestureAxis == .horizontal ? deltaX : deltaY
+                    let initialDelta = -DockSwipeSimulator.pixelToDockSwipe(
+                        initialPixels,
+                        type: swipeType
+                    )
+
                     continuousGestureActive = true
                     continuousGestureSwipeType = swipeType
                     middleDragTriggered = true
@@ -1236,13 +1247,7 @@ class InputInterceptor {
                         CGEvent.tapEnable(tap: hidTap, enable: true)
                     }
 
-                    dockSwipeSimulator.begin(type: swipeType, delta: 0, dragThreshold: threshold)
-
-                    // Convert the movement already accumulated before axis lock
-                    // using the simulator's per-gesture screen-size snapshot.
-                    let initialPixels = continuousGestureAxis == .horizontal ? deltaX : deltaY
-                    let initialDelta = -dockSwipeSimulator.pixelToDockSwipeScaled(initialPixels, type: swipeType)
-                    dockSwipeSimulator.update(delta: initialDelta)
+                    dockSwipeSimulator.begin(type: swipeType, delta: initialDelta, dragThreshold: threshold)
                     armContinuousGestureWatchdogs()
 
                     LogManager.shared.log("Continuous gesture began: \(swipeType) axis=\(continuousGestureAxis)", category: "Gesture")
