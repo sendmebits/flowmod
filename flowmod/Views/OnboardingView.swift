@@ -100,8 +100,29 @@ struct OnboardingView: View {
         permissionManager.hasAccessibilityPermission && inputInterceptor.isRunning
     }
 
-    private var externalMouseName: String? {
-        deviceManager.connectedDevices.first(where: { $0.isMouse && !$0.isAppleDevice })?.displayName
+    private var externalMice: [DeviceManager.HIDDevice] {
+        var seen = Set<String>()
+        return deviceManager.connectedDevices.filter { device in
+            guard device.isMouse && !device.isAppleDevice else { return false }
+            return seen.insert(device.deviceKey).inserted
+        }
+    }
+
+    private var externalMouseDisplayNames: [String] {
+        let duplicateNames = Dictionary(grouping: externalMice, by: \.displayName)
+        return externalMice.map { device in
+            guard (duplicateNames[device.displayName]?.count ?? 0) > 1,
+                  let qualifier = device.profileQualifier else {
+                return device.displayName
+            }
+            return "\(device.displayName) (\(qualifier))"
+        }.sorted()
+    }
+
+    private var externalMouseVerificationDetail: String {
+        let names = externalMouseDisplayNames
+        guard !names.isEmpty else { return "Not connected — optional for setup" }
+        return names.joined(separator: ", ")
     }
 
     var body: some View {
@@ -195,10 +216,28 @@ struct OnboardingView: View {
                 welcomeFeature(icon: "hand.draw", title: "Mouse gestures")
             }
 
-            if let externalMouseName {
-                Label("Detected: \(externalMouseName)", systemImage: "checkmark.circle.fill")
+            if !externalMouseDisplayNames.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    Label(
+                        externalMouseDisplayNames.count == 1
+                            ? "Detected: \(externalMouseDisplayNames[0])"
+                            : "Detected: \(externalMouseDisplayNames.count) mice",
+                        systemImage: "checkmark.circle.fill"
+                    )
                     .font(.callout)
                     .foregroundStyle(.green)
+
+                    if externalMouseDisplayNames.count > 1 {
+                        VStack(alignment: .leading, spacing: 3) {
+                            ForEach(Array(externalMouseDisplayNames.enumerated()), id: \.offset) { _, mouseName in
+                                Text(mouseName)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .padding(.leading, 24)
+                    }
+                }
             } else {
                 Label("No external mouse detected yet — you can connect one later", systemImage: "computermouse")
                     .font(.callout)
@@ -327,8 +366,8 @@ struct OnboardingView: View {
                 Divider().padding(.leading, 44)
                 verificationRow(
                     title: "External mouse",
-                    detail: externalMouseName ?? "Not connected — optional for setup",
-                    success: externalMouseName != nil,
+                    detail: externalMouseVerificationDetail,
+                    success: !externalMouseDisplayNames.isEmpty,
                     optional: true
                 )
             }
