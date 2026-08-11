@@ -18,9 +18,133 @@ class InputInterceptor {
     // the interactionLock helpers below.
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
-    private var tapThread: Thread?
-    private var tapRunLoop: CFRunLoop?
+    private var tapThreadAttempt: TapRunLoopStartupAttempt?
     private let tapThreadLock = NSLock()
+
+    /// Owns the startup handshake for exactly one event-tap thread. Keeping the
+    /// run loop and cancellation decision per attempt prevents a delayed worker
+    /// from publishing into, or stopping, a newer retry's lifecycle state.
+    private final class TapRunLoopStartupAttempt {
+        private enum Decision {
+            case pending
+            case accepted
+            case cancelled
+        }
+
+        private let condition = NSCondition()
+        private var decision: Decision = .pending
+        private var runLoop: CFRunLoop?
+        private var preparationFailed = false
+
+        /// Publishes the worker's run loop, then waits until the caller either
+        /// accepts this exact attempt or cancels it. A late, timed-out worker
+        /// therefore never enters CFRunLoopRun().
+        func publishAndWaitForDecision(runLoop: CFRunLoop) -> Bool {
+            condition.lock()
+            guard decision == .pending else {
+                condition.unlock()
+                return false
+            }
+
+            self.runLoop = runLoop
+            condition.broadcast()
+
+            while decision == .pending {
+                condition.wait()
+            }
+
+            let wasAccepted = decision == .accepted
+            condition.unlock()
+            return wasAccepted
+        }
+
+        /// Waits for the worker to publish its run loop while leaving it paused
+        /// so the event-tap sources and lifecycle refs can be installed first.
+        func waitUntilReady(timeout: TimeInterval) -> CFRunLoop? {
+            let deadline = Date(timeIntervalSinceNow: timeout)
+
+            condition.lock()
+            while runLoop == nil && !preparationFailed && decision == .pending {
+                guard condition.wait(until: deadline) else { break }
+            }
+
+            if let runLoop, decision == .pending {
+                condition.unlock()
+                return runLoop
+            }
+
+            if decision == .pending {
+                decision = .cancelled
+            }
+            condition.broadcast()
+            condition.unlock()
+            return nil
+        }
+
+        func failPreparation() {
+            condition.lock()
+            preparationFailed = true
+            if decision == .pending {
+                decision = .cancelled
+            }
+            condition.broadcast()
+            condition.unlock()
+        }
+
+        func activate() {
+            condition.lock()
+            guard decision == .pending, let runLoop else {
+                condition.unlock()
+                return
+            }
+
+            decision = .accepted
+            condition.broadcast()
+            condition.unlock()
+            CFRunLoopWakeUp(runLoop)
+        }
+
+        var currentRunLoop: CFRunLoop? {
+            condition.lock()
+            defer { condition.unlock() }
+            return runLoop
+        }
+
+        func stop() {
+            condition.lock()
+            let shouldStopRunLoop: Bool
+            switch decision {
+            case .pending:
+                decision = .cancelled
+                shouldStopRunLoop = false
+            case .accepted:
+                // Keep the accepted decision stable so a worker released by
+                // activate() still enters the run loop and drains the queued
+                // stop block, even if stop() wins the scheduling race.
+                shouldStopRunLoop = true
+            case .cancelled:
+                shouldStopRunLoop = false
+            }
+            let runLoop = runLoop
+            condition.broadcast()
+            condition.unlock()
+
+            if shouldStopRunLoop, let runLoop {
+                CFRunLoopPerformBlock(runLoop, CFRunLoopMode.commonModes.rawValue) {
+                    CFRunLoopStop(runLoop)
+                }
+                CFRunLoopWakeUp(runLoop)
+            }
+        }
+
+        func finish() {
+            condition.lock()
+            decision = .cancelled
+            runLoop = nil
+            condition.broadcast()
+            condition.unlock()
+        }
+    }
     
     // HID-level event tap for mouse drags during continuous gestures.
     // When macOS enters DockSwipe gesture mode, the WindowServer stops
@@ -238,66 +362,63 @@ class InputInterceptor {
         return deviceManager
     }
 
-    private func startTapRunLoopThread() -> CFRunLoop? {
-        let ready = DispatchSemaphore(value: 0)
+    private func clearTapThreadAttempt(ifCurrent attempt: TapRunLoopStartupAttempt) {
+        tapThreadLock.lock()
+        if tapThreadAttempt === attempt {
+            tapThreadAttempt = nil
+        }
+        tapThreadLock.unlock()
+    }
+
+    private func startTapRunLoopThread() -> (attempt: TapRunLoopStartupAttempt, runLoop: CFRunLoop)? {
+        let attempt = TapRunLoopStartupAttempt()
         let thread = Thread { [weak self] in
-            let runLoop = CFRunLoopGetCurrent()
+            guard let runLoop = CFRunLoopGetCurrent() else {
+                attempt.failPreparation()
+                self?.clearTapThreadAttempt(ifCurrent: attempt)
+                return
+            }
 
             var context = CFRunLoopSourceContext()
-            let keepAliveSource = CFRunLoopSourceCreate(kCFAllocatorDefault, 0, &context)
-            if let keepAliveSource {
-                CFRunLoopAddSource(runLoop, keepAliveSource, .commonModes)
+            guard let keepAliveSource = CFRunLoopSourceCreate(kCFAllocatorDefault, 0, &context) else {
+                attempt.failPreparation()
+                self?.clearTapThreadAttempt(ifCurrent: attempt)
+                return
+            }
+            CFRunLoopAddSource(runLoop, keepAliveSource, .commonModes)
+
+            if attempt.publishAndWaitForDecision(runLoop: runLoop) {
+                CFRunLoopRun()
             }
 
-            self?.tapThreadLock.lock()
-            self?.tapRunLoop = runLoop
-            self?.tapThreadLock.unlock()
-            ready.signal()
-
-            CFRunLoopRun()
-
-            if let keepAliveSource {
-                CFRunLoopRemoveSource(runLoop, keepAliveSource, .commonModes)
-            }
-
-            self?.tapThreadLock.lock()
-            if let currentRunLoop = self?.tapRunLoop, CFEqual(currentRunLoop, runLoop) {
-                self?.tapRunLoop = nil
-            }
-            self?.tapThreadLock.unlock()
+            CFRunLoopRemoveSource(runLoop, keepAliveSource, .commonModes)
+            attempt.finish()
+            self?.clearTapThreadAttempt(ifCurrent: attempt)
         }
 
         thread.name = "com.flowmod.event-tap"
         thread.qualityOfService = .userInteractive
 
         tapThreadLock.lock()
-        tapThread = thread
+        tapThreadAttempt = attempt
         tapThreadLock.unlock()
 
         thread.start()
-        guard ready.wait(timeout: .now() + 1.0) == .success else {
-            tapThreadLock.lock()
-            tapThread = nil
-            tapThreadLock.unlock()
+        guard let runLoop = attempt.waitUntilReady(timeout: 1.0) else {
+            clearTapThreadAttempt(ifCurrent: attempt)
             return nil
         }
 
-        tapThreadLock.lock()
-        let runLoop = tapRunLoop
-        tapThreadLock.unlock()
-        return runLoop
+        return (attempt, runLoop)
     }
 
     private func stopTapRunLoopThread() {
         tapThreadLock.lock()
-        let runLoop = tapRunLoop
-        tapRunLoop = nil
-        tapThread = nil
+        let attempt = tapThreadAttempt
+        tapThreadAttempt = nil
         tapThreadLock.unlock()
 
-        if let runLoop {
-            CFRunLoopStop(runLoop)
-        }
+        attempt?.stop()
     }
 
     @MainActor
@@ -425,7 +546,7 @@ class InputInterceptor {
             print("Warning: Failed to create HID-level drag event tap")
         }
 
-        guard let tapRunLoop = startTapRunLoopThread() else {
+        guard let tapThreadStartup = startTapRunLoopThread() else {
             startupError = "FlowMod created its mouse interceptor but couldn't start its event-processing thread. Try again or restart FlowMod."
             self.settings = nil
             setDeviceManager(nil)
@@ -434,6 +555,7 @@ class InputInterceptor {
             print("Failed to start event tap run-loop thread")
             return
         }
+        let tapRunLoop = tapThreadStartup.runLoop
 
         runLoopSource = source
         dragHIDRunLoopSource = createdDragHIDRunLoopSource
@@ -455,6 +577,7 @@ class InputInterceptor {
             CGEvent.tapEnable(tap: hidTap, enable: false)
             print("HID drag event tap created (disabled)")
         }
+        tapThreadStartup.attempt.activate()
 
         print("Input interceptor started")
     }
@@ -499,7 +622,7 @@ class InputInterceptor {
             CGEvent.tapEnable(tap: hidTap, enable: false)
         }
         tapThreadLock.lock()
-        let eventRunLoop = tapRunLoop
+        let eventRunLoop = tapThreadAttempt?.currentRunLoop
         tapThreadLock.unlock()
         if let hidSource = dragHIDRunLoopSource {
             if let eventRunLoop {
