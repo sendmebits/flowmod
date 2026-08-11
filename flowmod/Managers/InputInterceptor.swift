@@ -290,6 +290,9 @@ class InputInterceptor {
     // Command+Scroll zoom gesture state
     private var zoomGestureActive = false
     private var zoomEndTimer: DispatchWorkItem?
+    private var zoomPixelResidual: Double = 0
+    private let zoomPixelsPerMagnificationUnit: Double = 800.0
+    private let minimumZoomPostPixels: Double = 8.0
     /// Observation-tracked lifecycle token. Incrementing it deliberately wakes
     /// and consumes the previous one-shot runtime-config registration.
     private var runtimeObservationGeneration = 0
@@ -605,6 +608,7 @@ class InputInterceptor {
         interactionLock.lock()
         zoomEndTimer?.cancel()
         zoomEndTimer = nil
+        zoomPixelResidual = 0
         if zoomGestureActive {
             postMagnificationEvent(magnification: 0, phase: 4) // ended
             zoomGestureActive = false
@@ -778,21 +782,30 @@ class InputInterceptor {
         // Command + Scroll = Zoom: convert scroll to pinch-to-zoom magnification gesture
         // Posts trackpad-style magnification events that work universally across apps
         if commandHeld && commandZoom && isMouseScroll {
-            let scrollDelta: Double
-            if deltaY != 0 || deltaX != 0 {
-                scrollDelta = Double(deltaY != 0 ? deltaY : deltaX)
+            let scrollPixels: Double
+            if pointDeltaY != 0 || pointDeltaX != 0 {
+                scrollPixels = pointDeltaY != 0 ? pointDeltaY : pointDeltaX
+            } else if pixelDeltaY != 0 || pixelDeltaX != 0 {
+                scrollPixels = pixelDeltaY != 0 ? pixelDeltaY : pixelDeltaX
+            } else if deltaY != 0 || deltaX != 0 {
+                scrollPixels = Double(deltaY != 0 ? deltaY : deltaX) * pxPerTick
             } else {
-                let highResolutionDelta = pixelDeltaY != 0 ? pixelDeltaY : pixelDeltaX != 0 ? pixelDeltaX : pointDeltaY != 0 ? pointDeltaY : pointDeltaX
-                scrollDelta = highResolutionDelta / pxPerTick
-            }
-            // Negate so wheel direction matches typical “scroll up = zoom in” expectation for external mice.
-            let magnification = -scrollDelta / 50.0
-
-            guard magnification != 0 else {
                 return nil
             }
-
+            
             interactionLock.lock()
+            zoomPixelResidual += scrollPixels
+            guard abs(zoomPixelResidual) >= minimumZoomPostPixels else {
+                scheduleZoomEnd()
+                interactionLock.unlock()
+                return nil
+            }
+            
+            let pixelsToPost = zoomPixelResidual
+            zoomPixelResidual -= pixelsToPost
+            // Negate so wheel direction matches typical “scroll up = zoom in” expectation for external mice.
+            let magnification = -pixelsToPost / zoomPixelsPerMagnificationUnit
+            
             if !zoomGestureActive {
                 zoomGestureActive = true
                 postMagnificationEvent(magnification: 0, phase: 1) // began
@@ -805,11 +818,14 @@ class InputInterceptor {
         
         // If zoom was active but Command is no longer held, end it immediately
         interactionLock.lock()
-        if zoomGestureActive && !commandHeld {
+        if !commandHeld && (zoomGestureActive || zoomPixelResidual != 0) {
             zoomEndTimer?.cancel()
             zoomEndTimer = nil
-            postMagnificationEvent(magnification: 0, phase: 4) // ended
-            zoomGestureActive = false
+            if zoomGestureActive {
+                postMagnificationEvent(magnification: 0, phase: 4) // ended
+                zoomGestureActive = false
+            }
+            zoomPixelResidual = 0
         }
         interactionLock.unlock()
         
@@ -956,10 +972,13 @@ class InputInterceptor {
             guard let self else { return }
             self.interactionLock.lock()
             defer { self.interactionLock.unlock() }
-            guard self.zoomGestureActive else { return }
-            self.postMagnificationEvent(magnification: 0, phase: 4) // ended
-            self.zoomGestureActive = false
+            guard self.zoomGestureActive || self.zoomPixelResidual != 0 else { return }
+            if self.zoomGestureActive {
+                self.postMagnificationEvent(magnification: 0, phase: 4) // ended
+                self.zoomGestureActive = false
+            }
             self.zoomEndTimer = nil
+            self.zoomPixelResidual = 0
         }
         zoomEndTimer = timer
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: timer)
