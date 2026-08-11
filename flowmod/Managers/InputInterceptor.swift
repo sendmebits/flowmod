@@ -206,10 +206,15 @@ class InputInterceptor {
     private var lastInputTime: CFTimeInterval = 0
     private var needsScrollBegan: Bool = true  // Track if we need to send began phase
     private var momentumBegan: Bool = false     // Track if we've sent momentum begin phase
+    private let precisionScrollTimingLock = NSLock()
+    private var lastPrecisionScrollTickTimes: [String: CFTimeInterval] = [:]
     
     // Physics parameters - tuned for trackpad-like smooth scrolling
     // Uses a hybrid approach: base animation for initial scroll + drag physics for momentum
     private let pxPerTick: Double = 60.0           // Pixels per wheel tick
+    private let preciseScrollSlowPixelsPerTick: Double = 10.0
+    private let preciseScrollSlowTickInterval: CFTimeInterval = 0.160
+    private let preciseScrollFastTickInterval: CFTimeInterval = 0.015
     private let baseMsPerStep: Double = 140.0      // Base animation duration per tick (ms) - smooth mode
     private let baseMsPerStepSmooth: Double = 220.0 // For verySmooth mode - longer animation
     private let dragCoefficient: Double = 18.0     // Drag coefficient for smooth mode
@@ -253,6 +258,7 @@ class InputInterceptor {
         /// external mouse, making the global gate unnecessary.
         var reverseScrollSetting: Bool
         var smoothScrolling: SmoothScrolling
+        var preciseScrolling: Bool
         var shiftHorizontal: Bool
         var optionPrecision: Bool
         var precisionMultiplier: Double
@@ -269,6 +275,7 @@ class InputInterceptor {
             shouldReverse: false,
             reverseScrollSetting: false,
             smoothScrolling: .verySmooth,
+            preciseScrolling: true,
             shiftHorizontal: true,
             optionPrecision: true,
             precisionMultiplier: 0.33,
@@ -302,7 +309,6 @@ class InputInterceptor {
 
     // Undocumented CGEvent field carrying the IORegistry entry ID of the HID
     // event service that produced the event (0 for synthesized events).
-    // Long-stable SPI, also relied on by LinearMouse and Mac Mouse Fix.
     private static let senderIDField = CGEventField(rawValue: 87)!
 
     /// Which physical device an event came from, per field-87 attribution.
@@ -710,6 +716,49 @@ class InputInterceptor {
     }
     
     // MARK: - Scroll Handling
+
+    private func precisionScrollTickInterval(forProfileKey key: String?, currentTime: CFTimeInterval) -> CFTimeInterval {
+        let timingKey = key ?? "__default__"
+
+        precisionScrollTimingLock.lock()
+        defer { precisionScrollTimingLock.unlock() }
+
+        let previousTime = lastPrecisionScrollTickTimes[timingKey]
+        lastPrecisionScrollTickTimes[timingKey] = currentTime
+
+        guard let previousTime else {
+            return preciseScrollSlowTickInterval
+        }
+
+        let interval = currentTime - previousTime
+        guard interval > 0 else {
+            return preciseScrollFastTickInterval
+        }
+
+        return min(max(interval, preciseScrollFastTickInterval), preciseScrollSlowTickInterval)
+    }
+
+    private func preciseScrollPixelsPerTick(basePixelsPerTick: Double, tickInterval: CFTimeInterval) -> Double {
+        guard basePixelsPerTick > preciseScrollSlowPixelsPerTick else {
+            return basePixelsPerTick
+        }
+
+        let intervalRange = preciseScrollSlowTickInterval - preciseScrollFastTickInterval
+        let rawProgress = (preciseScrollSlowTickInterval - tickInterval) / intervalRange
+        let progress = min(max(rawProgress, 0), 1)
+        let easedProgress = progress * progress * (3 - 2 * progress)
+
+        return preciseScrollSlowPixelsPerTick + (basePixelsPerTick - preciseScrollSlowPixelsPerTick) * easedProgress
+    }
+
+    private func scaledScrollLineDelta(_ value: Double, preserveMinimum: Bool) -> Int64 {
+        let rounded = Int64(value.rounded())
+        guard preserveMinimum, rounded == 0, value != 0 else {
+            return rounded
+        }
+
+        return value > 0 ? 1 : -1
+    }
     
     private func handleScrollEvent(_ event: CGEvent) -> CGEvent? {
         // Attribute the event to a physical device via field 87. Events that
@@ -729,6 +778,7 @@ class InputInterceptor {
         // (externalMouseConnected / assumeExternalMouse).
         let shouldReverse = source.kind == .externalMouse ? config.reverseScrollSetting : config.shouldReverse
         let smoothScrolling = config.smoothScrolling
+        let preciseScrolling = config.preciseScrolling
         let shiftHorizontal = config.shiftHorizontal
         let optionPrecision = config.optionPrecision
         let precisionMultiplier = config.precisionMultiplier
@@ -828,6 +878,8 @@ class InputInterceptor {
             zoomPixelResidual = 0
         }
         interactionLock.unlock()
+
+        let currentTime = CACurrentMediaTime()
         
         // Apply Shift modifier: convert vertical scroll to horizontal
         if shiftHeld && shiftHorizontal && isMouseScroll {
@@ -842,7 +894,8 @@ class InputInterceptor {
         
         // Option bypasses animation for immediate wheel response, but it still
         // applies the advertised precision multiplier.
-        let precisionScale: Double = (optionHeld && optionPrecision && isMouseScroll) ? precisionMultiplier : 1.0
+        let optionForcesPrecision = optionHeld && optionPrecision && isMouseScroll
+        let precisionScale: Double = optionForcesPrecision ? precisionMultiplier : 1.0
         
         // Apply Control modifier: speed up scroll (applies to both X and Y)
         let fastScale: Double = (controlHeld && controlFast && isMouseScroll) ? fastMultiplier : 1.0
@@ -862,26 +915,39 @@ class InputInterceptor {
         // Determine if this is a horizontal scroll (Shift held)
         let isHorizontalScroll = shiftHeld && shiftHorizontal && isMouseScroll
         let hasNativeHorizontalComponent = deltaX != 0 || pixelDeltaX != 0 || pointDeltaX != 0
+        let controlBypassesSmooth = controlHeld && controlFast && isMouseScroll
+        let hasScrollDelta = deltaY != 0 || deltaX != 0 ||
+            pixelDeltaY != 0 || pixelDeltaX != 0 ||
+            pointDeltaY != 0 || pointDeltaX != 0
+        let autoPrecisionTickInterval: CFTimeInterval?
+        if preciseScrolling && isMouseScroll && !optionHeld && !controlBypassesSmooth && hasScrollDelta {
+            autoPrecisionTickInterval = precisionScrollTickInterval(
+                forProfileKey: source.profileKey,
+                currentTime: currentTime
+            )
+        } else {
+            autoPrecisionTickInterval = nil
+        }
         
         // If smooth scrolling is enabled for mouse events, use the smooth scroll system
         // BUT: horizontal scroll (Shift+Scroll) always bypasses smooth scrolling
         // BUT: Option held bypasses smooth scrolling (acts as if smooth scrolling is off)
         // Control+Scroll also bypasses smooth scrolling for immediate fast scroll
-        let controlBypassesSmooth = controlHeld && controlFast && isMouseScroll
-        
         if smoothScrolling != .off && isMouseScroll && !isHorizontalScroll &&
             !hasNativeHorizontalComponent && !optionHeld && !controlBypassesSmooth {
             smoothScrollLock.lock()
             
             // Calculate pixels to scroll for this tick
             let pxMultiplier = smoothScrolling == .verySmooth ? 1.3 : 1.0
+            let basePixelsPerTick = pxPerTick * pxMultiplier
+            let pixelsPerTick = autoPrecisionTickInterval.map {
+                preciseScrollPixelsPerTick(basePixelsPerTick: basePixelsPerTick, tickInterval: $0)
+            } ?? basePixelsPerTick
             let ticksY = reversedTicksY
-            let pxToAddY = ticksY * pxPerTick * pxMultiplier
+            let pxToAddY = ticksY * pixelsPerTick
             
             // Get animation duration based on smoothness level
             let duration = (smoothScrolling == .verySmooth ? baseMsPerStepSmooth : baseMsPerStep) / 1000.0
-            
-            let currentTime = CACurrentMediaTime()
             
             if smoothScrollPhase == .idle || smoothScrollPhase == .momentum {
                 // Start fresh animation - need to send began phase
@@ -915,7 +981,12 @@ class InputInterceptor {
         
         // Non-smooth scroll path - for horizontal scroll, disabled smooth scroll, or modifiers
         // Check if we need to modify the event at all
-        let needsModification = shouldReverse || isHorizontalScroll || (optionHeld && optionPrecision && isMouseScroll) || (controlHeld && controlFast && isMouseScroll)
+        let autoPrecisionScale = autoPrecisionTickInterval.map {
+            preciseScrollPixelsPerTick(basePixelsPerTick: pxPerTick, tickInterval: $0) / pxPerTick
+        } ?? 1.0
+        let autoPrecisionModifiesEvent = autoPrecisionScale != 1.0
+        let needsModification = shouldReverse || isHorizontalScroll || optionForcesPrecision ||
+            (controlHeld && controlFast && isMouseScroll) || autoPrecisionModifiesEvent
         
         guard needsModification else { return event }
         
@@ -927,18 +998,26 @@ class InputInterceptor {
         
         // For precision scroll, we can't really reduce integer deltas below 1,
         // but the pixel/point deltas will be reduced
-        let intDeltaY = Int64(reversedTicksY.rounded())
-        let intDeltaX = Int64(reversedTicksX.rounded())
+        let autoPrecisionTicksY = reversedTicksY * autoPrecisionScale
+        let autoPrecisionTicksX = reversedTicksX * autoPrecisionScale
+        let intDeltaY = scaledScrollLineDelta(
+            autoPrecisionTicksY,
+            preserveMinimum: autoPrecisionModifiesEvent && reversedTicksY != 0
+        )
+        let intDeltaX = scaledScrollLineDelta(
+            autoPrecisionTicksX,
+            preserveMinimum: autoPrecisionModifiesEvent && reversedTicksX != 0
+        )
         
         // First, set the integer deltas (this may reset the other fields)
         event.setIntegerValueField(.scrollWheelEventDeltaAxis1, value: intDeltaY)
         event.setIntegerValueField(.scrollWheelEventDeltaAxis2, value: intDeltaX)
         
         // Then override with the correct modified values
-        event.setDoubleValueField(.scrollWheelEventFixedPtDeltaAxis1, value: pixelDeltaY)
-        event.setDoubleValueField(.scrollWheelEventFixedPtDeltaAxis2, value: pixelDeltaX)
-        event.setDoubleValueField(.scrollWheelEventPointDeltaAxis1, value: pointDeltaY)
-        event.setDoubleValueField(.scrollWheelEventPointDeltaAxis2, value: pointDeltaX)
+        event.setDoubleValueField(.scrollWheelEventFixedPtDeltaAxis1, value: pixelDeltaY * autoPrecisionScale)
+        event.setDoubleValueField(.scrollWheelEventFixedPtDeltaAxis2, value: pixelDeltaX * autoPrecisionScale)
+        event.setDoubleValueField(.scrollWheelEventPointDeltaAxis1, value: pointDeltaY * autoPrecisionScale)
+        event.setDoubleValueField(.scrollWheelEventPointDeltaAxis2, value: pointDeltaX * autoPrecisionScale)
         
         return event
     }
@@ -1883,6 +1962,7 @@ class InputInterceptor {
             shouldReverse: reverse,
             reverseScrollSetting: profile.reverseScrollEnabled,
             smoothScrolling: profile.smoothScrolling,
+            preciseScrolling: profile.preciseScrolling,
             shiftHorizontal: profile.shiftHorizontalScroll,
             optionPrecision: profile.optionPrecisionScroll,
             precisionMultiplier: profile.precisionScrollMultiplier,

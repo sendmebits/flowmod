@@ -39,6 +39,18 @@ struct ScrollSettingsView: View {
                                 .labelsHidden()
                                 .frame(width: 120)
                             }
+
+                            SettingsRowDivider()
+
+                            SettingsControlRow(
+                                icon: "slider.horizontal.3",
+                                title: "Precise Scrolling",
+                                description: "Scroll slowly for finer control without holding Option"
+                            ) {
+                                Toggle("Precise Scrolling", isOn: $profile.preciseScrolling)
+                                    .toggleStyle(.switch)
+                                    .labelsHidden()
+                            }
                         }
                         .padding(.vertical, 4)
                     }

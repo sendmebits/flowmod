@@ -7,6 +7,7 @@ struct ProfileData: Codable {
     var displayName: String
     var reverseScrollEnabled: Bool
     var smoothScrolling: SmoothScrolling
+    var preciseScrolling: Bool
     var shiftHorizontalScroll: Bool
     var optionPrecisionScroll: Bool
     var precisionScrollMultiplier: Double
@@ -16,6 +17,69 @@ struct ProfileData: Codable {
     var customMouseButtonMappings: [CustomMouseButtonMapping]
     var middleDragMappings: [DragDirection: MouseAction]
     var continuousGestures: Bool
+
+    init(
+        displayName: String,
+        reverseScrollEnabled: Bool,
+        smoothScrolling: SmoothScrolling,
+        preciseScrolling: Bool,
+        shiftHorizontalScroll: Bool,
+        optionPrecisionScroll: Bool,
+        precisionScrollMultiplier: Double,
+        controlFastScroll: Bool,
+        fastScrollMultiplier: Double,
+        commandZoomScroll: Bool,
+        customMouseButtonMappings: [CustomMouseButtonMapping],
+        middleDragMappings: [DragDirection: MouseAction],
+        continuousGestures: Bool
+    ) {
+        self.displayName = displayName
+        self.reverseScrollEnabled = reverseScrollEnabled
+        self.smoothScrolling = smoothScrolling
+        self.preciseScrolling = preciseScrolling
+        self.shiftHorizontalScroll = shiftHorizontalScroll
+        self.optionPrecisionScroll = optionPrecisionScroll
+        self.precisionScrollMultiplier = precisionScrollMultiplier
+        self.controlFastScroll = controlFastScroll
+        self.fastScrollMultiplier = fastScrollMultiplier
+        self.commandZoomScroll = commandZoomScroll
+        self.customMouseButtonMappings = customMouseButtonMappings
+        self.middleDragMappings = middleDragMappings
+        self.continuousGestures = continuousGestures
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case displayName
+        case reverseScrollEnabled
+        case smoothScrolling
+        case preciseScrolling
+        case shiftHorizontalScroll
+        case optionPrecisionScroll
+        case precisionScrollMultiplier
+        case controlFastScroll
+        case fastScrollMultiplier
+        case commandZoomScroll
+        case customMouseButtonMappings
+        case middleDragMappings
+        case continuousGestures
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        displayName = try container.decode(String.self, forKey: .displayName)
+        reverseScrollEnabled = try container.decode(Bool.self, forKey: .reverseScrollEnabled)
+        smoothScrolling = try container.decode(SmoothScrolling.self, forKey: .smoothScrolling)
+        preciseScrolling = try container.decodeIfPresent(Bool.self, forKey: .preciseScrolling) ?? true
+        shiftHorizontalScroll = try container.decode(Bool.self, forKey: .shiftHorizontalScroll)
+        optionPrecisionScroll = try container.decode(Bool.self, forKey: .optionPrecisionScroll)
+        precisionScrollMultiplier = try container.decode(Double.self, forKey: .precisionScrollMultiplier)
+        controlFastScroll = try container.decode(Bool.self, forKey: .controlFastScroll)
+        fastScrollMultiplier = try container.decode(Double.self, forKey: .fastScrollMultiplier)
+        commandZoomScroll = try container.decode(Bool.self, forKey: .commandZoomScroll)
+        customMouseButtonMappings = try container.decode([CustomMouseButtonMapping].self, forKey: .customMouseButtonMappings)
+        middleDragMappings = try container.decode([DragDirection: MouseAction].self, forKey: .middleDragMappings)
+        continuousGestures = try container.decode(Bool.self, forKey: .continuousGestures)
+    }
 }
 
 /// The per-device settings (scroll, buttons, gestures).
@@ -39,6 +103,7 @@ final class ProfileSettings {
     // MARK: - Scroll
     var reverseScrollEnabled: Bool = true { didSet { onChange?() } }
     var smoothScrolling: SmoothScrolling = .verySmooth { didSet { onChange?() } }
+    var preciseScrolling: Bool = true { didSet { onChange?() } }
     var shiftHorizontalScroll: Bool = true { didSet { onChange?() } }
     var optionPrecisionScroll: Bool = true { didSet { onChange?() } }
     var precisionScrollMultiplier: Double = 0.33 { didSet { onChange?() } }
@@ -59,6 +124,7 @@ final class ProfileSettings {
         displayName = data.displayName
         reverseScrollEnabled = data.reverseScrollEnabled
         smoothScrolling = data.smoothScrolling
+        preciseScrolling = data.preciseScrolling
         shiftHorizontalScroll = data.shiftHorizontalScroll
         optionPrecisionScroll = data.optionPrecisionScroll
         precisionScrollMultiplier = data.precisionScrollMultiplier
@@ -75,6 +141,7 @@ final class ProfileSettings {
             displayName: displayName,
             reverseScrollEnabled: reverseScrollEnabled,
             smoothScrolling: smoothScrolling,
+            preciseScrolling: preciseScrolling,
             shiftHorizontalScroll: shiftHorizontalScroll,
             optionPrecisionScroll: optionPrecisionScroll,
             precisionScrollMultiplier: precisionScrollMultiplier,
@@ -92,6 +159,7 @@ final class ProfileSettings {
     func copyValues(from other: ProfileSettings) {
         reverseScrollEnabled = other.reverseScrollEnabled
         smoothScrolling = other.smoothScrolling
+        preciseScrolling = other.preciseScrolling
         shiftHorizontalScroll = other.shiftHorizontalScroll
         optionPrecisionScroll = other.optionPrecisionScroll
         precisionScrollMultiplier = other.precisionScrollMultiplier

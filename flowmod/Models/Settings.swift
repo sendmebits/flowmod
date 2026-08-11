@@ -188,6 +188,9 @@ class Settings {
            let value = SmoothScrolling(rawValue: rawValue) {
             p.smoothScrolling = value
         }
+        if defaults.object(forKey: "preciseScrolling") != nil {
+            p.preciseScrolling = defaults.bool(forKey: "preciseScrolling")
+        }
         if defaults.object(forKey: "shiftHorizontalScroll") != nil {
             p.shiftHorizontalScroll = defaults.bool(forKey: "shiftHorizontalScroll")
         }
@@ -250,6 +253,7 @@ class Settings {
 
         defaults.set(p.reverseScrollEnabled, forKey: "reverseScrollEnabled")
         defaults.set(p.smoothScrolling.rawValue, forKey: "smoothScrolling")
+        defaults.set(p.preciseScrolling, forKey: "preciseScrolling")
         defaults.set(p.shiftHorizontalScroll, forKey: "shiftHorizontalScroll")
         defaults.set(p.optionPrecisionScroll, forKey: "optionPrecisionScroll")
         defaults.set(p.precisionScrollMultiplier, forKey: "precisionScrollMultiplier")
