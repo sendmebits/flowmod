@@ -290,6 +290,8 @@ class InputInterceptor {
     // Command+Scroll zoom gesture state
     private var zoomGestureActive = false
     private var zoomEndTimer: DispatchWorkItem?
+    /// Observation-tracked lifecycle token. Incrementing it deliberately wakes
+    /// and consumes the previous one-shot runtime-config registration.
     private var runtimeObservationGeneration = 0
     
     // Marker for synthetic events we post ourselves (to avoid re-processing)
@@ -474,18 +476,18 @@ class InputInterceptor {
             userInfo: Unmanaged.passUnretained(self).toOpaque()
         ) else {
             startupError = "FlowMod couldn't start mouse interception. Accessibility access may need to be refreshed."
+            runtimeObservationGeneration += 1
             self.settings = nil
             setDeviceManager(nil)
-            runtimeObservationGeneration += 1
             print("Failed to create event tap. Check accessibility permissions.")
             return
         }
         
         guard let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0) else {
             startupError = "FlowMod created its mouse interceptor but couldn't attach it to the app. Try again or restart FlowMod."
+            runtimeObservationGeneration += 1
             self.settings = nil
             setDeviceManager(nil)
-            runtimeObservationGeneration += 1
             print("Failed to create event tap run-loop source")
             return
         }
@@ -548,9 +550,9 @@ class InputInterceptor {
 
         guard let tapThreadStartup = startTapRunLoopThread() else {
             startupError = "FlowMod created its mouse interceptor but couldn't start its event-processing thread. Try again or restart FlowMod."
+            runtimeObservationGeneration += 1
             self.settings = nil
             setDeviceManager(nil)
-            runtimeObservationGeneration += 1
             dragHIDRunLoopSource = nil
             print("Failed to start event tap run-loop thread")
             return
@@ -1888,6 +1890,11 @@ class InputInterceptor {
         guard generation == runtimeObservationGeneration else { return }
 
         withObservationTracking {
+            // Keep the generation inside the tracked dependency set. Lifecycle
+            // invalidation then fires and consumes this one-shot registration;
+            // the outer guard prevents its stale callback from rearming.
+            guard generation == runtimeObservationGeneration else { return }
+
             guard let settings else {
                 runtimeConfigLock.lock()
                 runtimeConfig = .default
