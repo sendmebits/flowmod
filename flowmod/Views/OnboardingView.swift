@@ -2,10 +2,11 @@ import SwiftUI
 import AppKit
 import Observation
 import ServiceManagement
+import ApplicationServices
 
 /// Tracks whether the current onboarding experience has been completed.
-/// Existing users who saw the legacy automatic permission prompt are migrated
-/// so an app update doesn't unexpectedly show first-run setup again.
+/// Existing users with Accessibility already granted are migrated so an app
+/// update doesn't unexpectedly show first-run setup again.
 @MainActor
 @Observable
 final class OnboardingManager {
@@ -13,19 +14,14 @@ final class OnboardingManager {
 
     private static let currentVersion = 1
     private static let completedVersionKey = "onboardingCompletedVersion"
-    private static let legacyPromptedKey = "hasPromptedForAccessibility"
 
     private(set) var isCompleted: Bool
 
     private init() {
         let defaults = UserDefaults.standard
-
-        if defaults.object(forKey: Self.completedVersionKey) == nil,
-           defaults.bool(forKey: Self.legacyPromptedKey) {
-            defaults.set(Self.currentVersion, forKey: Self.completedVersionKey)
-        }
-
         isCompleted = defaults.integer(forKey: Self.completedVersionKey) >= Self.currentVersion
+
+        markCompleteIfAccessibilityGranted()
     }
 
     func complete() {
@@ -34,6 +30,11 @@ final class OnboardingManager {
         }
         UserDefaults.standard.set(Self.currentVersion, forKey: Self.completedVersionKey)
         isCompleted = true
+    }
+
+    func markCompleteIfAccessibilityGranted() {
+        guard !isCompleted, AXIsProcessTrusted() else { return }
+        complete()
     }
 }
 

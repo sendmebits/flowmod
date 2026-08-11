@@ -59,6 +59,7 @@ struct FlowModApp: App {
         Task { @MainActor in
             PermissionManager.shared.onPermissionGranted = {
                 Self.startInputInterceptorIfNeeded()
+                OnboardingManager.shared.markCompleteIfAccessibilityGranted()
             }
             PermissionManager.shared.onPermissionRevoked = {
                 InputInterceptor.shared.stop()
@@ -72,6 +73,8 @@ struct FlowModApp: App {
                 if PermissionManager.shared.hasAccessibilityPermission {
                     Self.startInputInterceptorIfNeeded()
                 }
+
+                OnboardingManager.shared.markCompleteIfAccessibilityGranted()
 
                 if !OnboardingManager.shared.isCompleted {
                     OnboardingWindowController.shared.show()
