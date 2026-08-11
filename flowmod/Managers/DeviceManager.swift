@@ -118,6 +118,7 @@ class DeviceManager {
                 self?.refreshDevices()
             }
         }
+        refreshTimer?.tolerance = 5.0
     }
     
     private func setupHIDManager() {

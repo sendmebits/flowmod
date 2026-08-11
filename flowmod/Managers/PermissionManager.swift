@@ -85,5 +85,6 @@ class PermissionManager {
                 self?.checkPermission()
             }
         }
+        checkTimer?.tolerance = currentPollInterval * 0.2
     }
 }
