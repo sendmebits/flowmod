@@ -157,6 +157,7 @@ class InputInterceptor {
     private var middleButtonDown = false
     private var middleButtonStartPoint: CGPoint = .zero
     private var middleDragTriggered = false
+    private var heldMiddleDownEvent: CGEvent?
     /// Profile key of the mouse that started the current middle-button
     /// press/drag session, so all reads during the session use one profile.
     private var middleDragProfileKey: String?
@@ -1340,6 +1341,7 @@ class InputInterceptor {
             continuousGestureAxisLocked = false
             pendingMiddleButtonAction = nil
             middleDragTriggered = false
+            heldMiddleDownEvent = nil
             middleDragProfileKey = profileKey
             middleButtonStartPoint = event.location
             
@@ -1352,6 +1354,7 @@ class InputInterceptor {
             // gestures — only the mapped click action (or swallow for .none).
             if let action, action != .middleClick {
                 middleButtonDown = false
+                heldMiddleDownEvent = nil
                 pendingMiddleButtonAction = action
                 return nil
             }
@@ -1363,7 +1366,12 @@ class InputInterceptor {
             if hasDragGestures {
                 // Suppress mouseDown: drag gesture detection needs to decide
                 // whether this is a click or a gesture. If no gesture triggers,
-                // we'll send a synthetic middle click on mouseUp.
+                // we'll post a complete synthetic click on mouseUp.
+                guard let heldDown = event.copy() else {
+                    middleButtonDown = false
+                    return event
+                }
+                heldMiddleDownEvent = heldDown
                 return nil
             }
             return event
@@ -1393,6 +1401,7 @@ class InputInterceptor {
             defer {
                 middleButtonDown = false
                 middleDragTriggered = false
+                heldMiddleDownEvent = nil
                 middleDragProfileKey = nil
                 continuousGestureAxisLocked = false
                 pendingMiddleButtonAction = nil
@@ -1426,9 +1435,11 @@ class InputInterceptor {
             // If no mapping or action is just middle click
             if action == nil || action == .middleClick {
                 if hasDragGestures {
-                    // mouseDown was suppressed for gesture detection — send synthetic
-                    // middle click so the app (e.g. browser) receives a complete click
-                    postSyntheticMiddleClick(at: middleButtonStartPoint)
+                    // mouseDown was suppressed for gesture detection. Post a
+                    // complete click pair on the same path and swallow this
+                    // real up — mixing a HID down with a session up leaves
+                    // apps with unpaired button events.
+                    guard replayHeldMiddleClick(upLocation: event.location) else { return event }
                     return nil
                 }
                 return event
@@ -1476,55 +1487,67 @@ class InputInterceptor {
         let threshold = config.dragThreshold
         let useContinuous = config.continuousGestures
         
-        // For continuous mode, determine axis early with a smaller dead zone
-        // and begin the DockSwipe gesture immediately
+        // For continuous mode, determine axis early with a smaller dead zone,
+        // but only commit the gesture once the full drag threshold is crossed.
         if useContinuous {
             let axisThreshold = threshold * 0.5  // Smaller threshold for axis detection
             
-            if !continuousGestureAxisLocked {
-                // Need enough movement to determine axis
-                if abs(deltaX) > axisThreshold || abs(deltaY) > axisThreshold {
-                    if abs(deltaY) > abs(deltaX) {
-                        continuousGestureAxis = .vertical
-                    } else {
-                        continuousGestureAxis = .horizontal
-                    }
-                    continuousGestureAxisLocked = true
-                    
-                    // Continuous mode is a fixed three-finger trackpad-swipe
-                    // simulation. It deliberately ignores the configurable
-                    // direction actions: horizontal swipes switch Spaces and
-                    // vertical swipes drive Mission Control/App Exposé.
-                    let swipeType: DockSwipeSimulator.SwipeType =
-                        continuousGestureAxis == .horizontal ? .horizontal : .vertical
-
-                    // Began must carry the accumulated offset. A zero-offset
-                    // began + later changed update regresses Mission Control
-                    // (middle-button swipe up); App Exposé / Spaces are more
-                    // tolerant. Screen size comes from CGDisplayBounds, not
-                    // AppKit NSScreen.
-                    let initialPixels = continuousGestureAxis == .horizontal ? deltaX : deltaY
-                    let initialDelta = -DockSwipeSimulator.pixelToDockSwipe(
-                        initialPixels,
-                        type: swipeType
-                    )
-
-                    continuousGestureActive = true
-                    continuousGestureSwipeType = swipeType
-                    middleDragTriggered = true
-
-                    // Enable HID-level event tap to receive drags during gesture
-                    if let hidTap = dragHIDTap {
-                        CGEvent.tapEnable(tap: hidTap, enable: true)
-                    }
-
-                    dockSwipeSimulator.begin(type: swipeType, delta: initialDelta, dragThreshold: threshold)
-                    armContinuousGestureWatchdogs()
-
-                    LogManager.shared.log("Continuous gesture began: \(swipeType) axis=\(continuousGestureAxis)", category: "Gesture")
-                    return nil
+            if !continuousGestureAxisLocked,
+               abs(deltaX) > axisThreshold || abs(deltaY) > axisThreshold {
+                if abs(deltaY) > abs(deltaX) {
+                    continuousGestureAxis = .vertical
+                } else {
+                    continuousGestureAxis = .horizontal
                 }
+                continuousGestureAxisLocked = true
             }
+
+            guard abs(deltaX) > threshold || abs(deltaY) > threshold else {
+                return event
+            }
+
+            // Commit using the dominant movement at the full threshold, so a
+            // tiny early jitter cannot lock the eventual gesture to the wrong axis.
+            if abs(deltaY) > abs(deltaX) {
+                continuousGestureAxis = .vertical
+            } else {
+                continuousGestureAxis = .horizontal
+            }
+            continuousGestureAxisLocked = true
+
+            // Continuous mode is a fixed three-finger trackpad-swipe
+            // simulation. It deliberately ignores the configurable
+            // direction actions: horizontal swipes switch Spaces and
+            // vertical swipes drive Mission Control/App Exposé.
+            let swipeType: DockSwipeSimulator.SwipeType =
+                continuousGestureAxis == .horizontal ? .horizontal : .vertical
+
+            // Began must carry the accumulated offset. A zero-offset
+            // began + later changed update regresses Mission Control
+            // (middle-button swipe up); App Exposé / Spaces are more
+            // tolerant. Screen size comes from CGDisplayBounds, not
+            // AppKit NSScreen.
+            let initialPixels = continuousGestureAxis == .horizontal ? deltaX : deltaY
+            let initialDelta = -DockSwipeSimulator.pixelToDockSwipe(
+                initialPixels,
+                type: swipeType
+            )
+
+            continuousGestureActive = true
+            continuousGestureSwipeType = swipeType
+            middleDragTriggered = true
+            heldMiddleDownEvent = nil
+
+            // Enable HID-level event tap to receive drags during gesture
+            if let hidTap = dragHIDTap {
+                CGEvent.tapEnable(tap: hidTap, enable: true)
+            }
+
+            dockSwipeSimulator.begin(type: swipeType, delta: initialDelta, dragThreshold: threshold)
+            armContinuousGestureWatchdogs()
+
+            LogManager.shared.log("Continuous gesture began: \(swipeType) axis=\(continuousGestureAxis)", category: "Gesture")
+            return nil
         }
         
         // Trigger mode (original behavior) — or continuous not supported for this action
@@ -1547,6 +1570,7 @@ class InputInterceptor {
         
         if let dir = direction {
             middleDragTriggered = true
+            heldMiddleDownEvent = nil
             
             let action = config.middleDragMappings[dir] ?? .none
             
@@ -1666,20 +1690,47 @@ class InputInterceptor {
         }
     }
     
-    /// Post a synthetic middle-click (otherMouseDown + otherMouseUp) at the given location.
-    /// Used when the real mouseDown was suppressed for drag gesture detection but no gesture triggered.
+    private func markMiddleClickEventForPassthrough(_ event: CGEvent, clickState: Int64 = 1) {
+        event.setIntegerValueField(.mouseEventButtonNumber, value: 2)
+        event.setIntegerValueField(.eventSourceUserData, value: InputInterceptor.syntheticEventMarker)
+        event.setIntegerValueField(.mouseEventClickState, value: max(clickState, 1))
+    }
+
+    /// Posts a complete middle-click from the held original down. Both events
+    /// go through the same HID path with a private source so they don't fight
+    /// the physical button state of the press we swallowed.
+    private func replayHeldMiddleClick(upLocation: CGPoint? = nil) -> Bool {
+        guard let down = heldMiddleDownEvent else { return false }
+        let downLocation = down.location
+        let clickState = down.getIntegerValueField(.mouseEventClickState)
+        heldMiddleDownEvent = nil
+        postSyntheticMiddleClick(
+            downAt: downLocation,
+            upAt: upLocation ?? downLocation,
+            clickState: clickState
+        )
+        return true
+    }
+
+    /// Post a synthetic middle-click (otherMouseDown + otherMouseUp).
+    /// Used when the real middle-down was swallowed for gesture detection, and
+    /// when another button is remapped to Middle Click.
     private func postSyntheticMiddleClick(at location: CGPoint) {
-        let source = CGEventSource(stateID: .hidSystemState)
-        
-        if let down = CGEvent(mouseEventSource: source, mouseType: .otherMouseDown, mouseCursorPosition: location, mouseButton: .center) {
-            down.setIntegerValueField(.mouseEventButtonNumber, value: 2)
-            down.setIntegerValueField(.eventSourceUserData, value: InputInterceptor.syntheticEventMarker)
+        postSyntheticMiddleClick(downAt: location, upAt: location, clickState: 1)
+    }
+
+    private func postSyntheticMiddleClick(downAt downLocation: CGPoint, upAt upLocation: CGPoint, clickState: Int64) {
+        // privateState keeps this pair independent of the physical middle
+        // button, which is already down (swallowed) or going up.
+        let source = CGEventSource(stateID: .privateState)
+
+        if let down = CGEvent(mouseEventSource: source, mouseType: .otherMouseDown, mouseCursorPosition: downLocation, mouseButton: .center) {
+            markMiddleClickEventForPassthrough(down, clickState: clickState)
             down.post(tap: .cghidEventTap)
         }
-        
-        if let up = CGEvent(mouseEventSource: source, mouseType: .otherMouseUp, mouseCursorPosition: location, mouseButton: .center) {
-            up.setIntegerValueField(.mouseEventButtonNumber, value: 2)
-            up.setIntegerValueField(.eventSourceUserData, value: InputInterceptor.syntheticEventMarker)
+
+        if let up = CGEvent(mouseEventSource: source, mouseType: .otherMouseUp, mouseCursorPosition: upLocation, mouseButton: .center) {
+            markMiddleClickEventForPassthrough(up, clickState: clickState)
             up.post(tap: .cghidEventTap)
         }
     }
@@ -1784,7 +1835,10 @@ class InputInterceptor {
         interactionLock.unlock()
 
         if hasActiveInteraction {
-            abandonActiveMouseInteraction(reason: "event tap disabled (\(type.rawValue))")
+            abandonActiveMouseInteraction(
+                reason: "event tap disabled (\(type.rawValue))",
+                replayPendingMiddleClick: type == .tapDisabledByTimeout
+            )
         }
 
         guard let tap else { return }
@@ -1819,19 +1873,41 @@ class InputInterceptor {
         }
     }
 
-    private func abandonActiveMouseInteraction(reason: String) {
+    private func abandonActiveMouseInteraction(
+        reason: String,
+        replayPendingMiddleClick: Bool = false
+    ) {
         interactionLock.lock()
         defer { interactionLock.unlock() }
 
         let wasContinuous = continuousGestureActive
         let wasTrackingMiddle = middleButtonDown
+        let wasMiddleGesture = middleDragTriggered
+        let hadHeldMiddleDown = heldMiddleDownEvent != nil
         let hadPendingMiddleAction = pendingMiddleButtonAction != nil
+        let shouldReplayHeldClick =
+            replayPendingMiddleClick &&
+            wasTrackingMiddle &&
+            !wasContinuous &&
+            !wasMiddleGesture &&
+            !hadPendingMiddleAction &&
+            hadHeldMiddleDown
+
+        if shouldReplayHeldClick {
+            _ = replayHeldMiddleClick()
+        }
+
         cancelContinuousGesture(force: true, reason: reason)
         clearButtonTrackingState()
+
+        if shouldReplayHeldClick {
+            return
+        }
+
         // If middle-down was suppressed for gesture detection, continuous mode,
         // or a remapped middle action, the eventual mouse-up must not click or
         // re-fire the action.
-        if wasContinuous || wasTrackingMiddle || hadPendingMiddleAction {
+        if wasContinuous || wasMiddleGesture || hadHeldMiddleDown || hadPendingMiddleAction {
             middleDragTriggered = true
         }
     }
@@ -1843,6 +1919,7 @@ class InputInterceptor {
         middleButtonDown = false
         middleButtonStartPoint = .zero
         middleDragTriggered = false
+        heldMiddleDownEvent = nil
         middleDragProfileKey = nil
         continuousGestureAxisLocked = false
         continuousGestureAxis = .horizontal
