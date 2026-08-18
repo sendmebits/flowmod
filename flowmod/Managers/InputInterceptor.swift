@@ -469,7 +469,7 @@ class InputInterceptor {
             
             let interceptor = Unmanaged<InputInterceptor>.fromOpaque(userInfo).takeUnretainedValue()
             
-            if let modifiedEvent = interceptor.handleEvent(event, type: type) {
+            if let modifiedEvent = interceptor.handleEvent(event, type: type, proxy: proxy) {
                 return Unmanaged.passUnretained(modifiedEvent)
             }
             
@@ -670,7 +670,7 @@ class InputInterceptor {
     
     // MARK: - Event Handling
     
-    func handleEvent(_ event: CGEvent, type: CGEventType) -> CGEvent? {
+    func handleEvent(_ event: CGEvent, type: CGEventType, proxy: CGEventTapProxy?) -> CGEvent? {
         // Pass through synthetic events we posted ourselves
         if event.getIntegerValueField(.eventSourceUserData) == InputInterceptor.syntheticEventMarker {
             return event
@@ -698,7 +698,7 @@ class InputInterceptor {
                 abandonActiveMouseInteraction(reason: "mouse disabled")
                 return event
             }
-            return handleOtherMouseUp(event)
+            return handleOtherMouseUp(event, proxy: proxy)
         case .otherMouseDragged:
             guard config.mouseEnabled else {
                 abandonActiveMouseInteraction(reason: "mouse disabled")
@@ -1366,7 +1366,7 @@ class InputInterceptor {
             if hasDragGestures {
                 // Suppress mouseDown: drag gesture detection needs to decide
                 // whether this is a click or a gesture. If no gesture triggers,
-                // we'll post a complete synthetic click on mouseUp.
+                // we'll replay this down immediately before the physical up.
                 guard let heldDown = event.copy() else {
                     middleButtonDown = false
                     return event
@@ -1381,7 +1381,7 @@ class InputInterceptor {
         return handleMouseButtonAction(buttonNumber: buttonNumber, profileKey: profileKey, originalEvent: event)
     }
 
-    private func handleOtherMouseUp(_ event: CGEvent) -> CGEvent? {
+    private func handleOtherMouseUp(_ event: CGEvent, proxy: CGEventTapProxy?) -> CGEvent? {
         // Symmetric with handleOtherMouseDown: Apple device events pass through.
         let eventSource = source(of: event)
         if eventSource.kind == .appleDevice {
@@ -1435,11 +1435,17 @@ class InputInterceptor {
             // If no mapping or action is just middle click
             if action == nil || action == .middleClick {
                 if hasDragGestures {
-                    // mouseDown was suppressed for gesture detection. Post a
-                    // complete click pair on the same path and swallow this
-                    // real up — mixing a HID down with a session up leaves
-                    // apps with unpaired button events.
-                    guard replayHeldMiddleClick(upLocation: event.location) else { return event }
+                    if let proxy {
+                        // Insert the original down immediately before returning
+                        // the physical up. Quartz explicitly guarantees this
+                        // ordering for events posted through the tap proxy.
+                        guard replayHeldMiddleDown(proxy: proxy) else { return event }
+                        return event
+                    }
+
+                    // Normal callbacks always supply a proxy. Retain a complete
+                    // private synthetic pair for direct/recovery invocation.
+                    guard replayHeldMiddleClickFallback(upLocation: event.location) else { return event }
                     return nil
                 }
                 return event
@@ -1696,18 +1702,23 @@ class InputInterceptor {
         event.setIntegerValueField(.mouseEventClickState, value: max(clickState, 1))
     }
 
-    /// Posts a complete middle-click from the held original down. Both events
-    /// go through the same HID path with a private source so they don't fight
-    /// the physical button state of the press we swallowed.
-    private func replayHeldMiddleClick(upLocation: CGPoint? = nil) -> Bool {
+    /// Inserts the buffered physical down immediately downstream of this tap.
+    /// The callback then returns the physical up, preserving all event metadata
+    /// while giving Quartz an explicit down-before-up ordering.
+    private func replayHeldMiddleDown(proxy: CGEventTapProxy) -> Bool {
         guard let down = heldMiddleDownEvent else { return false }
-        let downLocation = down.location
-        let clickState = down.getIntegerValueField(.mouseEventClickState)
+        heldMiddleDownEvent = nil
+        down.tapPostEvent(proxy)
+        return true
+    }
+
+    private func replayHeldMiddleClickFallback(upLocation: CGPoint? = nil) -> Bool {
+        guard let down = heldMiddleDownEvent else { return false }
         heldMiddleDownEvent = nil
         postSyntheticMiddleClick(
-            downAt: downLocation,
-            upAt: upLocation ?? downLocation,
-            clickState: clickState
+            downAt: down.location,
+            upAt: upLocation ?? down.location,
+            clickState: down.getIntegerValueField(.mouseEventClickState)
         )
         return true
     }
@@ -1894,7 +1905,7 @@ class InputInterceptor {
             hadHeldMiddleDown
 
         if shouldReplayHeldClick {
-            _ = replayHeldMiddleClick()
+            _ = replayHeldMiddleClickFallback()
         }
 
         cancelContinuousGesture(force: true, reason: reason)
