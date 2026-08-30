@@ -157,7 +157,11 @@ class InputInterceptor {
     private var middleButtonDown = false
     private var middleButtonStartPoint: CGPoint = .zero
     private var middleDragTriggered = false
-    private var heldMiddleDownEvent: CGEvent?
+    private var middleButtonDownWasSuppressed = false
+    private var pendingMiddleClick: PendingMiddleClick?
+    private var scheduledMiddleClick: ScheduledMiddleClick?
+    private var nextScheduledMiddleClickID: UInt64 = 0
+    private let syntheticMiddleClickReleaseDelay: TimeInterval = 0.015
     /// Profile key of the mouse that started the current middle-button
     /// press/drag session, so all reads during the session use one profile.
     private var middleDragProfileKey: String?
@@ -196,6 +200,20 @@ class InputInterceptor {
     
     private enum ContinuousAxis {
         case horizontal, vertical
+    }
+
+    private struct PendingMiddleClick {
+        let location: CGPoint
+        let flags: CGEventFlags
+        let clickState: Int64
+    }
+
+    private struct ScheduledMiddleClick {
+        let id: UInt64
+        let down: CGEvent
+        let up: CGEvent
+        let releaseWorkItem: DispatchWorkItem
+        var downPosted: Bool
     }
 
     // Smooth scrolling state - physics engine for trackpad-like feel
@@ -698,7 +716,7 @@ class InputInterceptor {
                 abandonActiveMouseInteraction(reason: "mouse disabled")
                 return event
             }
-            return handleOtherMouseUp(event, proxy: proxy)
+            return handleOtherMouseUp(event)
         case .otherMouseDragged:
             guard config.mouseEnabled else {
                 abandonActiveMouseInteraction(reason: "mouse disabled")
@@ -1335,13 +1353,18 @@ class InputInterceptor {
 
         // Middle button (button 2) - start tracking for drag gesture
         if buttonNumber == 2 {
+            // A rapid next click must not overlap the delayed synthetic release
+            // from the previous fallback click.
+            flushPendingMiddleClickUpLocked()
+
             // Properly end any leftover continuous gesture from a previous interaction
             // (e.g. if a mouseUp was lost due to tap being disabled by timeout)
             cancelContinuousGesture(force: true, reason: "new middle-button press")
             continuousGestureAxisLocked = false
             pendingMiddleButtonAction = nil
             middleDragTriggered = false
-            heldMiddleDownEvent = nil
+            middleButtonDownWasSuppressed = false
+            pendingMiddleClick = nil
             middleDragProfileKey = profileKey
             middleButtonStartPoint = event.location
             
@@ -1354,7 +1377,8 @@ class InputInterceptor {
             // gestures — only the mapped click action (or swallow for .none).
             if let action, action != .middleClick {
                 middleButtonDown = false
-                heldMiddleDownEvent = nil
+                middleButtonDownWasSuppressed = false
+                pendingMiddleClick = nil
                 pendingMiddleButtonAction = action
                 return nil
             }
@@ -1366,12 +1390,13 @@ class InputInterceptor {
             if hasDragGestures {
                 // Suppress mouseDown: drag gesture detection needs to decide
                 // whether this is a click or a gesture. If no gesture triggers,
-                // we'll replay this down immediately before the physical up.
-                guard let heldDown = event.copy() else {
-                    middleButtonDown = false
-                    return event
-                }
-                heldMiddleDownEvent = heldDown
+                // we'll post a fresh semantic click after mouseUp.
+                middleButtonDownWasSuppressed = true
+                pendingMiddleClick = PendingMiddleClick(
+                    location: event.location,
+                    flags: event.flags,
+                    clickState: event.getIntegerValueField(.mouseEventClickState)
+                )
                 return nil
             }
             return event
@@ -1381,7 +1406,7 @@ class InputInterceptor {
         return handleMouseButtonAction(buttonNumber: buttonNumber, profileKey: profileKey, originalEvent: event)
     }
 
-    private func handleOtherMouseUp(_ event: CGEvent, proxy: CGEventTapProxy?) -> CGEvent? {
+    private func handleOtherMouseUp(_ event: CGEvent) -> CGEvent? {
         // Symmetric with handleOtherMouseDown: Apple device events pass through.
         let eventSource = source(of: event)
         if eventSource.kind == .appleDevice {
@@ -1401,7 +1426,8 @@ class InputInterceptor {
             defer {
                 middleButtonDown = false
                 middleDragTriggered = false
-                heldMiddleDownEvent = nil
+                middleButtonDownWasSuppressed = false
+                pendingMiddleClick = nil
                 middleDragProfileKey = nil
                 continuousGestureAxisLocked = false
                 pendingMiddleButtonAction = nil
@@ -1430,22 +1456,14 @@ class InputInterceptor {
             // Otherwise, check middle click action and drag gesture configuration.
             let config = runtimeConfig(forProfileKey: profileKey)
             let action = config.buttonMappings[2]
-            let hasDragGestures = !config.middleDragMappings.isEmpty
             
             // If no mapping or action is just middle click
             if action == nil || action == .middleClick {
-                if hasDragGestures {
-                    if let proxy {
-                        // Insert the original down immediately before returning
-                        // the physical up. Quartz explicitly guarantees this
-                        // ordering for events posted through the tap proxy.
-                        guard replayHeldMiddleDown(proxy: proxy) else { return event }
+                if middleButtonDownWasSuppressed {
+                    guard let pendingMiddleClick,
+                          scheduleMiddleClickFallbackLocked(from: pendingMiddleClick) else {
                         return event
                     }
-
-                    // Normal callbacks always supply a proxy. Retain a complete
-                    // private synthetic pair for direct/recovery invocation.
-                    guard replayHeldMiddleClickFallback(upLocation: event.location) else { return event }
                     return nil
                 }
                 return event
@@ -1475,6 +1493,7 @@ class InputInterceptor {
         defer { interactionLock.unlock() }
 
         guard middleButtonDown else { return event }
+        guard middleButtonDownWasSuppressed else { return event }
         
         // If a continuous gesture is already active, the HID-level tap handles updates.
         // The session tap may not receive drags during DockSwipe, so we just suppress here.
@@ -1482,8 +1501,11 @@ class InputInterceptor {
             return nil  // Suppress mouse moved events during gesture
         }
         
-        // Not yet triggered — check for threshold
-        guard !middleDragTriggered else { return event }
+        // Not yet triggered — check for threshold. If the real middle-down was
+        // suppressed, downstream apps must not see orphan button-drag events.
+        guard !middleDragTriggered else {
+            return nil
+        }
         
         let currentPoint = event.location
         let deltaX = currentPoint.x - middleButtonStartPoint.x
@@ -1509,7 +1531,7 @@ class InputInterceptor {
             }
 
             guard abs(deltaX) > threshold || abs(deltaY) > threshold else {
-                return event
+                return middleDragAsMouseMoved(event)
             }
 
             // Commit using the dominant movement at the full threshold, so a
@@ -1542,7 +1564,7 @@ class InputInterceptor {
             continuousGestureActive = true
             continuousGestureSwipeType = swipeType
             middleDragTriggered = true
-            heldMiddleDownEvent = nil
+            pendingMiddleClick = nil
 
             // Enable HID-level event tap to receive drags during gesture
             if let hidTap = dragHIDTap {
@@ -1576,16 +1598,18 @@ class InputInterceptor {
         
         if let dir = direction {
             middleDragTriggered = true
-            heldMiddleDownEvent = nil
+            pendingMiddleClick = nil
             
             let action = config.middleDragMappings[dir] ?? .none
             
             if action != .none {
                 executeAction(action, at: currentPoint)
             }
+
+            return nil
         }
         
-        return event
+        return middleDragAsMouseMoved(event)
     }
     
     private func handleMouseButtonAction(buttonNumber: Int64, profileKey: String?, originalEvent: CGEvent) -> CGEvent? {
@@ -1699,33 +1723,127 @@ class InputInterceptor {
     private func markMiddleClickEventForPassthrough(_ event: CGEvent, clickState: Int64 = 1) {
         event.setIntegerValueField(.mouseEventButtonNumber, value: 2)
         event.setIntegerValueField(.eventSourceUserData, value: InputInterceptor.syntheticEventMarker)
-        event.setIntegerValueField(.mouseEventClickState, value: max(clickState, 1))
+        event.setIntegerValueField(.mouseEventClickState, value: clickState)
     }
 
-    /// Inserts the buffered physical down immediately downstream of this tap.
-    /// The callback then returns the physical up, preserving all event metadata
-    /// while giving Quartz an explicit down-before-up ordering.
-    private func replayHeldMiddleDown(proxy: CGEventTapProxy) -> Bool {
-        guard let down = heldMiddleDownEvent else { return false }
-        heldMiddleDownEvent = nil
-        down.tapPostEvent(proxy)
-        return true
+    private func middleDragAsMouseMoved(_ event: CGEvent) -> CGEvent {
+        event.type = .mouseMoved
+        return event
     }
 
-    private func replayHeldMiddleClickFallback(upLocation: CGPoint? = nil) -> Bool {
-        guard let down = heldMiddleDownEvent else { return false }
-        heldMiddleDownEvent = nil
-        postSyntheticMiddleClick(
-            downAt: down.location,
-            upAt: upLocation ?? down.location,
-            clickState: down.getIntegerValueField(.mouseEventClickState)
+    private func makeSyntheticMiddleClickEvent(
+        mouseType: CGEventType,
+        source: CGEventSource,
+        location: CGPoint,
+        flags: CGEventFlags,
+        clickState: Int64
+    ) -> CGEvent? {
+        guard let event = CGEvent(
+            mouseEventSource: source,
+            mouseType: mouseType,
+            mouseCursorPosition: location,
+            mouseButton: .center
+        ) else {
+            return nil
+        }
+
+        event.flags = flags
+        markMiddleClickEventForPassthrough(event, clickState: clickState)
+        return event
+    }
+
+    /// Schedules a fresh semantic middle-click after the current tap callback.
+    /// The down/up split gives target apps a real pressed interval.
+    private func scheduleMiddleClickFallbackLocked(from click: PendingMiddleClick) -> Bool {
+        guard let source = CGEventSource(stateID: .hidSystemState) else {
+            return false
+        }
+
+        guard let down = makeSyntheticMiddleClickEvent(
+            mouseType: .otherMouseDown,
+            source: source,
+            location: click.location,
+            flags: click.flags,
+            clickState: click.clickState
+        ), let up = makeSyntheticMiddleClickEvent(
+            mouseType: .otherMouseUp,
+            source: source,
+            location: click.location,
+            flags: click.flags,
+            clickState: click.clickState
+        ) else {
+            return false
+        }
+
+        nextScheduledMiddleClickID &+= 1
+        let id = nextScheduledMiddleClickID
+        let releaseWorkItem = DispatchWorkItem { [weak self] in
+            self?.postScheduledMiddleClickUp(id: id)
+        }
+        scheduledMiddleClick = ScheduledMiddleClick(
+            id: id,
+            down: down,
+            up: up,
+            releaseWorkItem: releaseWorkItem,
+            downPosted: false
         )
+
+        scheduleAfterCurrentTapCallback { [weak self] in
+            self?.postScheduledMiddleClickDown(id: id)
+        }
         return true
+    }
+
+    private func scheduleAfterCurrentTapCallback(_ work: @escaping () -> Void) {
+        let runLoop = CFRunLoopGetCurrent()
+        CFRunLoopPerformBlock(runLoop, CFRunLoopMode.commonModes.rawValue, work)
+        CFRunLoopWakeUp(runLoop)
+    }
+
+    private func postScheduledMiddleClickDown(id: UInt64) {
+        interactionLock.lock()
+        guard var click = scheduledMiddleClick, click.id == id else {
+            interactionLock.unlock()
+            return
+        }
+
+        click.downPosted = true
+        scheduledMiddleClick = click
+        click.down.post(tap: .cghidEventTap)
+        interactionLock.unlock()
+
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + syntheticMiddleClickReleaseDelay,
+            execute: click.releaseWorkItem
+        )
+    }
+
+    private func postScheduledMiddleClickUp(id: UInt64) {
+        interactionLock.lock()
+        guard let click = scheduledMiddleClick, click.id == id else {
+            interactionLock.unlock()
+            return
+        }
+
+        scheduledMiddleClick = nil
+        interactionLock.unlock()
+        click.up.post(tap: .cghidEventTap)
+    }
+
+    private func flushPendingMiddleClickUpLocked() {
+        guard let click = scheduledMiddleClick else { return }
+
+        click.releaseWorkItem.cancel()
+        scheduledMiddleClick = nil
+
+        if !click.downPosted {
+            click.down.post(tap: .cghidEventTap)
+        }
+        click.up.post(tap: .cghidEventTap)
     }
 
     /// Post a synthetic middle-click (otherMouseDown + otherMouseUp).
-    /// Used when the real middle-down was swallowed for gesture detection, and
-    /// when another button is remapped to Middle Click.
+    /// Used when another button is remapped to Middle Click.
     private func postSyntheticMiddleClick(at location: CGPoint) {
         postSyntheticMiddleClick(downAt: location, upAt: location, clickState: 1)
     }
@@ -1894,7 +2012,7 @@ class InputInterceptor {
         let wasContinuous = continuousGestureActive
         let wasTrackingMiddle = middleButtonDown
         let wasMiddleGesture = middleDragTriggered
-        let hadHeldMiddleDown = heldMiddleDownEvent != nil
+        let hadSuppressedMiddleDown = middleButtonDownWasSuppressed
         let hadPendingMiddleAction = pendingMiddleButtonAction != nil
         let shouldReplayHeldClick =
             replayPendingMiddleClick &&
@@ -1902,10 +2020,12 @@ class InputInterceptor {
             !wasContinuous &&
             !wasMiddleGesture &&
             !hadPendingMiddleAction &&
-            hadHeldMiddleDown
+            pendingMiddleClick != nil
 
         if shouldReplayHeldClick {
-            _ = replayHeldMiddleClickFallback()
+            if let pendingMiddleClick {
+                _ = scheduleMiddleClickFallbackLocked(from: pendingMiddleClick)
+            }
         }
 
         cancelContinuousGesture(force: true, reason: reason)
@@ -1918,7 +2038,7 @@ class InputInterceptor {
         // If middle-down was suppressed for gesture detection, continuous mode,
         // or a remapped middle action, the eventual mouse-up must not click or
         // re-fire the action.
-        if wasContinuous || wasMiddleGesture || hadHeldMiddleDown || hadPendingMiddleAction {
+        if wasContinuous || wasMiddleGesture || hadSuppressedMiddleDown || hadPendingMiddleAction {
             middleDragTriggered = true
         }
     }
@@ -1930,7 +2050,8 @@ class InputInterceptor {
         middleButtonDown = false
         middleButtonStartPoint = .zero
         middleDragTriggered = false
-        heldMiddleDownEvent = nil
+        middleButtonDownWasSuppressed = false
+        pendingMiddleClick = nil
         middleDragProfileKey = nil
         continuousGestureAxisLocked = false
         continuousGestureAxis = .horizontal
