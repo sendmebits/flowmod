@@ -3,6 +3,11 @@ name: Generate Release Notes
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: Tag to generate notes for
+        required: true
 
 permissions:
   contents: write
@@ -19,17 +24,41 @@ jobs:
       - name: Build release notes from commits
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG_NAME: ${{ github.event.release.tag_name }}
-          RELEASE_ID: ${{ github.event.release.id }}
+          TAG_NAME: ${{ github.event.release.tag_name || inputs.tag_name }}
         run: |
           set -euo pipefail
 
-          # ── Find the previous release tag ──────────────────────────
-          PREV_TAG=$(git tag --sort=-creatordate | grep -v "^${TAG_NAME}$" | head -n 1 || true)
+          if [ -z "${TAG_NAME:-}" ]; then
+            echo "TAG_NAME is empty."
+            exit 1
+          fi
+
+          if ! git rev-parse "${TAG_NAME}^{commit}" >/dev/null 2>&1; then
+            echo "Tag ${TAG_NAME} not found."
+            exit 1
+          fi
+
+          CURRENT_SHA=$(git rev-parse "${TAG_NAME}^{commit}")
+          echo "Tag ${TAG_NAME} -> ${CURRENT_SHA}"
+
+          SAME_SHA_TAGS=$(git tag --points-at "${CURRENT_SHA}" | grep -v "^${TAG_NAME}$" || true)
+          if [ -n "$SAME_SHA_TAGS" ]; then
+            echo "Other tags point at the same commit as ${TAG_NAME}: ${SAME_SHA_TAGS}"
+            echo "Move ${TAG_NAME} to a newer commit before generating notes."
+            exit 1
+          fi
+
+          # Nearest ancestor tag (not the same commit). More reliable than
+          # creatordate: lightweight tags inherit the commit date, so two tags
+          # on one commit sort as a tie and GitHub/Git may pick two versions back.
+          PREV_TAG=""
+          if git rev-parse "${TAG_NAME}^" >/dev/null 2>&1; then
+            PREV_TAG=$(git describe --tags --abbrev=0 "${TAG_NAME}^" 2>/dev/null || true)
+          fi
 
           if [ -z "$PREV_TAG" ]; then
-            echo "No previous tag found — using all commits on the branch."
-            RANGE="HEAD"
+            echo "No previous tag found — using all commits on the tag."
+            RANGE="${TAG_NAME}"
           else
             echo "Previous tag: $PREV_TAG"
             RANGE="${PREV_TAG}..${TAG_NAME}"
@@ -39,8 +68,9 @@ jobs:
           COMMITS=$(git log "$RANGE" --pretty=format:"%H %s" --no-merges)
 
           if [ -z "$COMMITS" ]; then
-            echo "No commits found in range."
-            exit 0
+            echo "No commits found in range ${RANGE}."
+            echo "The tag is probably on the same commit as the previous release."
+            exit 1
           fi
 
           # ── Categorize ─────────────────────────────────────────────
@@ -116,13 +146,13 @@ jobs:
           append_section "📦 Other Changes"             "$OTHER"
 
           if [ -z "$BODY" ]; then
-            echo "Nothing to write."
-            exit 0
+            echo "Nothing to write after categorizing commits."
+            exit 1
           fi
 
           # Add compare link footer
           if [ -n "$PREV_TAG" ]; then
-            REPO_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}"
+            REPO_URL="${GITHUB_SERVER_URL:-https://github.com}/${GITHUB_REPOSITORY}"
             BODY="${BODY}---\n**Full diff:** [${PREV_TAG}...${TAG_NAME}](${REPO_URL}/compare/${PREV_TAG}...${TAG_NAME})\n"
           fi
 
