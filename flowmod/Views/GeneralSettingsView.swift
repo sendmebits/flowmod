@@ -432,6 +432,8 @@ struct AdvancedSettingsSheet: View {
 
                         Button {
                             LogManager.shared.clearLogs()
+                            showCopiedConfirmation = false
+                            AccessibilityNotification.Announcement("Logs cleared").post()
                         } label: {
                             Text("Clear")
                         }

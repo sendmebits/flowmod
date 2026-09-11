@@ -15,6 +15,11 @@ class LogManager {
     /// `Settings` whenever the toggle changes (see `setDebugEnabled`).
     @ObservationIgnored private let flagLock = NSLock()
     @ObservationIgnored nonisolated(unsafe) private var debugEnabledFlag = false
+    /// Bound the producer backlog as well as the visible log. Event-tap callbacks
+    /// must not enqueue one main-queue block per message during a log flood.
+    @ObservationIgnored nonisolated(unsafe) private var pendingEntries: [LogEntry] = []
+    @ObservationIgnored nonisolated(unsafe) private var drainScheduled = false
+    @ObservationIgnored nonisolated(unsafe) private var clearGeneration: UInt64 = 0
     
     /// Shared date formatter (DateFormatter is expensive to create)
     private static let dateFormatter: DateFormatter = {
@@ -34,6 +39,12 @@ class LogManager {
     }
     
     private init() {}
+
+#if DEBUG || SWIFT_PACKAGE
+    static func makeForTesting() -> LogManager {
+        LogManager()
+    }
+#endif
     
     /// Update the cached debug-logging flag. Safe to call from any thread.
     nonisolated func setDebugEnabled(_ enabled: Bool) {
@@ -42,27 +53,45 @@ class LogManager {
         flagLock.unlock()
     }
 
-    private nonisolated var debugEnabled: Bool {
-        flagLock.lock()
-        defer { flagLock.unlock() }
-        return debugEnabledFlag
-    }
-
     /// Log a message (only if debug logging is enabled in settings).
     /// Safe to call from any thread — including the event-tap thread. The entry
     /// is appended on the main actor so the UI's observation of `logEntries`
     /// stays intact and the array is never mutated from two threads at once.
     nonisolated func log(_ message: @autoclosure () -> String, category: String = "General") {
-        guard debugEnabled else { return }
+        flagLock.lock()
+        guard debugEnabledFlag else { flagLock.unlock(); return }
+        let generation = clearGeneration
+        flagLock.unlock()
 
+        // Evaluate the message outside the lock: callers may inspect other
+        // lock-protected state or even clear logs while preparing the message.
         let entry = LogEntry(timestamp: Date(), category: category, message: message())
-        DispatchQueue.main.async { [weak self] in
-            self?.appendEntry(entry)
+        flagLock.lock()
+        guard generation == clearGeneration else { flagLock.unlock(); return }
+        if pendingEntries.count == maxLogEntries {
+            pendingEntries.removeFirst()
+        }
+        pendingEntries.append(entry)
+        let needsDrain = !drainScheduled
+        drainScheduled = true
+        flagLock.unlock()
+
+        if needsDrain {
+            DispatchQueue.main.async { [weak self] in
+                self?.drainPendingEntries(releaseSchedule: true)
+            }
         }
     }
 
-    private func appendEntry(_ entry: LogEntry) {
-        logEntries.append(entry)
+    private func drainPendingEntries(releaseSchedule: Bool) {
+        flagLock.lock()
+        let entries = pendingEntries
+        pendingEntries.removeAll(keepingCapacity: true)
+        if releaseSchedule { drainScheduled = false }
+        flagLock.unlock()
+
+        guard !entries.isEmpty else { return }
+        logEntries.append(contentsOf: entries)
         if logEntries.count > maxLogEntries {
             logEntries.removeFirst(logEntries.count - maxLogEntries)
         }
@@ -70,6 +99,9 @@ class LogManager {
     
     /// Get all logs as a formatted string
     func getLogsAsString() -> String {
+        // Copy includes messages already captured by the background thread,
+        // even when its scheduled UI update has not run yet.
+        drainPendingEntries(releaseSchedule: false)
         if logEntries.isEmpty {
             return "No logs available.\n\nNote: Enable 'Debug Logging' in Advanced settings to capture logs."
         }
@@ -95,6 +127,10 @@ class LogManager {
     
     /// Clear all logs
     func clearLogs() {
+        flagLock.lock()
+        clearGeneration &+= 1
+        pendingEntries.removeAll(keepingCapacity: true)
+        flagLock.unlock()
         logEntries.removeAll()
     }
     

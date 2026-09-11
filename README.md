@@ -52,4 +52,14 @@ FlowMod is **free and open source**, with **no paywalls** and **no tracking.**
 
 ---
 
+### Development checks
+
+Build the app with `xcodebuild -scheme flowmod -configuration Debug build`.
+Run the input regression tests with `swift test`. These tests exercise the input
+handler with an injected event sink; they do not start FlowMod, install event taps,
+or send mouse clicks to other apps. Physical mouse testing is still needed for
+browser delivery and continuous desktop gestures.
+
+---
+
 <sub>Built because macOS treats non-Apple input devices as second-class citizens.</sub>

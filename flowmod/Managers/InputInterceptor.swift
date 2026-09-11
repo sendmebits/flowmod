@@ -152,22 +152,22 @@ class InputInterceptor {
     // HID-level tap receives events before the WindowServer processes them.
     private var dragHIDTap: CFMachPort?
     private var dragHIDRunLoopSource: CFRunLoopSource?
+    private var sessionTapRecoveryTimer: Timer?
     
     // Middle button drag tracking
     private var middleButtonDown = false
     private var middleButtonStartPoint: CGPoint = .zero
     private var middleDragTriggered = false
     private var middleButtonDownWasSuppressed = false
-    private var pendingMiddleClick: PendingMiddleClick?
-    private var scheduledMiddleClick: ScheduledMiddleClick?
-    private var nextScheduledMiddleClickID: UInt64 = 0
-    private let syntheticMiddleClickReleaseDelay: TimeInterval = 0.015
-    /// Profile key of the mouse that started the current middle-button
-    /// press/drag session, so all reads during the session use one profile.
-    private var middleDragProfileKey: String?
+    private var pendingMiddleClick: MiddleClick?
+    private var middleClickNeedsReleaseValidation = false
+    private let middleClickEventSink: MiddleClick.EventSink
+    /// Gesture decisions remain stable for the whole press, even if settings
+    /// change before its release.
+    private var middleDragConfig: RuntimeConfig?
     
     // Continuous gesture (DockSwipe) state
-    private let dockSwipeSimulator = DockSwipeSimulator()
+    private let dockSwipeSimulator: DockSwipeSimulator
     private var continuousGestureActive = false
     private var continuousGestureAxisLocked = false
     private var continuousGestureAxis: ContinuousAxis = .horizontal
@@ -200,20 +200,6 @@ class InputInterceptor {
     
     private enum ContinuousAxis {
         case horizontal, vertical
-    }
-
-    private struct PendingMiddleClick {
-        let location: CGPoint
-        let flags: CGEventFlags
-        let clickState: Int64
-    }
-
-    private struct ScheduledMiddleClick {
-        let id: UInt64
-        let down: CGEvent
-        let up: CGEvent
-        let releaseWorkItem: DispatchWorkItem
-        var downPosted: Bool
     }
 
     // Smooth scrolling state - physics engine for trackpad-like feel
@@ -269,7 +255,7 @@ class InputInterceptor {
     /// Only populated while per-mouse settings are enabled.
     private var runtimeProfileConfigs: [String: RuntimeConfig] = [:]
     
-    private struct RuntimeConfig {
+    struct RuntimeConfig {
         var mouseEnabled: Bool
         var shouldReverse: Bool
         /// Raw reverseScrollEnabled setting, without the global device-detection
@@ -324,7 +310,7 @@ class InputInterceptor {
     private var runtimeObservationGeneration = 0
     
     // Marker for synthetic events we post ourselves (to avoid re-processing)
-    private static let syntheticEventMarker: Int64 = 0x464C4F574D4F44  // "FLOWMOD" in hex
+    private static let syntheticEventMarker = MiddleClick.eventMarker
 
     // Undocumented CGEvent field carrying the IORegistry entry ID of the HID
     // event service that produced the event (0 for synthesized events).
@@ -360,24 +346,32 @@ class InputInterceptor {
         return EventSource(kind: .externalMouse, profileKey: device.deviceKey)
     }
     
-    private init() {}
+    private init(runtimeConfig: RuntimeConfig = .default,
+                 dockSwipeSimulator: DockSwipeSimulator = DockSwipeSimulator(),
+                 middleClickEventSink: @escaping MiddleClick.EventSink = MiddleClick.postEvent) {
+        self.runtimeConfig = runtimeConfig
+        self.dockSwipeSimulator = dockSwipeSimulator
+        self.middleClickEventSink = middleClickEventSink
+    }
+
+#if DEBUG || SWIFT_PACKAGE
+    static func makeForTesting(
+        runtimeConfig: RuntimeConfig = .default,
+        dockSwipeSimulator: DockSwipeSimulator = DockSwipeSimulator(),
+        middleClickEventSink: @escaping MiddleClick.EventSink = MiddleClick.postEvent
+    ) -> InputInterceptor {
+        InputInterceptor(
+            runtimeConfig: runtimeConfig,
+            dockSwipeSimulator: dockSwipeSimulator,
+            middleClickEventSink: middleClickEventSink
+        )
+    }
+#endif
 
     private func isLifecycleRunning() -> Bool {
         interactionLock.lock()
         defer { interactionLock.unlock() }
         return isRunning
-    }
-
-    private func currentEventTap() -> CFMachPort? {
-        interactionLock.lock()
-        defer { interactionLock.unlock() }
-        return eventTap
-    }
-
-    private func currentDragHIDTap() -> CFMachPort? {
-        interactionLock.lock()
-        defer { interactionLock.unlock() }
-        return dragHIDTap
     }
 
     private func setDeviceManager(_ manager: DeviceManager?) {
@@ -471,27 +465,21 @@ class InputInterceptor {
         
         // Create event tap with inline closure that can be converted to C function pointer
         let callback: CGEventTapCallBack = { proxy, type, event, userInfo in
-            // Timeout: system paused a slow callback — safe to re-enable.
-            // User-input disable usually means secure input / policy; do not fight it.
-            if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
-                if let userInfo = userInfo {
-                    let interceptor = Unmanaged<InputInterceptor>.fromOpaque(userInfo).takeUnretainedValue()
-                    interceptor.handleTapDisabled(type: type, tap: interceptor.currentEventTap())
+            // A raw background CFRunLoop does not provide AppKit's per-event
+            // autorelease pools. Drain temporary bridged objects on every call.
+            autoreleasepool {
+                guard let userInfo = userInfo else {
+                    return Unmanaged.passUnretained(event)
                 }
-                return Unmanaged.passUnretained(event)
+            
+                let interceptor = Unmanaged<InputInterceptor>.fromOpaque(userInfo).takeUnretainedValue()
+            
+                if let modifiedEvent = interceptor.handleEvent(event, type: type, proxy: proxy) {
+                    return Unmanaged.passUnretained(modifiedEvent)
+                }
+            
+                return nil  // Suppress event
             }
-            
-            guard let userInfo = userInfo else {
-                return Unmanaged.passUnretained(event)
-            }
-            
-            let interceptor = Unmanaged<InputInterceptor>.fromOpaque(userInfo).takeUnretainedValue()
-            
-            if let modifiedEvent = interceptor.handleEvent(event, type: type, proxy: proxy) {
-                return Unmanaged.passUnretained(modifiedEvent)
-            }
-            
-            return nil  // Suppress event
         }
         
         // Create event tap
@@ -531,31 +519,35 @@ class InputInterceptor {
         var createdDragHIDRunLoopSource: CFRunLoopSource?
         
         let hidCallback: CGEventTapCallBack = { proxy, type, event, userInfo in
-            if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
-                if let userInfo = userInfo {
-                    let interceptor = Unmanaged<InputInterceptor>.fromOpaque(userInfo).takeUnretainedValue()
-                    interceptor.handleTapDisabled(type: type, tap: interceptor.currentDragHIDTap())
+            autoreleasepool {
+                if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+                    if let userInfo = userInfo {
+                        let interceptor = Unmanaged<InputInterceptor>.fromOpaque(userInfo).takeUnretainedValue()
+                        interceptor.handleTapDisabled(type: type, kind: .hidDrag)
+                    }
+                    return Unmanaged.passUnretained(event)
                 }
-                return Unmanaged.passUnretained(event)
+            
+                guard let userInfo = userInfo else {
+                    return Unmanaged.passUnretained(event)
+                }
+            
+                let interceptor = Unmanaged<InputInterceptor>.fromOpaque(userInfo).takeUnretainedValue()
+            
+                // Only process during active continuous gesture
+                guard event.getIntegerValueField(.mouseEventButtonNumber) == 2,
+                      event.getIntegerValueField(.eventSourceUserData) != InputInterceptor.syntheticEventMarker,
+                      interceptor.isContinuousGestureActive else {
+                    return Unmanaged.passUnretained(event)
+                }
+            
+                // Read deltas and feed to DockSwipe simulator
+                interceptor.handleHIDDragDuringContinuousGesture(event)
+            
+                // Suppress the event at HID level so cursor doesn't move
+                // and session-level tap doesn't see it
+                return nil
             }
-            
-            guard let userInfo = userInfo else {
-                return Unmanaged.passUnretained(event)
-            }
-            
-            let interceptor = Unmanaged<InputInterceptor>.fromOpaque(userInfo).takeUnretainedValue()
-            
-            // Only process during active continuous gesture
-            guard interceptor.isContinuousGestureActive else {
-                return Unmanaged.passUnretained(event)
-            }
-            
-            // Read deltas and feed to DockSwipe simulator
-            interceptor.handleHIDDragDuringContinuousGesture(event)
-            
-            // Suppress the event at HID level so cursor doesn't move
-            // and session-level tap doesn't see it
-            return nil
         }
         
         if let hidTap = CGEvent.tapCreate(
@@ -601,10 +593,10 @@ class InputInterceptor {
         isRunning = true
         interactionLock.unlock()
 
-        CGEvent.tapEnable(tap: tap, enable: true)
+        setTapEnabled(tap, enabled: true)
         if let hidTap = createdDragHIDTap {
             // Start DISABLED — enabled only during continuous gestures
-            CGEvent.tapEnable(tap: hidTap, enable: false)
+            setTapEnabled(hidTap, enabled: false)
             print("HID drag event tap created (disabled)")
         }
         tapThreadStartup.attempt.activate()
@@ -631,6 +623,8 @@ class InputInterceptor {
         finishSmoothScrollingForShutdown()
 
         interactionLock.lock()
+        sessionTapRecoveryTimer?.invalidate()
+        sessionTapRecoveryTimer = nil
         zoomEndTimer?.cancel()
         zoomEndTimer = nil
         zoomPixelResidual = 0
@@ -650,7 +644,7 @@ class InputInterceptor {
         
         // Disable and clean up HID drag tap
         if let hidTap = hidTapToDisable {
-            CGEvent.tapEnable(tap: hidTap, enable: false)
+            setTapEnabled(hidTap, enabled: false)
         }
         tapThreadLock.lock()
         let eventRunLoop = tapThreadAttempt?.currentRunLoop
@@ -663,7 +657,7 @@ class InputInterceptor {
         dragHIDRunLoopSource = nil
         
         if let tap = tapToDisable {
-            CGEvent.tapEnable(tap: tap, enable: false)
+            setTapEnabled(tap, enabled: false)
         }
         
         if let source = runLoopSource {
@@ -689,6 +683,11 @@ class InputInterceptor {
     // MARK: - Event Handling
     
     func handleEvent(_ event: CGEvent, type: CGEventType, proxy: CGEventTapProxy?) -> CGEvent? {
+        if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+            handleTapDisabled(type: type, kind: .session)
+            return event
+        }
+
         // Pass through synthetic events we posted ourselves
         if event.getIntegerValueField(.eventSourceUserData) == InputInterceptor.syntheticEventMarker {
             return event
@@ -716,7 +715,7 @@ class InputInterceptor {
                 abandonActiveMouseInteraction(reason: "mouse disabled")
                 return event
             }
-            return handleOtherMouseUp(event)
+            return handleOtherMouseUp(event, proxy: proxy)
         case .otherMouseDragged:
             guard config.mouseEnabled else {
                 abandonActiveMouseInteraction(reason: "mouse disabled")
@@ -1353,10 +1352,9 @@ class InputInterceptor {
 
         // Middle button (button 2) - start tracking for drag gesture
         if buttonNumber == 2 {
-            // A rapid next click must not overlap the delayed synthetic release
-            // from the previous fallback click.
-            flushPendingMiddleClickUpLocked()
-
+            if pendingMiddleClick != nil {
+                LogManager.shared.log("Previous middle click discarded: a new press arrived before its release was observed", category: "Input")
+            }
             // Properly end any leftover continuous gesture from a previous interaction
             // (e.g. if a mouseUp was lost due to tap being disabled by timeout)
             cancelContinuousGesture(force: true, reason: "new middle-button press")
@@ -1365,11 +1363,12 @@ class InputInterceptor {
             middleDragTriggered = false
             middleButtonDownWasSuppressed = false
             pendingMiddleClick = nil
-            middleDragProfileKey = profileKey
+            middleClickNeedsReleaseValidation = false
             middleButtonStartPoint = event.location
             
             // Check if middle click has a mapping AND if drag gestures are configured.
             let config = runtimeConfig(forProfileKey: profileKey)
+            middleDragConfig = config
             let action = config.buttonMappings[2]
             let hasDragGestures = !config.middleDragMappings.isEmpty
 
@@ -1390,13 +1389,9 @@ class InputInterceptor {
             if hasDragGestures {
                 // Suppress mouseDown: drag gesture detection needs to decide
                 // whether this is a click or a gesture. If no gesture triggers,
-                // we'll post a fresh semantic click after mouseUp.
+                // we'll deliver a complete click inside the mouseUp callback.
                 middleButtonDownWasSuppressed = true
-                pendingMiddleClick = PendingMiddleClick(
-                    location: event.location,
-                    flags: event.flags,
-                    clickState: event.getIntegerValueField(.mouseEventClickState)
-                )
+                pendingMiddleClick = MiddleClick(down: event)
                 return nil
             }
             return event
@@ -1406,7 +1401,7 @@ class InputInterceptor {
         return handleMouseButtonAction(buttonNumber: buttonNumber, profileKey: profileKey, originalEvent: event)
     }
 
-    private func handleOtherMouseUp(_ event: CGEvent) -> CGEvent? {
+    private func handleOtherMouseUp(_ event: CGEvent, proxy: CGEventTapProxy?) -> CGEvent? {
         // Symmetric with handleOtherMouseDown: Apple device events pass through.
         let eventSource = source(of: event)
         if eventSource.kind == .appleDevice {
@@ -1419,16 +1414,14 @@ class InputInterceptor {
         defer { interactionLock.unlock() }
 
         if buttonNumber == 2 {
-            // Use the profile captured at mouseDown so the up-decision matches
-            // the down-decision even if attribution differs.
-            let profileKey = middleDragProfileKey
             let pendingAction = pendingMiddleButtonAction
             defer {
                 middleButtonDown = false
                 middleDragTriggered = false
                 middleButtonDownWasSuppressed = false
                 pendingMiddleClick = nil
-                middleDragProfileKey = nil
+                middleClickNeedsReleaseValidation = false
+                middleDragConfig = nil
                 continuousGestureAxisLocked = false
                 pendingMiddleButtonAction = nil
             }
@@ -1453,25 +1446,37 @@ class InputInterceptor {
                 return nil
             }
             
-            // Otherwise, check middle click action and drag gesture configuration.
-            let config = runtimeConfig(forProfileKey: profileKey)
-            let action = config.buttonMappings[2]
-            
-            // If no mapping or action is just middle click
-            if action == nil || action == .middleClick {
-                if middleButtonDownWasSuppressed {
-                    guard let pendingMiddleClick,
-                          scheduleMiddleClickFallbackLocked(from: pendingMiddleClick) else {
-                        return event
+            // Only the decision made on down owns this release. Looking up the
+            // current mapping here can drop a click or execute an action whose
+            // down was never intercepted (e.g. settings changes / tap recovery).
+            if middleButtonDownWasSuppressed {
+                if middleClickNeedsReleaseValidation {
+                    let threshold = middleDragConfig?.dragThreshold ?? 0
+                    let stayedWithinThreshold =
+                        abs(event.location.x - middleButtonStartPoint.x) <= threshold &&
+                        abs(event.location.y - middleButtonStartPoint.y) <= threshold
+                    guard stayedWithinThreshold,
+                          pendingMiddleClick?.matchesReleaseAfterInterruption(event) == true else {
+                        LogManager.shared.log(
+                            "Interrupted middle click discarded: within threshold=\(stayedWithinThreshold), down number=\(pendingMiddleClick?.eventNumber ?? 0), up number=\(event.getIntegerValueField(.mouseEventNumber))",
+                            category: "Input"
+                        )
+                        return nil
                     }
-                    return nil
                 }
-                return event
+                let delivered = pendingMiddleClick?.post(
+                    release: event, proxy: proxy, sink: middleClickEventSink
+                ) ?? false
+                if !delivered {
+                    LogManager.shared.log("Middle click delivery failed", category: "Input")
+                } else if middleClickNeedsReleaseValidation {
+                    LogManager.shared.log("Middle click posted after tap recovery", category: "Input")
+                }
+                // Its down was swallowed. Never leak an orphan physical up,
+                // including on the allocation-failure path.
+                return nil
             }
-            
-            // Execute the custom action on mouse up (for click-style actions)
-            executeAction(action!, at: event.location)
-            return nil
+            return event
         }
         
         // Suppress up events for buttons that had mappings on mouse-down,
@@ -1489,6 +1494,9 @@ class InputInterceptor {
     }
     
     private func handleOtherMouseDragged(_ event: CGEvent) -> CGEvent? {
+        // otherMouseDragged also includes side buttons. Their motion must not
+        // commit (and thereby discard) a pending middle click.
+        guard event.getIntegerValueField(.mouseEventButtonNumber) == 2 else { return event }
         interactionLock.lock()
         defer { interactionLock.unlock() }
 
@@ -1511,7 +1519,7 @@ class InputInterceptor {
         let deltaX = currentPoint.x - middleButtonStartPoint.x
         let deltaY = currentPoint.y - middleButtonStartPoint.y
         
-        let config = runtimeConfig(forProfileKey: middleDragProfileKey)
+        guard let config = middleDragConfig else { return event }
         let threshold = config.dragThreshold
         let useContinuous = config.continuousGestures
         
@@ -1568,7 +1576,7 @@ class InputInterceptor {
 
             // Enable HID-level event tap to receive drags during gesture
             if let hidTap = dragHIDTap {
-                CGEvent.tapEnable(tap: hidTap, enable: true)
+                setTapEnabled(hidTap, enabled: true)
             }
 
             dockSwipeSimulator.begin(type: swipeType, delta: initialDelta, dragThreshold: threshold)
@@ -1731,139 +1739,17 @@ class InputInterceptor {
         return event
     }
 
-    private func makeSyntheticMiddleClickEvent(
-        mouseType: CGEventType,
-        source: CGEventSource,
-        location: CGPoint,
-        flags: CGEventFlags,
-        clickState: Int64
-    ) -> CGEvent? {
-        guard let event = CGEvent(
-            mouseEventSource: source,
-            mouseType: mouseType,
-            mouseCursorPosition: location,
-            mouseButton: .center
-        ) else {
-            return nil
-        }
-
-        event.flags = flags
-        markMiddleClickEventForPassthrough(event, clickState: clickState)
-        return event
-    }
-
-    /// Schedules a fresh semantic middle-click after the current tap callback.
-    /// The down/up split gives target apps a real pressed interval.
-    private func scheduleMiddleClickFallbackLocked(from click: PendingMiddleClick) -> Bool {
-        guard let source = CGEventSource(stateID: .hidSystemState) else {
-            return false
-        }
-
-        guard let down = makeSyntheticMiddleClickEvent(
-            mouseType: .otherMouseDown,
-            source: source,
-            location: click.location,
-            flags: click.flags,
-            clickState: click.clickState
-        ), let up = makeSyntheticMiddleClickEvent(
-            mouseType: .otherMouseUp,
-            source: source,
-            location: click.location,
-            flags: click.flags,
-            clickState: click.clickState
-        ) else {
-            return false
-        }
-
-        nextScheduledMiddleClickID &+= 1
-        let id = nextScheduledMiddleClickID
-        let releaseWorkItem = DispatchWorkItem { [weak self] in
-            self?.postScheduledMiddleClickUp(id: id)
-        }
-        scheduledMiddleClick = ScheduledMiddleClick(
-            id: id,
-            down: down,
-            up: up,
-            releaseWorkItem: releaseWorkItem,
-            downPosted: false
-        )
-
-        scheduleAfterCurrentTapCallback { [weak self] in
-            self?.postScheduledMiddleClickDown(id: id)
-        }
-        return true
-    }
-
-    private func scheduleAfterCurrentTapCallback(_ work: @escaping () -> Void) {
-        let runLoop = CFRunLoopGetCurrent()
-        CFRunLoopPerformBlock(runLoop, CFRunLoopMode.commonModes.rawValue, work)
-        CFRunLoopWakeUp(runLoop)
-    }
-
-    private func postScheduledMiddleClickDown(id: UInt64) {
-        interactionLock.lock()
-        guard var click = scheduledMiddleClick, click.id == id else {
-            interactionLock.unlock()
-            return
-        }
-
-        click.downPosted = true
-        scheduledMiddleClick = click
-        click.down.post(tap: .cghidEventTap)
-        interactionLock.unlock()
-
-        DispatchQueue.main.asyncAfter(
-            deadline: .now() + syntheticMiddleClickReleaseDelay,
-            execute: click.releaseWorkItem
-        )
-    }
-
-    private func postScheduledMiddleClickUp(id: UInt64) {
-        interactionLock.lock()
-        guard let click = scheduledMiddleClick, click.id == id else {
-            interactionLock.unlock()
-            return
-        }
-
-        scheduledMiddleClick = nil
-        interactionLock.unlock()
-        click.up.post(tap: .cghidEventTap)
-    }
-
-    private func flushPendingMiddleClickUpLocked() {
-        guard let click = scheduledMiddleClick else { return }
-
-        click.releaseWorkItem.cancel()
-        scheduledMiddleClick = nil
-
-        if !click.downPosted {
-            click.down.post(tap: .cghidEventTap)
-        }
-        click.up.post(tap: .cghidEventTap)
-    }
-
     /// Post a synthetic middle-click (otherMouseDown + otherMouseUp).
     /// Used when another button is remapped to Middle Click.
     private func postSyntheticMiddleClick(at location: CGPoint) {
-        postSyntheticMiddleClick(downAt: location, upAt: location, clickState: 1)
+        guard let down = CGEvent(mouseEventSource: nil, mouseType: .otherMouseDown,
+                                 mouseCursorPosition: location, mouseButton: .center),
+              let up = CGEvent(mouseEventSource: nil, mouseType: .otherMouseUp,
+                               mouseCursorPosition: location, mouseButton: .center) else { return }
+        markMiddleClickEventForPassthrough(down)
+        MiddleClick(down: down).post(release: up, proxy: nil, sink: middleClickEventSink)
     }
 
-    private func postSyntheticMiddleClick(downAt downLocation: CGPoint, upAt upLocation: CGPoint, clickState: Int64) {
-        // privateState keeps this pair independent of the physical middle
-        // button, which is already down (swallowed) or going up.
-        let source = CGEventSource(stateID: .privateState)
-
-        if let down = CGEvent(mouseEventSource: source, mouseType: .otherMouseDown, mouseCursorPosition: downLocation, mouseButton: .center) {
-            markMiddleClickEventForPassthrough(down, clickState: clickState)
-            down.post(tap: .cghidEventTap)
-        }
-
-        if let up = CGEvent(mouseEventSource: source, mouseType: .otherMouseUp, mouseCursorPosition: upLocation, mouseButton: .center) {
-            markMiddleClickEventForPassthrough(up, clickState: clickState)
-            up.post(tap: .cghidEventTap)
-        }
-    }
-    
     // MARK: - System Triggers
     
     private func triggerMissionControl() {
@@ -1954,92 +1840,138 @@ class InputInterceptor {
     
     // MARK: - Continuous Gesture Helpers
 
-    /// Re-enable after timeout immediately. For user-input disable (secure
-    /// input / system policy), cancel any stuck gesture and retry enable
-    /// shortly afterward so the session tap is not left permanently dead.
-    /// The HID drag tap is only re-enabled while a continuous gesture is active.
-    private func handleTapDisabled(type: CGEventType, tap: CFMachPort?) {
+    private enum TapKind: String {
+        case session
+        case hidDrag
+    }
+
+    /// The user-input notification is not proof of secure input or a lost
+    /// mouse-up. Attempt recovery on the tap thread immediately, then inspect
+    /// the result. Do not introduce a one-second main-queue input blackout.
+    private func handleTapDisabled(type: CGEventType, kind: TapKind) {
         interactionLock.lock()
-        let hasActiveInteraction = continuousGestureActive || middleButtonDown || pendingMiddleButtonAction != nil
-        interactionLock.unlock()
+        defer { interactionLock.unlock() }
+        guard isRunning else { return }
+        let reason = type == .tapDisabledByTimeout ? "timeout" : "user input"
 
-        if hasActiveInteraction {
-            abandonActiveMouseInteraction(
-                reason: "event tap disabled (\(type.rawValue))",
-                replayPendingMiddleClick: type == .tapDisabledByTimeout
-            )
-        }
-
-        guard let tap else { return }
-
-        let reenable: () -> Void = { [weak self] in
-            guard let self else { return }
-
-            let tapUpdate: (tap: CFMachPort, enable: Bool)?
-            self.interactionLock.lock()
-            if self.isRunning, let eventTap = self.eventTap, CFEqual(tap, eventTap) {
-                tapUpdate = (eventTap, true)
-            } else if self.isRunning, let hidTap = self.dragHIDTap, CFEqual(tap, hidTap) {
-                // HID tap must stay off except during an active continuous gesture.
-                tapUpdate = (hidTap, self.continuousGestureActive)
-            } else {
-                tapUpdate = nil
-            }
-            self.interactionLock.unlock()
-
-            if let tapUpdate {
-                CGEvent.tapEnable(tap: tapUpdate.tap, enable: tapUpdate.enable)
-            }
-        }
-
-        if type == .tapDisabledByTimeout {
-            reenable()
+        if kind == .hidDrag {
+            guard let tap = dragHIDTap else { return }
+            handleHIDTapDisabled(after: type, isTapEnabled: {
+                CFMachPortIsValid(tap) && CGEvent.tapIsEnabled(tap: tap)
+            }, reenable: {
+                guard CFMachPortIsValid(tap) else { return false }
+                self.setTapEnabled(tap, enabled: true)
+                return CGEvent.tapIsEnabled(tap: tap)
+            })
             return
         }
+        guard let tap = eventTap else { return }
+        let wasEnabled = CGEvent.tapIsEnabled(tap: tap)
+        let restored = recoverSessionTap(after: type) {
+            guard CFMachPortIsValid(tap) else { return false }
+            setTapEnabled(tap, enabled: true)
+            return CGEvent.tapIsEnabled(tap: tap)
+        }
+        LogManager.shared.log(
+            "Session tap notification: \(reason) (\(type.rawValue)); enabled before=\(wasEnabled), restored=\(restored)",
+            category: "Input"
+        )
 
-        if type == .tapDisabledByUserInput {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: reenable)
+        if restored {
+            sessionTapRecoveryTimer?.invalidate()
+            sessionTapRecoveryTimer = nil
+        } else {
+            scheduleSessionTapRecovery(tap)
         }
     }
 
-    private func abandonActiveMouseInteraction(
-        reason: String,
-        replayPendingMiddleClick: Bool = false
-    ) {
+    /// An explicit disable can itself enqueue a user-input notification. Never
+    /// disable again in response, or treat a delayed notification as a fresh
+    /// failure after the next gesture has already re-enabled the tap.
+    func handleHIDTapDisabled(after type: CGEventType,
+                              isTapEnabled: () -> Bool,
+                              reenable: () -> Bool) {
+        interactionLock.lock()
+        defer { interactionLock.unlock() }
+        guard continuousGestureActive else { return }
+        guard !isTapEnabled() else { return }
+
+        if type == .tapDisabledByUserInput, reenable() {
+            LogManager.shared.log("HID drag tap recovered; continuous gesture retained", category: "Input")
+        } else {
+            let reason = type == .tapDisabledByTimeout ? "timeout" : "recovery failed"
+            abandonActiveMouseInteraction(reason: "HID drag tap \(reason)")
+        }
+    }
+
+    private func setTapEnabled(_ tap: CFMachPort, enabled: Bool) {
+        guard CFMachPortIsValid(tap), CGEvent.tapIsEnabled(tap: tap) != enabled else { return }
+        CGEvent.tapEnable(tap: tap, enable: enabled)
+    }
+
+    /// Separated from port ownership so regression tests can exercise successful
+    /// and failed OS recovery without installing a tap on the user's desktop.
+    @discardableResult
+    func recoverSessionTap(after type: CGEventType, reenable: () -> Bool) -> Bool {
+        interactionLock.lock()
+        defer { interactionLock.unlock() }
+        let restored = reenable()
+        let canKeepClick = type == .tapDisabledByUserInput && restored &&
+            middleButtonDown && middleButtonDownWasSuppressed && pendingMiddleClick != nil &&
+            !continuousGestureActive && !middleDragTriggered && pendingMiddleButtonAction == nil
+        if canKeepClick {
+            middleClickNeedsReleaseValidation = true
+            LogManager.shared.log("Middle click retained across tap interruption; waiting for matching release", category: "Input")
+        } else if continuousGestureActive || middleButtonDown || pendingMiddleButtonAction != nil {
+            let reason = type == .tapDisabledByTimeout ? "session tap timeout" : "session tap user-input interruption"
+            abandonActiveMouseInteraction(reason: restored ? reason : "\(reason); recovery failed")
+        }
+        return restored
+    }
+
+    /// Only a failed immediate recovery needs polling. This timer belongs to the
+    /// event run loop, is tied to the exact port, and is cancelled on stop.
+    private func scheduleSessionTapRecovery(_ tap: CFMachPort) {
+        guard sessionTapRecoveryTimer == nil, CFMachPortIsValid(tap) else { return }
+        let logger = LogManager.shared
+        let timer = Timer(timeInterval: 1.0, repeats: true) { [weak self] timer in
+            guard let self else { timer.invalidate(); return }
+            self.interactionLock.lock()
+            defer { self.interactionLock.unlock() }
+            guard self.isRunning, let current = self.eventTap,
+                  CFEqual(current, tap), CFMachPortIsValid(tap) else {
+                timer.invalidate()
+                if self.sessionTapRecoveryTimer === timer { self.sessionTapRecoveryTimer = nil }
+                return
+            }
+            self.setTapEnabled(tap, enabled: true)
+            if CGEvent.tapIsEnabled(tap: tap) {
+                timer.invalidate()
+                self.sessionTapRecoveryTimer = nil
+                logger.log("Session tap recovered on retry", category: "Input")
+            }
+        }
+        timer.tolerance = 0.1
+        sessionTapRecoveryTimer = timer
+        RunLoop.current.add(timer, forMode: .common)
+    }
+
+    private func abandonActiveMouseInteraction(reason: String) {
         interactionLock.lock()
         defer { interactionLock.unlock() }
 
-        let wasContinuous = continuousGestureActive
-        let wasTrackingMiddle = middleButtonDown
-        let wasMiddleGesture = middleDragTriggered
-        let hadSuppressedMiddleDown = middleButtonDownWasSuppressed
-        let hadPendingMiddleAction = pendingMiddleButtonAction != nil
-        let shouldReplayHeldClick =
-            replayPendingMiddleClick &&
-            wasTrackingMiddle &&
-            !wasContinuous &&
-            !wasMiddleGesture &&
-            !hadPendingMiddleAction &&
-            pendingMiddleClick != nil
-
-        if shouldReplayHeldClick {
-            if let pendingMiddleClick {
-                _ = scheduleMiddleClickFallbackLocked(from: pendingMiddleClick)
-            }
-        }
+        let mustSuppressRelease = continuousGestureActive || middleDragTriggered ||
+            middleButtonDownWasSuppressed || pendingMiddleButtonAction != nil
 
         cancelContinuousGesture(force: true, reason: reason)
         clearButtonTrackingState()
 
-        if shouldReplayHeldClick {
-            return
-        }
-
-        // If middle-down was suppressed for gesture detection, continuous mode,
-        // or a remapped middle action, the eventual mouse-up must not click or
-        // re-fire the action.
-        if wasContinuous || wasMiddleGesture || hadSuppressedMiddleDown || hadPendingMiddleAction {
+        // A timeout is not a physical release. Replaying here could close a tab
+        // while the button is still held, then leak its eventual unmatched up.
+        // Keep only the obligation to swallow that up; a fresh down resets it.
+        if mustSuppressRelease {
             middleDragTriggered = true
+            LogManager.shared.log("Middle interaction discarded (\(reason))", category: "Input")
         }
     }
 
@@ -2052,7 +1984,8 @@ class InputInterceptor {
         middleDragTriggered = false
         middleButtonDownWasSuppressed = false
         pendingMiddleClick = nil
-        middleDragProfileKey = nil
+        middleClickNeedsReleaseValidation = false
+        middleDragConfig = nil
         continuousGestureAxisLocked = false
         continuousGestureAxis = .horizontal
         continuousGestureSwipeType = .horizontal
@@ -2076,7 +2009,7 @@ class InputInterceptor {
             dockSwipeSimulator.end(cancel: false)
         }
         if let hidTap = dragHIDTap {
-            CGEvent.tapEnable(tap: hidTap, enable: false)
+            setTapEnabled(hidTap, enabled: false)
         }
         LogManager.shared.log(
             force ? "Continuous gesture cancelled (\(reason))" : "Continuous gesture ended (\(reason))",
