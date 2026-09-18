@@ -1,18 +1,10 @@
-<p align="center">
-  <img src="https://img.shields.io/badge/platform-macOS-black?style=flat-square" />
-  <img src="https://img.shields.io/badge/swift-5-F05138?style=flat-square&logo=swift&logoColor=white" />
-  <img src="https://img.shields.io/badge/UI-SwiftUI-007AFF?style=flat-square" />
-</p>
+![](https://img.shields.io/badge/platform-macOS-black?style=flat-square)![](https://img.shields.io/badge/swift-5-F05138?style=flat-square&logo=swift&logoColor=white)![](https://img.shields.io/badge/UI-SwiftUI-007AFF?style=flat-square)
 
 # FlowMod
 
 A macOS menu bar app that makes external mice actually feel good on a Mac.
 
-<p align="center">
-  <a href="https://github.com/sendmebits/flowmod/releases/latest/download/flowmod.zip">
-    <img src="https://img.shields.io/badge/Download-FlowMod%20(latest)-2ea043?style=for-the-badge&logo=apple&logoColor=white" alt="Download FlowMod" />
-  </a>
-</p>
+![Download FlowMod](https://img.shields.io/badge/Download-FlowMod%20(latest)-2ea043?style=for-the-badge&logo=apple&logoColor=white)
 
 **FlowMod** brings the features macOS leaves out for non-Apple mice, smooth scrolling, per-device natural scroll direction, button remapping, and trackpad-style gestures from your mouse.
 
@@ -20,15 +12,21 @@ FlowMod is **free and open source**, with **no paywalls** and **no tracking.**
 
 ---
 
+
+
 ### 🖱 Scroll
 
 - **Smooth scrolling** — physics-based momentum that feels like a trackpad
 - **Reverse scroll** — natural scrolling for your mouse without affecting the trackpad
 - **Modifier keys** — hold ⇧ for horizontal scroll, ⌥ for precision, ⌃ for fast, ⌘ for zoom (with smooth scrolling on, ⌥ also bypasses smoothing so you get immediate ticks)
 
+
+
 ### 🔘 Buttons
 
 - Remap any extra mouse button to actions like Mission Control, copy/paste, back/forward, or a custom shortcut
+
+
 
 ### ✋ Gestures
 
@@ -39,11 +37,15 @@ FlowMod is **free and open source**, with **no paywalls** and **no tracking.**
 - With continuous mode off, you can assign other actions to a direction — for example **Show Desktop** or **Launchpad**.
 - **Continuous mode** — fixed three-finger trackpad-style swipes make system animations follow your drag (via reverse-engineered DockSwipe events): up opens Mission Control, down opens App Exposé, and left/right switch Spaces. The configurable direction mappings are not used in this mode.
 
+
+
 ### 🐭 Multiple mice
 
 - **Per-mouse settings** (optional) — turn on **Separate Settings Per Mouse** in the General tab to give each mouse its own scroll, button, and gesture settings. Handy for a work mouse vs a home mouse, or mice with different button layouts. Each mouse starts with a copy of your defaults; mice you haven't customized keep following the defaults. Works per-event, so two connected mice can behave differently at the same time.
 
 ---
+
+
 
 ### Requirements
 
@@ -52,14 +54,4 @@ FlowMod is **free and open source**, with **no paywalls** and **no tracking.**
 
 ---
 
-### Development checks
-
-Build the app with `xcodebuild -scheme flowmod -configuration Debug build`.
-Run the input regression tests with `swift test`. These tests exercise the input
-handler with an injected event sink; they do not start FlowMod, install event taps,
-or send mouse clicks to other apps. Physical mouse testing is still needed for
-browser delivery and continuous desktop gestures.
-
----
-
-<sub>Built because macOS treats non-Apple input devices as second-class citizens.</sub>
+Built because macOS treats non-Apple input devices as second-class citizens.
