@@ -12,9 +12,12 @@ class UpdateManager {
     
     // MARK: - Persisted Settings
     
-    /// Whether to automatically check for updates on launch (once per day)
+    /// Whether to automatically check for updates (once per day, on launch, wake, and in the background)
     var autoCheckForUpdates: Bool = true {
-        didSet { UserDefaults.standard.set(autoCheckForUpdates, forKey: "autoCheckForUpdates") }
+        didSet {
+            UserDefaults.standard.set(autoCheckForUpdates, forKey: "autoCheckForUpdates")
+            updateBackgroundChecking()
+        }
     }
     
     /// Timestamp of the last successful update check
@@ -39,11 +42,14 @@ class UpdateManager {
     /// Shown when the app is up to date (after a check or when throttled to avoid repeated GitHub requests).
     var upToDateMessage: String?
     @ObservationIgnored private var upToDateDismissTask: Task<Void, Never>?
+    @ObservationIgnored private var updateCheckScheduler: NSBackgroundActivityScheduler?
+    @ObservationIgnored private var wakeObserver: NSObjectProtocol?
     
     // MARK: - Constants
     
     private let releasesURL = URL(string: "https://api.github.com/repos/sendmebits/flowmod/releases/latest")!
     private let checkInterval: TimeInterval = 24 * 60 * 60 // 24 hours
+    private let backgroundCheckTolerance: TimeInterval = 6 * 60 * 60 // 6 hours
     /// Minimum time between manual "Check for Updates" requests to avoid GitHub rate limiting.
     private let manualCheckThrottleInterval: TimeInterval = 30
     private nonisolated static let expectedBundleIdentifier = "com.sendmebits.flowmod"
@@ -63,12 +69,15 @@ class UpdateManager {
         if timestamp > 0 {
             lastUpdateCheck = Date(timeIntervalSince1970: timestamp)
         }
+
+        updateBackgroundChecking()
     }
     
     // MARK: - Public Methods
     
-    /// Called on app launch; checks for updates if auto-check is enabled and enough time has passed.
-    func checkIfNeeded() {
+    /// Checks for updates if auto-check is enabled and enough time has passed.
+    /// Used on launch, Mac wake, and the daily background scheduler.
+    func checkIfNeeded() async {
         guard autoCheckForUpdates else { return }
         
         if let lastCheck = lastUpdateCheck {
@@ -76,8 +85,62 @@ class UpdateManager {
             guard elapsed >= checkInterval else { return }
         }
         // First launch (nil) or interval exceeded — check now
-        Task {
-            await checkForUpdates(showUpToDateFeedback: false)
+        await checkForUpdates(showUpToDateFeedback: false)
+    }
+
+    // MARK: - Background Checking
+
+    private func updateBackgroundChecking() {
+        if autoCheckForUpdates {
+            startBackgroundChecking()
+        } else {
+            stopBackgroundChecking()
+        }
+    }
+
+    private func startBackgroundChecking() {
+        guard updateCheckScheduler == nil else { return }
+
+        let scheduler = NSBackgroundActivityScheduler(identifier: "com.sendmebits.flowmod.update-check")
+        scheduler.repeats = true
+        scheduler.interval = checkInterval
+        scheduler.tolerance = backgroundCheckTolerance
+        scheduler.qualityOfService = .utility
+        scheduler.schedule { [weak self] completion in
+            Task { @MainActor in
+                guard let self else {
+                    completion(.finished)
+                    return
+                }
+                if self.updateCheckScheduler?.shouldDefer == true {
+                    completion(.deferred)
+                    return
+                }
+                await self.checkIfNeeded()
+                completion(.finished)
+            }
+        }
+        updateCheckScheduler = scheduler
+
+        guard wakeObserver == nil else { return }
+        wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                await self?.checkIfNeeded()
+            }
+        }
+    }
+
+    private func stopBackgroundChecking() {
+        updateCheckScheduler?.invalidate()
+        updateCheckScheduler = nil
+
+        if let wakeObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver)
+            self.wakeObserver = nil
         }
     }
     
