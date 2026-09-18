@@ -110,7 +110,7 @@ struct SettingsView: View {
     var body: some View {
         VStack(spacing: 0) {
             // Permission warning if needed
-            if !permissionManager.hasAccessibilityPermission {
+            if !permissionManager.hasAccessibilityPermission && !inputInterceptor.isRunning {
                 permissionWarning
             } else if let startupError = inputInterceptor.startupError {
                 interceptorWarning(startupError)
@@ -397,14 +397,26 @@ struct SettingsView: View {
     // MARK: - Permission Warning
 
     private var permissionWarning: some View {
-        HStack {
+        HStack(spacing: 10) {
             Image(systemName: "exclamationmark.triangle.fill")
                 .foregroundStyle(.yellow)
 
-            Text("Accessibility permission required")
-                .font(.callout)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Mouse access isn't active")
+                    .font(.callout)
+                    .fontWeight(.medium)
+                Text("Turn on FlowMod in \(PermissionManager.permissionSettingsPath). If it's already on, relaunch FlowMod.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
 
             Spacer()
+
+            Button("Relaunch") {
+                permissionManager.relaunchApp()
+            }
+            .controlSize(.small)
 
             Button("Grant Access") {
                 OnboardingWindowController.shared.show()
@@ -433,8 +445,8 @@ struct SettingsView: View {
 
             Spacer()
 
-            Button("Accessibility Settings") {
-                permissionManager.openAccessibilitySettings()
+            Button("Relaunch") {
+                permissionManager.relaunchApp()
             }
             .controlSize(.small)
 

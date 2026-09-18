@@ -491,7 +491,7 @@ class InputInterceptor {
             callback: callback,
             userInfo: Unmanaged.passUnretained(self).toOpaque()
         ) else {
-            startupError = "FlowMod couldn't start mouse interception. Accessibility access may need to be refreshed."
+            startupError = "FlowMod couldn't start mouse interception. If FlowMod is already enabled in System Settings, relaunch the app."
             runtimeObservationGeneration += 1
             self.settings = nil
             setDeviceManager(nil)

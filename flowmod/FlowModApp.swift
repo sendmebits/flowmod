@@ -28,11 +28,17 @@ struct FlowModApp: App {
                 updateManager: updateManager,
                 onboardingManager: onboardingManager
             )
+            .onAppear {
+                permissionManager.checkPermission()
+            }
         } label: {
-            let isActive = permissionManager.hasAccessibilityPermission
-                && inputInterceptor.isRunning
+            // The icon tracks the live event tap, not the TCC cache. On macOS 27
+            // Accessibility can show as enabled in Device Control while
+            // AXIsProcessTrusted still reports false in this process.
+            let isActive = inputInterceptor.isRunning
             let hasInstallableUpdate = updateManager.updateAvailable && updateManager.downloadURL != nil
             Image(nsImage: Self.menuBarImage(active: isActive, updateAvailable: hasInstallableUpdate))
+                .id("\(isActive)-\(hasInstallableUpdate)")
                 .accessibilityLabel(Self.menuBarAccessibilityLabel(
                     active: isActive,
                     updateAvailable: hasInstallableUpdate
@@ -60,19 +66,22 @@ struct FlowModApp: App {
             PermissionManager.shared.onPermissionGranted = {
                 Self.startInputInterceptorIfNeeded()
                 OnboardingManager.shared.markCompleteIfAccessibilityGranted()
+                // A process that launched untrusted often cannot create a
+                // CGEvent tap until it is relaunched, even after TCC flips on.
+                if !InputInterceptor.shared.isRunning {
+                    PermissionManager.shared.relaunchApp()
+                }
             }
             PermissionManager.shared.onPermissionRevoked = {
                 InputInterceptor.shared.stop()
             }
         }
         
-        // Start immediately for returning users. New users get a visible setup
-        // window and choose when to request Accessibility access.
+        // Always attempt to start the tap. TCC UI can show FlowMod as enabled
+        // while AXIsProcessTrusted still returns false; tapCreate is the real test.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             Task { @MainActor in
-                if PermissionManager.shared.hasAccessibilityPermission {
-                    Self.startInputInterceptorIfNeeded()
-                }
+                Self.startInputInterceptorIfNeeded()
 
                 OnboardingManager.shared.markCompleteIfAccessibilityGranted()
 
@@ -88,7 +97,6 @@ struct FlowModApp: App {
 
     @MainActor
     private static func startInputInterceptorIfNeeded() {
-        guard PermissionManager.shared.hasAccessibilityPermission else { return }
         InputInterceptor.shared.start(
             settings: Settings.shared,
             deviceManager: DeviceManager.shared
@@ -261,7 +269,7 @@ struct MenuBarContent: View {
                 inputInterceptor.stop()
             }
         } else if !permissionManager.hasAccessibilityPermission {
-            Button("Grant Accessibility Access…") {
+            Button("Grant Access…") {
                 OnboardingWindowController.shared.show()
             }
         } else {
@@ -270,9 +278,15 @@ struct MenuBarContent: View {
             }
 
             if inputInterceptor.startupError != nil {
-                Button("Open Accessibility Settings…") {
+                Button("Open Privacy Settings…") {
                     permissionManager.openAccessibilitySettings()
                 }
+            }
+        }
+
+        if !inputInterceptor.isRunning {
+            Button("Relaunch FlowMod") {
+                permissionManager.relaunchApp()
             }
         }
 
@@ -282,13 +296,12 @@ struct MenuBarContent: View {
     }
 
     private func startInterceptor() {
-        guard permissionManager.hasAccessibilityPermission else {
-            permissionManager.requestPermission()
-            return
-        }
-
         Task { @MainActor in
+            permissionManager.checkPermission()
             inputInterceptor.start(settings: settings, deviceManager: deviceManager)
+            if !inputInterceptor.isRunning, !permissionManager.hasAccessibilityPermission {
+                permissionManager.requestPermission()
+            }
         }
     }
 }

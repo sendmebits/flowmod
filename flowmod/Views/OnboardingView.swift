@@ -2,7 +2,6 @@ import SwiftUI
 import AppKit
 import Observation
 import ServiceManagement
-import ApplicationServices
 
 /// Tracks whether the current onboarding experience has been completed.
 /// Existing users with Accessibility already granted are migrated so an app
@@ -33,7 +32,7 @@ final class OnboardingManager {
     }
 
     func markCompleteIfAccessibilityGranted() {
-        guard !isCompleted, AXIsProcessTrusted() else { return }
+        guard !isCompleted, PermissionManager.isProcessTrusted() else { return }
         complete()
     }
 }
@@ -97,7 +96,7 @@ struct OnboardingView: View {
     @State private var permissionRequested = false
 
     private var isReady: Bool {
-        permissionManager.hasAccessibilityPermission && inputInterceptor.isRunning
+        inputInterceptor.isRunning
     }
 
     private var externalMice: [DeviceManager.HIDDevice] {
@@ -175,7 +174,7 @@ struct OnboardingView: View {
     private var stepAccessibilityLabel: String {
         switch step {
         case .welcome: return "Setup step 1 of 3, Welcome"
-        case .permission: return "Setup step 2 of 3, Accessibility"
+        case .permission: return "Setup step 2 of 3, \(PermissionManager.permissionPaneName)"
         case .verification: return "Setup step 3 of 3, Verification"
         }
     }
@@ -268,11 +267,11 @@ struct OnboardingView: View {
             Spacer()
 
             VStack(alignment: .leading, spacing: 8) {
-                Label("Allow Accessibility Access", systemImage: "lock.shield.fill")
+                Label("Allow Input Access", systemImage: "lock.shield.fill")
                     .font(.title.bold())
                     .foregroundStyle(Color.accentColor)
 
-                Text("FlowMod needs Accessibility access to customize external-mouse scrolling, buttons, and gestures, and to perform actions you assign.")
+                Text("Enable FlowMod in \(PermissionManager.permissionSettingsPath) so it can customize external-mouse scrolling, buttons, and gestures.")
                     .font(.body)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -296,12 +295,20 @@ struct OnboardingView: View {
             .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
 
             if permissionRequested {
-                Label(
-                    "Use the macOS alert to open System Settings, then turn on FlowMod.",
-                    systemImage: "arrow.triangle.2.circlepath"
-                )
-                .font(.callout)
-                .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 8) {
+                    Label(
+                        "Turn on FlowMod in \(PermissionManager.permissionSettingsPath). If it is already on, relaunch FlowMod.",
+                        systemImage: "arrow.triangle.2.circlepath"
+                    )
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                    Button("Relaunch FlowMod") {
+                        permissionManager.relaunchApp()
+                    }
+                    .controlSize(.small)
+                }
             }
 
             Spacer()
@@ -353,9 +360,9 @@ struct OnboardingView: View {
 
             VStack(spacing: 0) {
                 verificationRow(
-                    title: "Accessibility access",
-                    detail: permissionManager.hasAccessibilityPermission ? "Granted" : "Required",
-                    success: permissionManager.hasAccessibilityPermission
+                    title: "Input access",
+                    detail: (permissionManager.hasAccessibilityPermission || inputInterceptor.isRunning) ? "Granted" : "Required",
+                    success: permissionManager.hasAccessibilityPermission || inputInterceptor.isRunning
                 )
                 Divider().padding(.leading, 44)
                 verificationRow(
@@ -392,7 +399,7 @@ struct OnboardingView: View {
 
             HStack {
                 if !isReady {
-                    Button("Accessibility Settings") {
+                    Button("Open Settings") {
                         permissionManager.openAccessibilitySettings()
                     }
                 }
@@ -401,6 +408,7 @@ struct OnboardingView: View {
 
                 if !inputInterceptor.isRunning {
                     Button("Try Again") { retrySetup() }
+                    Button("Relaunch") { permissionManager.relaunchApp() }
                 }
 
                 Button("Finish") { finish() }
@@ -452,8 +460,8 @@ struct OnboardingView: View {
 
     private func continueFromWelcome() {
         permissionManager.checkPermission()
-        if permissionManager.hasAccessibilityPermission {
-            startFlowMod()
+        startFlowMod()
+        if permissionManager.hasAccessibilityPermission || inputInterceptor.isRunning {
             step = .verification
         } else {
             step = .permission
@@ -461,15 +469,13 @@ struct OnboardingView: View {
     }
 
     private func startFlowMod() {
-        guard permissionManager.hasAccessibilityPermission else { return }
         inputInterceptor.start(settings: Settings.shared, deviceManager: deviceManager)
     }
 
     private func retrySetup() {
         permissionManager.checkPermission()
-        if permissionManager.hasAccessibilityPermission {
-            startFlowMod()
-        } else {
+        startFlowMod()
+        if !(permissionManager.hasAccessibilityPermission || inputInterceptor.isRunning) {
             step = .permission
         }
     }

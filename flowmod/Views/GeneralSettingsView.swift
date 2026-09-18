@@ -467,7 +467,7 @@ struct AdvancedSettingsSheet: View {
                 SettingsControlRow(
                     icon: "checklist",
                     title: "Setup Assistant",
-                    description: "Review Accessibility access and verify that FlowMod can start"
+                    description: "Review input access and verify that FlowMod can start"
                 ) {
                     Button("Run Setup Again…") {
                         dismiss()

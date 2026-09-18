@@ -7,6 +7,6 @@
 	<key>NSHumanReadableCopyright</key>
 	<string>Copyright © 2026 Sendmebits. All rights reserved.</string>
 	<key>NSAccessibilityUsageDescription</key>
-	<string>FlowMod needs Accessibility access to customize external-mouse scrolling, buttons, and gestures, and to perform actions you assign.</string>
+	<string>FlowMod needs this access to customize external-mouse scrolling, buttons, and gestures, and to perform actions you assign.</string>
 </dict>
 </plist>
