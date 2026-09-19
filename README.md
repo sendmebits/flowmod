@@ -1,4 +1,4 @@
-![FlowMod app icon](flowmod/Assets.xcassets/AppIcon.appiconset/FlowMod_icon_512.png)
+![FlowMod](assets/flowmod_banner.png)
 
 # FlowMod
 
@@ -57,9 +57,6 @@ Horizontal drags follow trackpad swipe direction, so the content moves with your
 - **Continuous gestures off** — assign any supported action to each direction, including Show Desktop or Launchpad.
 - **Continuous gestures on** — system animations follow your drag like a three-finger trackpad swipe. Mission Control, App Exposé, and Spaces use fixed mappings while this option is enabled.
 
-> [!NOTE]
-> Continuous gestures use reverse-engineered DockSwipe events.
-
 
 
 ### A profile for every mouse
@@ -76,11 +73,6 @@ FlowMod requires **macOS 14 Sonoma or later**.
 2. Unzip it and move **FlowMod.app** to your Applications folder.
 3. Open FlowMod and grant access under **System Settings → Privacy & Security → Accessibility**.
 4. If the permission is not recognized immediately, quit and reopen FlowMod.
-
-> [!IMPORTANT]
-> Accessibility permission lets FlowMod intercept mouse events and perform the actions you assign. FlowMod does not remap physical keyboard input.
-
-
 
 ## License
 
