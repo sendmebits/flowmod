@@ -1,27 +1,14 @@
-<p align="center">
-  <img src="flowmod/Assets.xcassets/AppIcon.appiconset/FlowMod_icon_512.png" width="128" height="128" alt="FlowMod app icon">
-</p>
+![FlowMod app icon](flowmod/Assets.xcassets/AppIcon.appiconset/FlowMod_icon_512.png)
 
-<h1 align="center">FlowMod</h1>
+# FlowMod
 
-<p align="center">
-  A lightweight macOS menu bar app that makes non-Apple mice feel right at home.
-</p>
+A lightweight macOS app that makes non-Apple mice feel right at home.
 
-<p align="center">
-  <img src="https://img.shields.io/badge/macOS-14%2B-black?style=flat-square" alt="Requires macOS 14 or later">
-  <img src="https://img.shields.io/badge/Swift-5-F05138?style=flat-square&amp;logo=swift&amp;logoColor=white" alt="Built with Swift 5">
-  <img src="https://img.shields.io/badge/UI-SwiftUI-007AFF?style=flat-square" alt="Built with SwiftUI">
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-green?style=flat-square" alt="MIT License"></a>
-</p>
+![Requires macOS 14 or later](https://img.shields.io/badge/macOS-14%2B-black?style=flat-square)![Built with Swift 5](https://img.shields.io/badge/Swift-5-F05138?style=flat-square&logo=swift&logoColor=white)![Built with SwiftUI](https://img.shields.io/badge/UI-SwiftUI-007AFF?style=flat-square)![MIT License](https://img.shields.io/badge/License-MIT-green?style=flat-square)
 
-<p align="center">
-  <a href="https://github.com/sendmebits/flowmod/releases/latest"><img src="https://img.shields.io/github/v/release/sendmebits/flowmod?style=for-the-badge&amp;logo=apple&amp;logoColor=white&amp;label=Download&amp;color=2ea043" alt="Download the latest FlowMod release"></a>
-</p>
+![Download the latest FlowMod release](https://img.shields.io/github/v/release/sendmebits/flowmod?style=for-the-badge&logo=apple&logoColor=white&label=Download&color=2ea043)
 
-<p align="center">
-  <strong>Free and open source.</strong> No paywalls. No ads. No tracking.
-</p>
+**Free and open source.** No paywalls. No ads. No tracking.
 
 ---
 
@@ -29,18 +16,24 @@
 
 ## Features
 
+
+
 ### Native-feeling scrolling
 
 - **Smooth scrolling** — physics-based momentum that feels like a trackpad
 - **Independent scroll direction** — use natural scrolling on a mouse without changing your trackpad
 - **Scroll modifiers** — hold a key while scrolling to change its behavior:
 
-| Hold | Action |
-| :--- | :--- |
-| ⇧ Shift | Horizontal scroll |
-| ⌥ Option | Precision (also bypasses smoothing for immediate ticks) |
-| ⌃ Control | Fast scroll |
-| ⌘ Command | Zoom |
+
+| Hold      | Action                                                  |
+| --------- | ------------------------------------------------------- |
+| ⇧ Shift   | Horizontal scroll                                       |
+| ⌥ Option  | Precision (also bypasses smoothing for immediate ticks) |
+| ⌃ Control | Fast scroll                                             |
+| ⌘ Command | Zoom                                                    |
+
+
+
 
 ### More useful buttons
 
@@ -50,12 +43,14 @@ Map extra mouse buttons to Mission Control, copy and paste, back and forward, or
 
 Hold the middle mouse button and drag to trigger an action. Each direction is configurable in Settings.
 
-| Drag | Default action |
-| :--- | :--- |
-| **Up** | Mission Control |
-| **Down** | App Exposé |
-| **Left** | Space right |
-| **Right** | Space left |
+
+| Drag      | Default action  |
+| --------- | --------------- |
+| **Up**    | Mission Control |
+| **Down**  | App Exposé      |
+| **Left**  | Space right     |
+| **Right** | Space left      |
+
 
 Horizontal drags follow trackpad swipe direction, so the content moves with your gesture.
 
@@ -64,6 +59,8 @@ Horizontal drags follow trackpad swipe direction, so the content moves with your
 
 > [!NOTE]
 > Continuous gestures use reverse-engineered DockSwipe events.
+
+
 
 ### A profile for every mouse
 
@@ -76,12 +73,14 @@ Each new profile starts with your defaults. Uncustomized mice continue to follow
 FlowMod requires **macOS 14 Sonoma or later**.
 
 1. Download `flowmod.zip` from the [latest release](https://github.com/sendmebits/flowmod/releases/latest).
-2. Unzip it and move **FlowMod** to your Applications folder.
+2. Unzip it and move **FlowMod.app** to your Applications folder.
 3. Open FlowMod and grant access under **System Settings → Privacy & Security → Accessibility**.
 4. If the permission is not recognized immediately, quit and reopen FlowMod.
 
 > [!IMPORTANT]
 > Accessibility permission lets FlowMod intercept mouse events and perform the actions you assign. FlowMod does not remap physical keyboard input.
+
+
 
 ## License
 
@@ -89,4 +88,4 @@ FlowMod is available under the [MIT License](LICENSE).
 
 ---
 
-<p align="center"><em>Built because macOS treats non-Apple input devices as second-class citizens.</em></p>
+*Built because macOS treats non-Apple input devices as second-class citizens.*
