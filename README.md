@@ -1,14 +1,21 @@
 ![FlowMod](assets/flowmod_banner.png)
 
+<div align="center">
+
 # FlowMod
 
 A lightweight macOS app that makes non-Apple mice feel right at home.
 
-![Requires macOS 14 or later](https://img.shields.io/badge/macOS-14%2B-black?style=flat-square)![Built with Swift 5](https://img.shields.io/badge/Swift-5-F05138?style=flat-square&logo=swift&logoColor=white)![Built with SwiftUI](https://img.shields.io/badge/UI-SwiftUI-007AFF?style=flat-square)![MIT License](https://img.shields.io/badge/License-MIT-green?style=flat-square)
+![Requires macOS 14 or later](https://img.shields.io/badge/macOS-14%2B-black?style=flat-square)
+![Built with Swift 5](https://img.shields.io/badge/Swift-5-F05138?style=flat-square&logo=swift&logoColor=white)
+![Built with SwiftUI](https://img.shields.io/badge/UI-SwiftUI-007AFF?style=flat-square)
+[![MIT License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
 
-![Download the latest FlowMod release](https://img.shields.io/github/v/release/sendmebits/flowmod?style=for-the-badge&logo=apple&logoColor=white&label=Download&color=2ea043)
+[![Download the latest FlowMod release](https://img.shields.io/github/v/release/sendmebits/flowmod?style=for-the-badge&logo=apple&logoColor=white&label=Download&color=2ea043)](https://github.com/sendmebits/flowmod/releases/latest)
 
 **Free and open source.** No paywalls. No ads. No tracking.
+
+</div>
 
 ---
 
@@ -16,24 +23,44 @@ A lightweight macOS app that makes non-Apple mice feel right at home.
 
 ## Features
 
-
-
 ### Native-feeling scrolling
 
 - **Smooth scrolling** — physics-based momentum that feels like a trackpad
 - **Independent scroll direction** — use natural scrolling on a mouse without changing your trackpad
 - **Scroll modifiers** — hold a key while scrolling to change its behavior:
 
-
-| Hold      | Action                                                  |
-| --------- | ------------------------------------------------------- |
-| ⇧ Shift   | Horizontal scroll                                       |
-| ⌥ Option  | Precision (also bypasses smoothing for immediate ticks) |
-| ⌃ Control | Fast scroll                                             |
-| ⌘ Command | Zoom                                                    |
-
-
-
+<table>
+  <thead>
+    <tr>
+      <th align="left">Hold</th>
+      <th align="left">Action</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>⇧ Shift</td>
+      <td>Horizontal scroll</td>
+    </tr>
+  </tbody>
+  <tbody>
+    <tr>
+      <td>⌥ Option</td>
+      <td>Precision (also bypasses smoothing for immediate ticks)</td>
+    </tr>
+  </tbody>
+  <tbody>
+    <tr>
+      <td>⌃ Control</td>
+      <td>Fast scroll</td>
+    </tr>
+  </tbody>
+  <tbody>
+    <tr>
+      <td>⌘ Command</td>
+      <td>Zoom</td>
+    </tr>
+  </tbody>
+</table>
 
 ### More useful buttons
 
@@ -43,21 +70,43 @@ Map extra mouse buttons to Mission Control, copy and paste, back and forward, or
 
 Hold the middle mouse button and drag to trigger an action. Each direction is configurable in Settings.
 
-
-| Drag      | Default action  |
-| --------- | --------------- |
-| **Up**    | Mission Control |
-| **Down**  | App Exposé      |
-| **Left**  | Space right     |
-| **Right** | Space left      |
-
+<table>
+  <thead>
+    <tr>
+      <th align="left">Drag</th>
+      <th align="left">Default action</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>Up</strong></td>
+      <td>Mission Control</td>
+    </tr>
+  </tbody>
+  <tbody>
+    <tr>
+      <td><strong>Down</strong></td>
+      <td>App Exposé</td>
+    </tr>
+  </tbody>
+  <tbody>
+    <tr>
+      <td><strong>Left</strong></td>
+      <td>Space right</td>
+    </tr>
+  </tbody>
+  <tbody>
+    <tr>
+      <td><strong>Right</strong></td>
+      <td>Space left</td>
+    </tr>
+  </tbody>
+</table>
 
 Horizontal drags follow trackpad swipe direction, so the content moves with your gesture.
 
 - **Continuous gestures off** — assign any supported action to each direction, including Show Desktop or Launchpad.
 - **Continuous gestures on** — system animations follow your drag like a three-finger trackpad swipe. Mission Control, App Exposé, and Spaces use fixed mappings while this option is enabled.
-
-
 
 ### A profile for every mouse
 
