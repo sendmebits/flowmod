@@ -29,7 +29,8 @@ A lightweight macOS app that makes non-Apple mice feel right at home.
 - **Independent scroll direction** — use natural scrolling on a mouse without changing your trackpad
 - **Scroll modifiers** — hold a key while scrolling to change its behavior:
 
-<table>
+<div align="center">
+<table align="center">
   <thead>
     <tr>
       <th align="left">Hold</th>
@@ -38,29 +39,30 @@ A lightweight macOS app that makes non-Apple mice feel right at home.
   </thead>
   <tbody>
     <tr>
-      <td>⇧ Shift</td>
-      <td>Horizontal scroll</td>
+      <td align="left">⇧ Shift</td>
+      <td align="left">Horizontal scroll</td>
     </tr>
   </tbody>
   <tbody>
     <tr>
-      <td>⌥ Option</td>
-      <td>Precision (also bypasses smoothing for immediate ticks)</td>
+      <td align="left">⌥ Option</td>
+      <td align="left">Precision (also bypasses smoothing for immediate ticks)</td>
     </tr>
   </tbody>
   <tbody>
     <tr>
-      <td>⌃ Control</td>
-      <td>Fast scroll</td>
+      <td align="left">⌃ Control</td>
+      <td align="left">Fast scroll</td>
     </tr>
   </tbody>
   <tbody>
     <tr>
-      <td>⌘ Command</td>
-      <td>Zoom</td>
+      <td align="left">⌘ Command</td>
+      <td align="left">Zoom</td>
     </tr>
   </tbody>
 </table>
+</div>
 
 ### More useful buttons
 
@@ -70,7 +72,8 @@ Map extra mouse buttons to Mission Control, copy and paste, back and forward, or
 
 Hold the middle mouse button and drag to trigger an action. Each direction is configurable in Settings.
 
-<table>
+<div align="center">
+<table align="center">
   <thead>
     <tr>
       <th align="left">Drag</th>
@@ -79,29 +82,30 @@ Hold the middle mouse button and drag to trigger an action. Each direction is co
   </thead>
   <tbody>
     <tr>
-      <td><strong>Up</strong></td>
-      <td>Mission Control</td>
+      <td align="left"><strong>Up</strong></td>
+      <td align="left">Mission Control</td>
     </tr>
   </tbody>
   <tbody>
     <tr>
-      <td><strong>Down</strong></td>
-      <td>App Exposé</td>
+      <td align="left"><strong>Down</strong></td>
+      <td align="left">App Exposé</td>
     </tr>
   </tbody>
   <tbody>
     <tr>
-      <td><strong>Left</strong></td>
-      <td>Space right</td>
+      <td align="left"><strong>Left</strong></td>
+      <td align="left">Space right</td>
     </tr>
   </tbody>
   <tbody>
     <tr>
-      <td><strong>Right</strong></td>
-      <td>Space left</td>
+      <td align="left"><strong>Right</strong></td>
+      <td align="left">Space left</td>
     </tr>
   </tbody>
 </table>
+</div>
 
 Horizontal drags follow trackpad swipe direction, so the content moves with your gesture.
 
