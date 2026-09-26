@@ -11,7 +11,7 @@ A lightweight macOS app that makes non-Apple mice feel right at home.
 ![Built with SwiftUI](https://img.shields.io/badge/UI-SwiftUI-007AFF?style=flat-square)
 [![MIT License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
 
-[![Download the latest FlowMod release](https://img.shields.io/github/v/release/sendmebits/flowmod?style=for-the-badge&logo=apple&logoColor=white&label=Download&color=2ea043)](https://github.com/sendmebits/flowmod/releases/latest)
+[![Download the latest FlowMod release](https://img.shields.io/github/v/release/sendmebits/flowmod?style=for-the-badge&logo=apple&logoColor=white&label=Download&color=2ea043)](https://github.com/sendmebits/flowmod/releases/latest/download/FlowMod.dmg)
 
 **Free and open source.** No paywalls. No ads. No tracking.
 
@@ -122,7 +122,7 @@ Each new profile starts with your defaults. Uncustomized mice continue to follow
 
 FlowMod requires **macOS 14 Sonoma or later**.
 
-1. Download `FlowMod.dmg` from the [latest release](https://github.com/sendmebits/flowmod/releases/latest).
+1. Download [`FlowMod.dmg`](https://github.com/sendmebits/flowmod/releases/latest/download/FlowMod.dmg) from the latest release.
 2. Open the disk image and drag **FlowMod** onto the Applications folder.
 3. Open FlowMod from Applications and grant access under **System Settings → Privacy & Security → Accessibility**.
 4. If the permission is not recognized immediately, quit and reopen FlowMod.
