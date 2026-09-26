@@ -41,6 +41,7 @@ fi
 mkdir -p "$OUT_DIR"
 OUT_DIR=$(cd "$OUT_DIR" && pwd)
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/flowmod-dmg.XXXXXX")
+WORK=$(cd "$WORK" && pwd -P)
 RW_DMG="$WORK/flowmod-rw.dmg"
 STAGING="$WORK/stage"
 BACKGROUND="$WORK/background.png"
@@ -79,12 +80,20 @@ swift "$ROOT/scripts/render-dmg-background.swift" "$BACKGROUND" "$WINDOW_WIDTH" 
 
 APP_KB=$(du -sk "$STAGING/FlowMod.app" | awk '{print $1}')
 DMG_KB=$((APP_KB + 30000))
+# An already-open FlowMod disk is read-only. Eject it so this build does not
+# try to copy files onto that volume.
+if [[ -d "/Volumes/$VOLUME_NAME" ]]; then
+    echo "Closing the open $VOLUME_NAME disk image."
+    diskutil eject "/Volumes/$VOLUME_NAME" >/dev/null
+fi
 diskutil image create blank --size "${DMG_KB}k" --volumeName "$VOLUME_NAME" --fs APFS --format RAW "$RW_DMG" >/dev/null
 ATTACH_INFO=$(diskutil image attach "$RW_DMG")
-DEVICE=$(printf '%s\n' "$ATTACH_INFO" | awk '/\/Volumes\// {print $1; exit}')
-MOUNT=$(printf '%s\n' "$ATTACH_INFO" | awk '/\/Volumes\// {print $3; exit}')
-if [[ -z "$DEVICE" || -z "$MOUNT" || ! -d "$MOUNT" ]]; then
-    echo "Could not mount the disk image." >&2
+# The mount path can contain spaces, so take the whole path instead of one field.
+MOUNT=$(printf '%s\n' "$ATTACH_INFO" | sed -n 's/.*Apple_APFS_Volume[[:space:]]*//p' | head -1)
+DEVICE=$(printf '%s\n' "$ATTACH_INFO" | awk '/Apple_APFS_Volume/ {print $1; exit}')
+if [[ -z "$DEVICE" || -z "$MOUNT" || ! -w "$MOUNT" ]]; then
+    echo "Could not mount a writable disk image." >&2
+    printf '%s\n' "$ATTACH_INFO" >&2
     exit 1
 fi
 mkdir -p "$MOUNT/.background"

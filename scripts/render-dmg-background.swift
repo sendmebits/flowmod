@@ -24,24 +24,32 @@ let image = NSImage(size: pointSize, flipped: false) { _ in
     // The app and Applications icons sit at y = 175.
     let iconCenterFromTop: CGFloat = 175
     let arrowY = CGFloat(height) - iconCenterFromTop
-    let arrowColor = NSColor(calibratedWhite: 0.45, alpha: 1)
+    let arrowColor = NSColor(calibratedWhite: 0.38, alpha: 1)
 
-    let shaft = NSBezierPath()
-    shaft.move(to: NSPoint(x: 255, y: arrowY))
-    shaft.line(to: NSPoint(x: 395, y: arrowY))
-    shaft.lineWidth = 3
-    shaft.lineCapStyle = .round
-    arrowColor.setStroke()
-    shaft.stroke()
-
-    let head = NSBezierPath()
-    head.move(to: NSPoint(x: 378, y: arrowY - 12))
-    head.line(to: NSPoint(x: 402, y: arrowY))
-    head.line(to: NSPoint(x: 378, y: arrowY + 12))
-    head.lineWidth = 3
-    head.lineCapStyle = .round
-    head.lineJoinStyle = .round
-    head.stroke()
+    // One filled shape, so the head and shaft share a center line.
+    let shaftHalf: CGFloat = 7
+    let headHalf: CGFloat = 15
+    let tailX: CGFloat = 252
+    let headBaseX: CGFloat = 378
+    let tipX: CGFloat = 408
+    let arrow = NSBezierPath()
+    arrow.move(to: NSPoint(x: tailX + shaftHalf, y: arrowY + shaftHalf))
+    arrow.line(to: NSPoint(x: headBaseX, y: arrowY + shaftHalf))
+    arrow.line(to: NSPoint(x: headBaseX, y: arrowY + headHalf))
+    arrow.line(to: NSPoint(x: tipX, y: arrowY))
+    arrow.line(to: NSPoint(x: headBaseX, y: arrowY - headHalf))
+    arrow.line(to: NSPoint(x: headBaseX, y: arrowY - shaftHalf))
+    arrow.line(to: NSPoint(x: tailX + shaftHalf, y: arrowY - shaftHalf))
+    arrow.appendArc(
+        withCenter: NSPoint(x: tailX + shaftHalf, y: arrowY),
+        radius: shaftHalf,
+        startAngle: 270,
+        endAngle: 90,
+        clockwise: true
+    )
+    arrow.close()
+    arrowColor.setFill()
+    arrow.fill()
 
     let caption = "Drag FlowMod to Applications" as NSString
     let attributes: [NSAttributedString.Key: Any] = [
