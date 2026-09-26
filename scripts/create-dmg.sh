@@ -60,7 +60,10 @@ mkdir -p "$STAGING"
 ditto "$APP_PATH" "$STAGING/FlowMod.app"
 
 if [[ -n "${FLOWMOD_NOTARY_PROFILE:-}" ]]; then
-    if ! codesign -dv --verbose=4 "$STAGING/FlowMod.app" 2>&1 | grep -q "Authority=Developer ID Application"; then
+    # Read the whole codesign report before searching. A pipeline into grep -q
+    # stops codesign early, and pipefail then treats that as a failed signature.
+    signature=$(codesign -dv --verbose=4 "$STAGING/FlowMod.app" 2>&1 || true)
+    if [[ "$signature" != *"Authority=Developer ID Application"* ]]; then
         echo "Refusing to notarize: FlowMod.app is not signed with Developer ID Application." >&2
         exit 1
     fi
