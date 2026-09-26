@@ -7,7 +7,7 @@
       "size" : "16x16"
     },
     {
-      "filename" : "FlowMod_icon_32 1.png",
+      "filename" : "FlowMod_icon_32.png",
       "idiom" : "mac",
       "scale" : "2x",
       "size" : "16x16"
@@ -25,16 +25,19 @@
       "size" : "32x32"
     },
     {
+      "filename" : "FlowMod_icon_128.png",
       "idiom" : "mac",
       "scale" : "1x",
       "size" : "128x128"
     },
     {
+      "filename" : "FlowMod_icon_256.png",
       "idiom" : "mac",
       "scale" : "2x",
       "size" : "128x128"
     },
     {
+      "filename" : "FlowMod_icon_256.png",
       "idiom" : "mac",
       "scale" : "1x",
       "size" : "256x256"
@@ -46,12 +49,13 @@
       "size" : "256x256"
     },
     {
-      "filename" : "FlowMod_icon_512 1.png",
+      "filename" : "FlowMod_icon_512.png",
       "idiom" : "mac",
       "scale" : "1x",
       "size" : "512x512"
     },
     {
+      "filename" : "FlowMod_icon_1024.png",
       "idiom" : "mac",
       "scale" : "2x",
       "size" : "512x512"
