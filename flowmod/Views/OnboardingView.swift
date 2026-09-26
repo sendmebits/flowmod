@@ -46,6 +46,11 @@ final class OnboardingWindowController: NSObject, NSWindowDelegate {
     private var windowController: NSWindowController?
 
     func show() {
+        if InstallLocation.needsRelocation {
+            InstallLocationWindowController.shared.show()
+            return
+        }
+
         if let window = windowController?.window {
             window.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)

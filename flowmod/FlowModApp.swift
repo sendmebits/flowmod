@@ -29,6 +29,10 @@ struct FlowModApp: App {
                 onboardingManager: onboardingManager
             )
             .onAppear {
+                if InstallLocation.needsRelocation {
+                    InstallLocationWindowController.shared.show()
+                    return
+                }
                 permissionManager.checkPermission()
             }
         } label: {
@@ -62,6 +66,15 @@ struct FlowModApp: App {
     }
     
     init() {
+        // A download opened from the disk image or Downloads must move into
+        // Applications before the event tap or the Accessibility prompt.
+        if InstallLocation.needsRelocation {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                InstallLocationWindowController.shared.show()
+            }
+            return
+        }
+
         Task { @MainActor in
             PermissionManager.shared.onPermissionGranted = {
                 Self.startInputInterceptorIfNeeded()
@@ -256,37 +269,43 @@ struct MenuBarContent: View {
             FlowModApp.foregroundSettingsWindow(afterDelays: [0.1, 0.3])
         }
 
-        if !onboardingManager.isCompleted {
-            Button("Finish Setup…") {
-                OnboardingWindowController.shared.show()
-            }
-        }
-
-        Divider()
-
-        if inputInterceptor.isRunning {
-            Button("Disable FlowMod") {
-                inputInterceptor.stop()
-            }
-        } else if !permissionManager.hasAccessibilityPermission {
-            Button("Grant Access…") {
-                OnboardingWindowController.shared.show()
+        if InstallLocation.needsRelocation {
+            Button("Move to Applications…") {
+                InstallLocationWindowController.shared.show()
             }
         } else {
-            Button(inputInterceptor.startupError == nil ? "Enable FlowMod" : "Try Starting FlowMod Again") {
-                startInterceptor()
-            }
-
-            if inputInterceptor.startupError != nil {
-                Button("Open Privacy Settings…") {
-                    permissionManager.openAccessibilitySettings()
+            if !onboardingManager.isCompleted {
+                Button("Finish Setup…") {
+                    OnboardingWindowController.shared.show()
                 }
             }
-        }
 
-        if !inputInterceptor.isRunning {
-            Button("Relaunch FlowMod") {
-                permissionManager.relaunchApp()
+            Divider()
+
+            if inputInterceptor.isRunning {
+                Button("Disable FlowMod") {
+                    inputInterceptor.stop()
+                }
+            } else if !permissionManager.hasAccessibilityPermission {
+                Button("Grant Access…") {
+                    OnboardingWindowController.shared.show()
+                }
+            } else {
+                Button(inputInterceptor.startupError == nil ? "Enable FlowMod" : "Try Starting FlowMod Again") {
+                    startInterceptor()
+                }
+
+                if inputInterceptor.startupError != nil {
+                    Button("Open Privacy Settings…") {
+                        permissionManager.openAccessibilitySettings()
+                    }
+                }
+            }
+
+            if !inputInterceptor.isRunning {
+                Button("Relaunch FlowMod") {
+                    permissionManager.relaunchApp()
+                }
             }
         }
 
@@ -296,6 +315,11 @@ struct MenuBarContent: View {
     }
 
     private func startInterceptor() {
+        if InstallLocation.needsRelocation {
+            InstallLocationWindowController.shared.show()
+            return
+        }
+
         Task { @MainActor in
             permissionManager.checkPermission()
             inputInterceptor.start(settings: settings, deviceManager: deviceManager)

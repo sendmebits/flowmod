@@ -83,6 +83,11 @@ class PermissionManager {
 
     /// Prompt user for accessibility permission
     func requestPermission() {
+        guard !InstallLocation.needsRelocation else {
+            InstallLocationWindowController.shared.show()
+            return
+        }
+
         let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary
         _ = AXIsProcessTrustedWithOptions(options)
 
@@ -92,6 +97,11 @@ class PermissionManager {
 
     /// Open System Settings to the permission pane
     func openAccessibilitySettings() {
+        guard !InstallLocation.needsRelocation else {
+            InstallLocationWindowController.shared.show()
+            return
+        }
+
         checkPermission()
         if !hasAccessibilityPermission { startPermissionMonitoring(resetBackoff: true) }
 
@@ -109,6 +119,11 @@ class PermissionManager {
     /// Quit and reopen so a freshly granted TCC identity is picked up.
     /// Event taps often cannot be created in a process that launched untrusted.
     func relaunchApp() {
+        guard !InstallLocation.needsRelocation else {
+            InstallLocationWindowController.shared.show()
+            return
+        }
+
         let bundlePath = Bundle.main.bundleURL.path
         let escaped = bundlePath.replacingOccurrences(of: "'", with: "'\\''")
         let task = Process()

@@ -110,7 +110,9 @@ struct SettingsView: View {
     var body: some View {
         VStack(spacing: 0) {
             // Permission warning if needed
-            if !permissionManager.hasAccessibilityPermission && !inputInterceptor.isRunning {
+            if InstallLocation.needsRelocation {
+                relocationWarning
+            } else if !permissionManager.hasAccessibilityPermission && !inputInterceptor.isRunning {
                 permissionWarning
             } else if let startupError = inputInterceptor.startupError {
                 interceptorWarning(startupError)
@@ -395,6 +397,33 @@ struct SettingsView: View {
     }
 
     // MARK: - Permission Warning
+
+    private var relocationWarning: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "folder")
+                .foregroundStyle(Color.accentColor)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Move FlowMod to Applications")
+                    .font(.callout)
+                    .fontWeight(.medium)
+                Text("FlowMod has to live in your Applications folder before it can set up input access.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+
+            Spacer()
+
+            Button("Move to Applications") {
+                InstallLocationWindowController.shared.show()
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+        }
+        .padding()
+        .background(Color.accentColor.opacity(0.08))
+    }
 
     private var permissionWarning: some View {
         HStack(spacing: 10) {

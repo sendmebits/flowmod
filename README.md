@@ -122,10 +122,12 @@ Each new profile starts with your defaults. Uncustomized mice continue to follow
 
 FlowMod requires **macOS 14 Sonoma or later**.
 
-1. Download `flowmod.zip` from the [latest release](https://github.com/sendmebits/flowmod/releases/latest).
-2. Unzip it and move **FlowMod.app** to your Applications folder.
-3. Open FlowMod and grant access under **System Settings → Privacy & Security → Accessibility**.
+1. Download `FlowMod.dmg` from the [latest release](https://github.com/sendmebits/flowmod/releases/latest).
+2. Open the disk image and drag **FlowMod** onto the Applications folder.
+3. Open FlowMod from Applications and grant access under **System Settings → Privacy & Security → Accessibility**.
 4. If the permission is not recognized immediately, quit and reopen FlowMod.
+
+Opening FlowMod from the disk image or from Downloads moves it into Applications before setup continues. Input access is requested only after that move.
 
 ## License
 
