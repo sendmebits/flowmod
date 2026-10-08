@@ -112,6 +112,10 @@ Horizontal drags follow trackpad swipe direction, so the content moves with your
 - **Continuous gestures off** — assign any supported action to each direction, including Show Desktop or Launchpad.
 - **Continuous gestures on** — system animations follow your drag like a three-finger trackpad swipe. Mission Control, App Exposé, and Spaces use fixed mappings while this option is enabled.
 
+### Windows keyboards
+
+Swap Option and Command on a USB or Bluetooth keyboard so those keys sit where they do on a Mac keyboard. FlowMod writes the same per-keyboard setting as **System Settings → Keyboard → Keyboard Shortcuts → Modifier Keys**, and macOS keeps the swap after you quit.
+
 ### A profile for every mouse
 
 Turn on **Separate Settings Per Mouse** in the General tab to give each mouse its own scrolling, button, and gesture settings—handy for work and home mice or devices with different button layouts.

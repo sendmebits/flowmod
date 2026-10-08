@@ -6,7 +6,7 @@ This file guides AI agents (Cursor, Copilot, etc.) working on the FlowMod codeba
 
 ## Project at a Glance
 
-- **What it is:** macOS menu bar app that customizes external mouse behavior (scroll, buttons, middle-drag gestures) via low-level HID/CGEvent interception. Mouse actions may synthesize keyboard shortcuts (e.g. copy/paste); the app does not remap physical keyboard input.
+- **What it is:** macOS menu bar app that customizes external mouse behavior (scroll, buttons, middle-drag gestures) via low-level HID/CGEvent interception. Mouse actions may synthesize keyboard shortcuts (e.g. copy/paste). Option and Command on an external keyboard can be swapped through macOS modifier-key settings; the app does not intercept physical keyboard input.
 - **Stack:** Swift, SwiftUI, AppKit, IOKit, CGEvent.
 - **Layout:** `flowmod/` is the main app target; Xcode project at `flowmod.xcodeproj/`.
 
@@ -30,6 +30,8 @@ This file guides AI agents (Cursor, Copilot, etc.) working on the FlowMod codeba
 | App entry & menu bar | `flowmod/FlowModApp.swift`                                   |
 | Event tap & mapping  | `flowmod/Managers/InputInterceptor.swift`                    |
 | HID device detection | `flowmod/Managers/DeviceManager.swift`                       |
+| External keyboards   | `flowmod/Managers/KeyboardManager.swift`                     |
+| Option/Command swap  | `flowmod/Managers/KeyboardModifierStore.swift`               |
 | Settings model       | `flowmod/Models/Settings.swift` (globals + profile store)    |
 | Per-mouse profiles   | `flowmod/Models/ProfileSettings.swift` (scroll/button/gesture settings; default profile + per-device profiles keyed by "vendorID:productID") |
 | Shortcut combo model | `flowmod/Models/KeyCombo.swift` (for custom mouse shortcuts) |

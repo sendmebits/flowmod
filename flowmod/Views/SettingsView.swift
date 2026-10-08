@@ -89,9 +89,10 @@ struct SettingsView: View {
     var deviceManager: DeviceManager
     var permissionManager: PermissionManager
     var inputInterceptor: InputInterceptor
+    var keyboardManager: KeyboardManager
 
     private enum Tab: Hashable {
-        case general, scroll, buttons, gestures
+        case general, scroll, buttons, gestures, keyboard
     }
 
     /// Which profile the window is editing. nil = default ("All Mice").
@@ -104,7 +105,7 @@ struct SettingsView: View {
 
     /// The mouse scope bar is only relevant on the per-mouse behavior tabs.
     private var showsScopeBar: Bool {
-        settings.perMouseSettingsEnabled && selectedTab != .general
+        settings.perMouseSettingsEnabled && selectedTab != .general && selectedTab != .keyboard
     }
 
     var body: some View {
@@ -153,6 +154,12 @@ struct SettingsView: View {
                     Label("Gestures", systemImage: "hand.draw")
                 }
                 .tag(Tab.gestures)
+
+                KeyboardSettingsView(keyboardManager: keyboardManager)
+                .tabItem {
+                    Label("Keyboard", systemImage: "keyboard")
+                }
+                .tag(Tab.keyboard)
             }
             .padding()
         }
@@ -495,6 +502,7 @@ struct SettingsView: View {
         settings: Settings.shared,
         deviceManager: DeviceManager.shared,
         permissionManager: PermissionManager.shared,
-        inputInterceptor: InputInterceptor.shared
+        inputInterceptor: InputInterceptor.shared,
+        keyboardManager: KeyboardManager.shared
     )
 }

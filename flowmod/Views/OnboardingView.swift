@@ -289,7 +289,7 @@ struct OnboardingView: View {
                 )
                 permissionDetail(
                     icon: "keyboard",
-                    text: "It doesn't intercept or remap your physical keyboard."
+                    text: "It doesn't intercept what you type."
                 )
                 permissionDetail(
                     icon: "eye.slash",

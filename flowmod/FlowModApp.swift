@@ -12,6 +12,7 @@ import AppKit
 struct FlowModApp: App {
     @State private var settings = Settings.shared
     @State private var deviceManager = DeviceManager.shared
+    @State private var keyboardManager = KeyboardManager.shared
     @State private var permissionManager = PermissionManager.shared
     @State private var inputInterceptor = InputInterceptor.shared
     @State private var updateManager = UpdateManager.shared
@@ -56,7 +57,8 @@ struct FlowModApp: App {
                 settings: settings,
                 deviceManager: deviceManager,
                 permissionManager: permissionManager,
-                inputInterceptor: inputInterceptor
+                inputInterceptor: inputInterceptor,
+                keyboardManager: keyboardManager
             )
             .onAppear {
                 Self.foregroundSettingsWindow(afterDelays: [0.1])
