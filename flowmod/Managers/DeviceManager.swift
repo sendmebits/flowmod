@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import IOKit
 import IOKit.hid
@@ -18,6 +19,8 @@ class DeviceManager {
         0x004C  // Apple Bluetooth
     ]
     private var refreshTimer: Timer?
+    @ObservationIgnored private var wakeObserver: NSObjectProtocol?
+    @ObservationIgnored private var activationObserver: NSObjectProtocol?
 
     /// Attribution state read from the event-tap thread (see `device(forEventSenderID:)`).
     /// Guarded by `attributionLock` rather than the main actor so the scroll/button
@@ -119,6 +122,25 @@ class DeviceManager {
             }
         }
         refreshTimer?.tolerance = 5.0
+
+        wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.refreshDevices()
+            }
+        }
+        activationObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.refreshDevices()
+            }
+        }
     }
     
     private func setupHIDManager() {
@@ -176,6 +198,7 @@ class DeviceManager {
         }
         
         let newDevices = deviceSet
+            .filter(HIDRegistry.isLive)
             .compactMap { device -> HIDDevice? in
                 return createHIDDevice(from: device)
             }
@@ -365,5 +388,21 @@ class DeviceManager {
         if externalMouseConnected != prevMouse {
             LogManager.shared.log("External mouse: \(externalMouseConnected ? "connected" : "disconnected")", category: "Device")
         }
+    }
+}
+
+enum HIDRegistry {
+    /// `IOHIDManagerCopyDevices` can keep returning a device whose removal it
+    /// never processed, typically across sleep. Matching skips terminated
+    /// services, so a failed lookup means the device is gone.
+    static func isLive(_ device: IOHIDDevice) -> Bool {
+        let service = IOHIDDeviceGetService(device)
+        guard service != 0 else { return false }
+        var entryID: UInt64 = 0
+        guard IORegistryEntryGetRegistryEntryID(service, &entryID) == KERN_SUCCESS else { return false }
+        let match = IOServiceGetMatchingService(kIOMainPortDefault, IORegistryEntryIDMatching(entryID))
+        guard match != 0 else { return false }
+        IOObjectRelease(match)
+        return true
     }
 }

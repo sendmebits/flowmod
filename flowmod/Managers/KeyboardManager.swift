@@ -55,6 +55,7 @@ class KeyboardManager {
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
+                self?.refreshDevices()
                 self?.refreshMappingState()
             }
         }
@@ -152,7 +153,7 @@ class KeyboardManager {
         }
 
         var byIdentity: [String: ExternalKeyboard] = [:]
-        for device in deviceSet {
+        for device in deviceSet where HIDRegistry.isLive(device) {
             guard let keyboard = createKeyboard(from: device) else { continue }
             if let existing = byIdentity[keyboard.id] {
                 byIdentity[keyboard.id] = preferred(existing, keyboard)
