@@ -36,14 +36,16 @@ struct KeyboardSettingsView: View {
                                         .labelsHidden()
                                     }
                                 }
-
-                                Text("This choice also appears in System Settings → Keyboard → Keyboard Shortcuts → Modifier Keys.")
-                                    .font(.caption2)
-                                    .foregroundStyle(.tertiary)
-                                    .fixedSize(horizontal: false, vertical: true)
                             }
                         }
                         .padding(.vertical, 4)
+                    }
+
+                    if !keyboardManager.connectedKeyboards.isEmpty {
+                        Text("This choice also appears in System Settings → Keyboard → Keyboard Shortcuts → Modifier Keys.")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                 }
             }
