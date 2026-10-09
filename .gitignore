@@ -22,6 +22,8 @@ Packages/
 
 # Editors
 .vscode
+.cursor/
+.claude/
 
 # macOS
 .DS_Store
@@ -31,6 +33,8 @@ Packages/
 
 # Archives
 *.xcarchive
+*.dmg
+*.zip
 
 # Crash logs
 *.crash
