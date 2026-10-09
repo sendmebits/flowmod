@@ -32,6 +32,36 @@ final class ContinuousGestureTests: XCTestCase {
         interceptor.handleEvent(event, type: event.type, proxy: nil)
     }
 
+    func testAxisIsChosenAtCommitAfterEarlyMovementOnOtherAxis() {
+        let movements: [(Double, Double, Double, Double, DockSwipeSimulator.SwipeType)] = [
+            (107, 100, 107, 130, .vertical),
+            (93, 100, 93, 70, .vertical),
+            (100, 107, 130, 107, .horizontal),
+            (100, 93, 70, 93, .horizontal)
+        ]
+        for (earlyX, earlyY, finalX, finalY, axis) in movements {
+            let simulator = RecordingDockSwipe()
+            let interceptor = InputInterceptor.makeForTesting(dockSwipeSimulator: simulator) { _, _ in
+                XCTFail("Gesture must not click")
+            }
+            send(event(.otherMouseDown), to: interceptor)
+            let earlyMove = send(event(.otherMouseDragged, x: earlyX, y: earlyY), to: interceptor)
+            XCTAssertEqual(earlyMove?.type, .mouseMoved)
+            XCTAssertTrue(simulator.began.isEmpty)
+
+            XCTAssertNil(send(event(.otherMouseDragged, x: finalX, y: finalY), to: interceptor))
+            XCTAssertEqual(simulator.began, [axis])
+
+            let drag = event(.otherMouseDragged)
+            drag.setIntegerValueField(.mouseEventDeltaX, value: 7)
+            drag.setIntegerValueField(.mouseEventDeltaY, value: 13)
+            interceptor.handleHIDDragDuringContinuousGesture(drag)
+            XCTAssertEqual(simulator.updates, [axis == .horizontal ? -7 : -13])
+            XCTAssertNil(send(event(.otherMouseUp, x: finalX, y: finalY), to: interceptor))
+            XCTAssertEqual(simulator.endings, [false])
+        }
+    }
+
     func testAllFourContinuousGesturesSurviveStaleDisableNotifications() {
         let directions: [(Double, Double, DockSwipeSimulator.SwipeType)] = [
             (130, 100, .horizontal), (70, 100, .horizontal),

@@ -46,7 +46,6 @@ class DockSwipeSimulator {
     private var isActive = false
     private var currentType: SwipeType = .horizontal
     private var originOffset: Double = 0
-    private var lastDelta: Double = 0
     private var invertedFromDevice: Bool = false
     private var dragThreshold: Double = 10
     
@@ -156,13 +155,12 @@ class DockSwipeSimulator {
         self.invertedFromDevice = invertedFromDevice
         self.dragThreshold = dragThreshold
         self.originOffset = delta
-        self.lastDelta = delta
         self.isActive = true
         self.cachedSpaceCount = DockSwipeSimulator.numberOfSpaces()
         self.cachedScreenSize = DockSwipeSimulator.mainDisplaySize()
         self.recentDeltas = [delta]
         
-        postDockSwipeEvent(delta: delta, phase: .began)
+        postDockSwipeEvent(phase: .began)
     }
     
     /// Update an ongoing DockSwipe gesture with a new delta.
@@ -171,7 +169,6 @@ class DockSwipeSimulator {
         guard isActive else { return }
         
         originOffset += delta
-        lastDelta = delta
         
         // Track recent deltas for smoothed exit velocity
         recentDeltas.append(delta)
@@ -179,7 +176,7 @@ class DockSwipeSimulator {
             recentDeltas.removeFirst()
         }
         
-        postDockSwipeEvent(delta: delta, phase: .changed)
+        postDockSwipeEvent(phase: .changed)
     }
     
     /// End the DockSwipe gesture.
@@ -248,9 +245,7 @@ class DockSwipeSimulator {
                 exitVelocity = smoothedVelocity
             }
         }
-        lastDelta = exitVelocity  // Store for postDockSwipeEvent to use
-        
-        postDockSwipeEvent(delta: 0, phase: phase)
+        postDockSwipeEvent(phase: phase, exitVelocity: exitVelocity)
         
         // Schedule retry sends to prevent the "stuck" animation bug.
         // macOS occasionally drops the end event, leaving the UI frozen.
@@ -262,14 +257,14 @@ class DockSwipeSimulator {
         
         endRetryTimer1 = DispatchWorkItem { [weak self] in
             self?.postDockSwipeEventDirect(
-                type: retryType, offset: retryOffset, delta: 0,
+                type: retryType, offset: retryOffset,
                 phase: retryPhase, invertedFromDevice: retryInverted,
                 exitVelocity: retryExitVelocity
             )
         }
         endRetryTimer2 = DispatchWorkItem { [weak self] in
             self?.postDockSwipeEventDirect(
-                type: retryType, offset: retryOffset, delta: 0,
+                type: retryType, offset: retryOffset,
                 phase: retryPhase, invertedFromDevice: retryInverted,
                 exitVelocity: retryExitVelocity
             )
@@ -291,13 +286,13 @@ class DockSwipeSimulator {
     
     // MARK: - CGEvent Posting
     
-    private func postDockSwipeEvent(delta: Double, phase: Phase) {
+    private func postDockSwipeEvent(phase: Phase, exitVelocity: Double = 0) {
         postDockSwipeEventDirect(
             type: currentType,
             offset: originOffset,
-            delta: delta,
             phase: phase,
-            invertedFromDevice: invertedFromDevice
+            invertedFromDevice: invertedFromDevice,
+            exitVelocity: exitVelocity
         )
     }
     
@@ -305,10 +300,9 @@ class DockSwipeSimulator {
     private func postDockSwipeEventDirect(
         type: SwipeType,
         offset: Double,
-        delta: Double,
         phase: Phase,
         invertedFromDevice: Bool,
-        exitVelocity: Double? = nil
+        exitVelocity: Double
     ) {
         let weirdTypeOrSum = DockSwipeSimulator.typeConstants[type] ?? 0
         
@@ -360,7 +354,7 @@ class DockSwipeSimulator {
         
         // Exit speed — only set on end/cancelled phase for kinetic completion
         if phase == .ended || phase == .cancelled {
-            let exitSpeed = (exitVelocity ?? lastDelta) * 100
+            let exitSpeed = exitVelocity * 100
             e30.setDoubleValueField(CGEventField(rawValue: 129)!, value: exitSpeed)
             e30.setDoubleValueField(CGEventField(rawValue: 130)!, value: exitSpeed)
         }

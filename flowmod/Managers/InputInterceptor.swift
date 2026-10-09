@@ -169,7 +169,6 @@ class InputInterceptor {
     // Continuous gesture (DockSwipe) state
     private let dockSwipeSimulator: DockSwipeSimulator
     private var continuousGestureActive = false
-    private var continuousGestureAxisLocked = false
     private var continuousGestureAxis: ContinuousAxis = .horizontal
     private var continuousGestureSwipeType: DockSwipeSimulator.SwipeType = .horizontal
     /// Cancels a continuous gesture if mouse-up is lost (tap timeout / secure input).
@@ -183,9 +182,9 @@ class InputInterceptor {
     /// tracking is skipped and the action runs on mouse-up instead.
     private var pendingMiddleButtonAction: MouseAction?
 
-    /// Profile key captured at side-button mouse-down so mouse-up uses the
-    /// same profile even if field-87 attribution differs.
-    private var activeSideButtonProfileKeys: [Int64: String?] = [:]
+    /// Buttons whose mouse-down was consumed, so their mouse-up stays suppressed
+    /// even if the mapping or field-87 attribution changes during the press.
+    private var consumedSideButtons: Set<Int64> = []
 
     /// Guards interaction state shared by the event-tap thread, watchdogs, and
     /// main-thread stop/settings callbacks. Recursive because teardown helpers
@@ -365,6 +364,13 @@ class InputInterceptor {
             dockSwipeSimulator: dockSwipeSimulator,
             middleClickEventSink: middleClickEventSink
         )
+    }
+
+    /// Simulate a settings snapshot change without installing an event tap.
+    func setRuntimeConfigForTesting(_ config: RuntimeConfig) {
+        runtimeConfigLock.lock()
+        runtimeConfig = config
+        runtimeConfigLock.unlock()
     }
 #endif
 
@@ -1358,7 +1364,6 @@ class InputInterceptor {
             // Properly end any leftover continuous gesture from a previous interaction
             // (e.g. if a mouseUp was lost due to tap being disabled by timeout)
             cancelContinuousGesture(force: true, reason: "new middle-button press")
-            continuousGestureAxisLocked = false
             pendingMiddleButtonAction = nil
             middleDragTriggered = false
             middleButtonDownWasSuppressed = false
@@ -1422,7 +1427,6 @@ class InputInterceptor {
                 pendingMiddleClick = nil
                 middleClickNeedsReleaseValidation = false
                 middleDragConfig = nil
-                continuousGestureAxisLocked = false
                 pendingMiddleButtonAction = nil
             }
             
@@ -1479,9 +1483,9 @@ class InputInterceptor {
             return event
         }
         
-        // Suppress up events for buttons that had mappings on mouse-down,
-        // using the profile captured then so attribution can't desync the pair.
-        if activeSideButtonProfileKeys.removeValue(forKey: buttonNumber) != nil {
+        // Suppress up events for buttons whose mouse-down we consumed,
+        // regardless of their current mapping or device attribution.
+        if consumedSideButtons.remove(buttonNumber) != nil {
             return nil
         }
 
@@ -1523,21 +1527,8 @@ class InputInterceptor {
         let threshold = config.dragThreshold
         let useContinuous = config.continuousGestures
         
-        // For continuous mode, determine axis early with a smaller dead zone,
-        // but only commit the gesture once the full drag threshold is crossed.
+        // Commit a continuous gesture once the full drag threshold is crossed.
         if useContinuous {
-            let axisThreshold = threshold * 0.5  // Smaller threshold for axis detection
-            
-            if !continuousGestureAxisLocked,
-               abs(deltaX) > axisThreshold || abs(deltaY) > axisThreshold {
-                if abs(deltaY) > abs(deltaX) {
-                    continuousGestureAxis = .vertical
-                } else {
-                    continuousGestureAxis = .horizontal
-                }
-                continuousGestureAxisLocked = true
-            }
-
             guard abs(deltaX) > threshold || abs(deltaY) > threshold else {
                 return middleDragAsMouseMoved(event)
             }
@@ -1549,7 +1540,6 @@ class InputInterceptor {
             } else {
                 continuousGestureAxis = .horizontal
             }
-            continuousGestureAxisLocked = true
 
             // Continuous mode is a fixed three-finger trackpad-swipe
             // simulation. It deliberately ignores the configurable
@@ -1628,12 +1618,12 @@ class InputInterceptor {
         
         // If no mapping, pass through the event
         guard let action = action else {
-            activeSideButtonProfileKeys.removeValue(forKey: buttonNumber)
+            consumedSideButtons.remove(buttonNumber)
             return originalEvent
         }
 
         // Remember that we consumed this button so mouse-up stays paired.
-        activeSideButtonProfileKeys[buttonNumber] = profileKey
+        consumedSideButtons.insert(buttonNumber)
         
         // For .none, suppress the event entirely
         if action == .none {
@@ -1979,11 +1969,10 @@ class InputInterceptor {
         pendingMiddleClick = nil
         middleClickNeedsReleaseValidation = false
         middleDragConfig = nil
-        continuousGestureAxisLocked = false
         continuousGestureAxis = .horizontal
         continuousGestureSwipeType = .horizontal
         pendingMiddleButtonAction = nil
-        activeSideButtonProfileKeys.removeAll()
+        consumedSideButtons.removeAll()
     }
 
     private func cancelContinuousGesture(force: Bool, reason: String) {

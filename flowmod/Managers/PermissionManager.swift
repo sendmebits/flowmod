@@ -92,7 +92,7 @@ class PermissionManager {
         _ = AXIsProcessTrustedWithOptions(options)
 
         // Start monitoring for permission grant
-        startPermissionMonitoring(resetBackoff: true)
+        startPermissionMonitoring()
     }
 
     /// Open System Settings to the permission pane
@@ -103,7 +103,7 @@ class PermissionManager {
         }
 
         checkPermission()
-        if !hasAccessibilityPermission { startPermissionMonitoring(resetBackoff: true) }
+        if !hasAccessibilityPermission { startPermissionMonitoring() }
 
         let candidates = [
             "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_Accessibility",
@@ -134,11 +134,8 @@ class PermissionManager {
     }
 
     /// Start polling for permission changes
-    private func startPermissionMonitoring(resetBackoff: Bool) {
-        if resetBackoff {
-            currentPollInterval = minPollInterval
-        }
-
+    private func startPermissionMonitoring() {
+        currentPollInterval = minPollInterval
         schedulePermissionCheck()
     }
 
