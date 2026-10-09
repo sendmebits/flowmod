@@ -173,15 +173,6 @@ final class ProfileSettings {
 
     // MARK: - Helpers
 
-    func getAction(for direction: DragDirection) -> MouseAction {
-        middleDragMappings[direction] ?? .none
-    }
-
-    /// Get action for a button number from custom mappings
-    func getAction(forButtonNumber buttonNumber: Int64) -> MouseAction? {
-        customMouseButtonMappings.first(where: { $0.buttonNumber == buttonNumber })?.action
-    }
-
     /// Get all custom button numbers that are already mapped
     var customMappedButtonNumbers: Set<Int64> {
         Set(customMouseButtonMappings.map { $0.buttonNumber })

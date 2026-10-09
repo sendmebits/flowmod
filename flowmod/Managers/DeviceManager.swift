@@ -35,8 +35,7 @@ class DeviceManager {
     /// A nil value means "resolved, no match" so we don't re-walk the registry per event.
     @ObservationIgnored nonisolated(unsafe) private var senderIDCache: [UInt64: HIDDevice?] = [:]
     
-    struct HIDDevice: Identifiable, Equatable {
-        let id: UUID = UUID()
+    struct HIDDevice: Equatable {
         let vendorID: Int
         let productID: Int
         let vendorName: String
@@ -92,20 +91,6 @@ class DeviceManager {
                 return "\(vendorName) Device"
             }
             return "Unknown Device"
-        }
-        
-        /// Content-based equality (ignores UUID so polling doesn't trigger redraws)
-        static func == (lhs: HIDDevice, rhs: HIDDevice) -> Bool {
-            lhs.vendorID == rhs.vendorID &&
-            lhs.productID == rhs.productID &&
-            lhs.vendorName == rhs.vendorName &&
-            lhs.productName == rhs.productName &&
-            lhs.physicalDeviceUniqueID == rhs.physicalDeviceUniqueID &&
-            lhs.serialNumber == rhs.serialNumber &&
-            lhs.locationID == rhs.locationID &&
-            lhs.isMouse == rhs.isMouse &&
-            lhs.isAppleDevice == rhs.isAppleDevice &&
-            lhs.registryID == rhs.registryID
         }
 
         private static func encodeKeyComponent(_ value: String) -> String {
