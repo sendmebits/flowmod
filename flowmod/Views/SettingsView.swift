@@ -1,85 +1,75 @@
 import SwiftUI
 
-/// Consistent title, description, icon, and trailing control layout for settings.
-struct SettingsControlRow<Control: View>: View {
+/// Tinted, full-width notice shown above the settings tabs when FlowMod
+/// can't run (wrong install location, missing permission, startup error).
+struct StatusBanner<Actions: View>: View {
     let icon: String
+    let tint: Color
     let title: String
-    private let descriptionText: Text
-    private let accessibilityDescription: String
-    private let control: Control
+    let message: String
+    private let actions: Actions
 
     init(
         icon: String,
+        tint: Color,
         title: String,
-        description: String,
-        @ViewBuilder control: () -> Control
+        message: String,
+        @ViewBuilder actions: () -> Actions
     ) {
         self.icon = icon
+        self.tint = tint
         self.title = title
-        self.descriptionText = Text(description)
-        self.accessibilityDescription = description
-        self.control = control()
-    }
-
-    init(
-        icon: String,
-        title: String,
-        description: LocalizedStringKey,
-        accessibilityDescription: String,
-        @ViewBuilder control: () -> Control
-    ) {
-        self.icon = icon
-        self.title = title
-        self.descriptionText = Text(description)
-        self.accessibilityDescription = accessibilityDescription
-        self.control = control()
+        self.message = message
+        self.actions = actions()
     }
 
     var body: some View {
-        HStack {
+        HStack(spacing: 12) {
             Image(systemName: icon)
-                .font(.body)
-                .foregroundStyle(Color.accentColor)
-                .frame(width: 24)
+                .font(.title3)
+                .foregroundStyle(tint)
                 .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(.subheadline)
-                descriptionText
+                    .font(.callout)
+                    .fontWeight(.medium)
+                Text(message)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            .accessibilityHidden(true)
+            .accessibilityElement(children: .combine)
 
-            Spacer()
+            Spacer(minLength: 8)
 
-            control
-                .accessibilityLabel(title)
-                .accessibilityHint(accessibilityDescription)
+            actions
+                .controlSize(.small)
         }
+        .padding(12)
+        .background(tint.opacity(0.1), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .padding(.horizontal, 20)
+        .padding(.top, 12)
     }
 }
 
-/// Small, consistent label used above settings groups.
-struct SettingsSectionHeader: View {
-    let title: String
+/// First section of a behavior tab when the selected mouse is still following
+/// shared settings. The rest of the tab shows those settings read-only.
+struct CustomizeProfileBanner: View {
+    let deviceName: String
+    let onCustomize: () -> Void
 
     var body: some View {
-        Text(title)
-            .font(.caption)
-            .fontWeight(.semibold)
-            .foregroundStyle(.secondary)
-            .textCase(.uppercase)
-    }
-}
-
-/// Shared divider spacing for row-based settings groups.
-struct SettingsRowDivider: View {
-    var body: some View {
-        Divider()
-            .padding(.vertical, 8)
+        Section {
+            LabeledContent {
+                Button("Customize", action: onCustomize)
+                    .buttonStyle(.borderedProminent)
+            } label: {
+                Text("\(deviceName) uses shared settings")
+                Text("Customize to give it its own, starting from these.")
+            }
+        }
     }
 }
 
@@ -100,8 +90,7 @@ struct SettingsView: View {
     @State private var showRemoveConfirmation = false
     @State private var selectedTab: Tab = .general
 
-    private static let windowSize = CGSize(width: 500, height: 560)
-    private static let scopeBarHeight: CGFloat = 38
+    private static let windowSize = CGSize(width: 560, height: 580)
 
     /// The mouse scope bar is only relevant on the per-mouse behavior tabs.
     private var showsScopeBar: Bool {
@@ -110,7 +99,6 @@ struct SettingsView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Permission warning if needed
             if InstallLocation.needsRelocation {
                 relocationWarning
             } else if !permissionManager.hasAccessibilityPermission && !inputInterceptor.isRunning {
@@ -125,7 +113,6 @@ struct SettingsView: View {
                 profileScopeBar
             }
 
-            // Tab content using native TabView
             TabView(selection: $selectedTab) {
                 GeneralSettingsView(settings: settings, deviceManager: deviceManager)
                     .tabItem {
@@ -133,39 +120,39 @@ struct SettingsView: View {
                     }
                     .tag(Tab.general)
 
-                behaviorTab { profile in
-                    ScrollSettingsView(profile: profile)
+                behaviorTab { profile, preview in
+                    ScrollSettingsView(profile: profile, preview: preview)
                 }
                 .tabItem {
                     Label("Scroll", systemImage: "scroll")
                 }
                 .tag(Tab.scroll)
 
-                behaviorTab { profile in
-                    MouseButtonsView(profile: profile)
+                behaviorTab { profile, preview in
+                    MouseButtonsView(profile: profile, preview: preview)
                 }
                 .tabItem {
                     Label("Buttons", systemImage: "computermouse")
                 }
                 .tag(Tab.buttons)
 
-                gesturesTab
+                behaviorTab { profile, preview in
+                    MiddleDragGesturesView(profile: profile, settings: settings, preview: preview)
+                }
                 .tabItem {
                     Label("Gestures", systemImage: "hand.draw")
                 }
                 .tag(Tab.gestures)
 
                 KeyboardSettingsView(keyboardManager: keyboardManager)
-                .tabItem {
-                    Label("Keyboard", systemImage: "keyboard")
-                }
-                .tag(Tab.keyboard)
+                    .tabItem {
+                        Label("Keyboard", systemImage: "keyboard")
+                    }
+                    .tag(Tab.keyboard)
             }
-            .padding()
         }
-        // Keep a stable System Settings-style window; tab scroll views handle overflow.
+        // Keep a stable System Settings-style window; each tab's form scrolls on overflow.
         .frame(width: Self.windowSize.width, height: Self.windowSize.height)
-        .background(.regularMaterial)
         .onChange(of: settings.perMouseSettingsEnabled) { _, enabled in
             if !enabled { selectedProfileKey = nil }
         }
@@ -282,7 +269,7 @@ struct SettingsView: View {
         .overlay(alignment: .trailing) {
             if selectedProfileKey != nil && selectedProfile != nil {
                 Menu {
-                    Button("Reset \(selectedDeviceName) to Default…", role: .destructive) {
+                    Button("Reset \(selectedDeviceName) to Shared Settings…", role: .destructive) {
                         showRemoveConfirmation = true
                     }
                 } label: {
@@ -292,15 +279,13 @@ struct SettingsView: View {
                 .menuStyle(.borderlessButton)
                 .menuIndicator(.hidden)
                 .fixedSize()
-                .padding(.trailing, 16)
+                .padding(.trailing, 20)
                 .help("Profile options")
                 .accessibilityLabel("Profile options")
-                .accessibilityHint("Reset \(selectedDeviceName) to the default settings")
+                .accessibilityHint("Reset \(selectedDeviceName) to shared settings")
             }
         }
-        .padding(.top, 10)
-        .padding(.bottom, 2)
-        .frame(height: Self.scopeBarHeight)
+        .padding(.top, 12)
     }
 
     @ViewBuilder
@@ -330,72 +315,21 @@ struct SettingsView: View {
     // MARK: - Tab Content Gating
 
     /// Show the editor bound to the right profile. When the selected mouse
-    /// has no profile yet, show the default settings it currently follows —
-    /// dimmed and read-only — under a banner offering to customize. The
-    /// preview doubles as documentation: those values are exactly what the
-    /// new profile starts with.
+    /// has no profile yet, show the settings it currently follows read-only
+    /// under a banner offering to customize. The preview doubles as
+    /// documentation: those values are exactly what the new profile starts with.
     @ViewBuilder
-    private func behaviorTab<Content: View>(@ViewBuilder content: (ProfileSettings) -> Content) -> some View {
+    private func behaviorTab<Content: View>(
+        @ViewBuilder content: (ProfileSettings, CustomizeProfileBanner?) -> Content
+    ) -> some View {
         if let profile = selectedProfile {
-            content(profile)
+            content(profile, nil)
         } else {
-            VStack(spacing: 10) {
-                customizeBanner
-
-                content(inheritedProfile)
-                    .disabled(true)
-                    .opacity(0.5)
-            }
+            content(inheritedProfile, CustomizeProfileBanner(
+                deviceName: selectedDeviceName,
+                onCustomize: customizeSelectedMouse
+            ))
         }
-    }
-
-    /// Gestures include a global drag-distance control, so only the
-    /// profile-specific controls become read-only in preview mode.
-    @ViewBuilder
-    private var gesturesTab: some View {
-        if let profile = selectedProfile {
-            MiddleDragGesturesView(profile: profile, settings: settings)
-        } else {
-            VStack(spacing: 10) {
-                customizeBanner
-
-                MiddleDragGesturesView(
-                    profile: inheritedProfile,
-                    settings: settings,
-                    profileControlsDisabled: true
-                )
-            }
-        }
-    }
-
-    private var customizeBanner: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "computermouse")
-                .font(.title3)
-                .foregroundStyle(Color.accentColor)
-
-            VStack(alignment: .leading, spacing: 1) {
-                Text("\(selectedDeviceName) is following shared settings")
-                    .font(.callout)
-                    .fontWeight(.medium)
-                Text("Customize to give it its own settings, starting from a copy of these.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            Spacer()
-
-            Button("Customize") {
-                customizeSelectedMouse()
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.small)
-        }
-        .padding(10)
-        .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(Color.accentColor.opacity(0.08))
-        )
     }
 
     private func customizeSelectedMouse() {
@@ -403,97 +337,56 @@ struct SettingsView: View {
         settings.createProfile(forKey: key, displayName: profileName(forKey: key))
     }
 
-    // MARK: - Permission Warning
+    // MARK: - Status Banners
 
     private var relocationWarning: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "folder")
-                .foregroundStyle(Color.accentColor)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Move FlowMod to Applications")
-                    .font(.callout)
-                    .fontWeight(.medium)
-                Text("FlowMod has to live in your Applications folder before it can set up input access.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-            }
-
-            Spacer()
-
+        StatusBanner(
+            icon: "folder.fill",
+            tint: .accentColor,
+            title: "Move FlowMod to Applications",
+            message: "FlowMod needs to be in your Applications folder to set up input access."
+        ) {
             Button("Move to Applications") {
                 InstallLocationWindowController.shared.show()
             }
             .buttonStyle(.borderedProminent)
-            .controlSize(.small)
         }
-        .padding()
-        .background(Color.accentColor.opacity(0.08))
     }
 
     private var permissionWarning: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(.yellow)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Mouse access isn't active")
-                    .font(.callout)
-                    .fontWeight(.medium)
-                Text("Turn on FlowMod in \(PermissionManager.permissionSettingsPath). If it's already on, relaunch FlowMod.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-            }
-
-            Spacer()
-
+        StatusBanner(
+            icon: "exclamationmark.triangle.fill",
+            tint: .yellow,
+            title: "Mouse access isn't active",
+            message: "Turn on FlowMod in \(PermissionManager.permissionSettingsPath). If it's already on, relaunch."
+        ) {
             Button("Relaunch") {
                 permissionManager.relaunchApp()
             }
-            .controlSize(.small)
 
             Button("Grant Access") {
                 OnboardingWindowController.shared.show()
             }
             .buttonStyle(.borderedProminent)
-            .controlSize(.small)
         }
-        .padding()
-        .background(Color.yellow.opacity(0.1))
     }
 
     private func interceptorWarning(_ message: String) -> some View {
-        HStack(spacing: 10) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(.orange)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text("FlowMod couldn't start")
-                    .font(.callout)
-                    .fontWeight(.medium)
-                Text(message)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-            }
-
-            Spacer()
-
+        StatusBanner(
+            icon: "exclamationmark.triangle.fill",
+            tint: .orange,
+            title: "FlowMod couldn't start",
+            message: message
+        ) {
             Button("Relaunch") {
                 permissionManager.relaunchApp()
             }
-            .controlSize(.small)
 
             Button("Try Again") {
                 inputInterceptor.start(settings: settings, deviceManager: deviceManager)
             }
             .buttonStyle(.borderedProminent)
-            .controlSize(.small)
         }
-        .padding()
-        .background(Color.orange.opacity(0.1))
     }
 }
 

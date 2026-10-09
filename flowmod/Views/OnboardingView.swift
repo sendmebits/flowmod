@@ -297,7 +297,8 @@ struct OnboardingView: View {
                 )
             }
             .padding(14)
-            .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.quaternary, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
 
             if permissionRequested {
                 VStack(alignment: .leading, spacing: 8) {
@@ -384,7 +385,7 @@ struct OnboardingView: View {
                 )
             }
             .padding(.horizontal, 14)
-            .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+            .background(.quaternary, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
 
             if let startupError = inputInterceptor.startupError {
                 Label(startupError, systemImage: "exclamationmark.triangle.fill")

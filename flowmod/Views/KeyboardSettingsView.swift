@@ -5,52 +5,36 @@ struct KeyboardSettingsView: View {
     var keyboardManager: KeyboardManager
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                VStack(alignment: .leading, spacing: 6) {
-                    SettingsSectionHeader(title: "External Keyboards")
-
-                    GroupBox {
-                        VStack(alignment: .leading, spacing: 12) {
-                            if keyboardManager.connectedKeyboards.isEmpty {
-                                Text("Connect a USB or Bluetooth keyboard to swap Option and Command.")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .fixedSize(horizontal: false, vertical: true)
-                            } else {
-                                ForEach(Array(keyboardManager.connectedKeyboards.enumerated()), id: \.element.id) { index, keyboard in
-                                    if index > 0 {
-                                        SettingsRowDivider()
-                                    }
-
-                                    SettingsControlRow(
-                                        icon: "keyboard",
-                                        title: keyboardManager.displayName(for: keyboard),
-                                        description: "Swap Option and Command so this keyboard matches a Mac keyboard"
-                                    ) {
-                                        Toggle("Swap Option and Command", isOn: Binding(
-                                            get: { keyboardManager.isSwapped(keyboard) },
-                                            set: { keyboardManager.setSwapped($0, for: keyboard) }
-                                        ))
-                                        .toggleStyle(.switch)
-                                        .labelsHidden()
-                                    }
-                                }
-                            }
+        Form {
+            Section {
+                if keyboardManager.connectedKeyboards.isEmpty {
+                    ContentUnavailableView(
+                        "No External Keyboard",
+                        systemImage: "keyboard",
+                        description: Text("Connect a USB or Bluetooth keyboard to swap Option and Command.")
+                    )
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
+                } else {
+                    ForEach(keyboardManager.connectedKeyboards) { keyboard in
+                        Toggle(isOn: Binding(
+                            get: { keyboardManager.isSwapped(keyboard) },
+                            set: { keyboardManager.setSwapped($0, for: keyboard) }
+                        )) {
+                            Text(keyboardManager.displayName(for: keyboard))
+                            Text("Swap Option and Command")
                         }
-                        .padding(.vertical, 4)
                     }
-
-                    if !keyboardManager.connectedKeyboards.isEmpty {
-                        Text("This choice also appears in System Settings → Keyboard → Keyboard Shortcuts → Modifier Keys.")
-                            .font(.caption2)
-                            .foregroundStyle(.tertiary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
+                }
+            } header: {
+                Text("External Keyboards")
+            } footer: {
+                if !keyboardManager.connectedKeyboards.isEmpty {
+                    Text("Also shown in System Settings > Keyboard > Keyboard Shortcuts > Modifier Keys.")
                 }
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .formStyle(.grouped)
         .onAppear {
             keyboardManager.refreshMappingState()
         }
@@ -59,6 +43,5 @@ struct KeyboardSettingsView: View {
 
 #Preview {
     KeyboardSettingsView(keyboardManager: .shared)
-        .padding()
-        .frame(width: 460, height: 400)
+        .frame(width: 560, height: 520)
 }

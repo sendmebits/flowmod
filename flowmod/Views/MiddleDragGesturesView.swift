@@ -5,122 +5,75 @@ struct MiddleDragGesturesView: View {
     @Bindable var profile: ProfileSettings
     /// Global settings (drag threshold is shared across all mice)
     @Bindable var settings: Settings
-    var profileControlsDisabled = false
+    /// When set, profile controls are read-only; the shared drag distance stays editable.
+    var preview: CustomizeProfileBanner? = nil
     @State private var showingCustomShortcut: DragDirection?
+
+    private var profileControlsDisabled: Bool { preview != nil }
     
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                // Continuous gesture mode — shown first
-                VStack(alignment: .leading, spacing: 6) {
-                    SettingsSectionHeader(title: "Gesture Mode")
+        Form {
+            if let preview {
+                preview
+            }
 
-                    GroupBox {
-                        VStack(alignment: .leading, spacing: 12) {
-                            SettingsControlRow(
-                                icon: "hand.draw",
-                                title: "Continuous Gestures",
-                                description: "Animation follows your drag like a trackpad swipe"
-                            ) {
-                                Toggle("Continuous Gestures", isOn: $profile.continuousGestures)
-                                    .toggleStyle(.switch)
-                                    .labelsHidden()
-                            }
+            Section {
+                Toggle("Continuous Gestures", isOn: $profile.continuousGestures)
+            } header: {
+                Text("Middle-Button Drag")
+            } footer: {
+                Text("Follows your drag like a trackpad swipe: up for Mission Control, down for App Exposé, left and right to switch Spaces.")
+            }
+            .disabled(profileControlsDisabled)
 
-                            if profile.continuousGestures {
-                                Text("Mimics three-finger trackpad swipes: up opens Mission Control, down opens App Exposé, and left or right switches Spaces. Direction settings below are not used in this mode.")
-                                    .font(.caption2)
-                                    .foregroundStyle(.tertiary)
-                            }
-                        }
-                        .padding(.vertical, 4)
+            Section {
+                ForEach(DragDirection.allCases) { direction in
+                    LabeledContent {
+                        actionPicker(for: direction)
+                    } label: {
+                        Label(direction.rawValue, systemImage: direction.icon)
                     }
                 }
-                .opacity(profileControlsDisabled ? 0.5 : 1.0)
-                .disabled(profileControlsDisabled)
-
-                // Direction mappings
-                VStack(alignment: .leading, spacing: 6) {
-                    SettingsSectionHeader(title: "Direction Actions")
-
-                    GroupBox {
-                        VStack(alignment: .leading, spacing: 0) {
-                            ForEach(DragDirection.allCases) { direction in
-                                directionRow(for: direction)
-
-                                if direction != DragDirection.allCases.last {
-                                    SettingsRowDivider()
-                                }
-                            }
-                        }
-                        .padding(.vertical, 4)
-                    }
-                }
-                .opacity(profile.continuousGestures || profileControlsDisabled ? 0.5 : 1.0)
-                .disabled(profile.continuousGestures || profileControlsDisabled)
-
-                // Threshold slider
-                VStack(alignment: .leading, spacing: 6) {
-                    SettingsSectionHeader(title: "Gesture Threshold")
-
-                    GroupBox {
-                        HStack(alignment: .top) {
-                            Image(systemName: "arrow.left.and.right")
-                                .font(.body)
-                                .foregroundStyle(Color.accentColor)
-                                .frame(width: 24)
-                                .accessibilityHidden(true)
-
-                            VStack(alignment: .leading, spacing: 8) {
-                                HStack {
-                                    Text("Drag Distance")
-                                        .font(.subheadline)
-                                    Spacer()
-                                    Text("\(Int(settings.dragThreshold))px")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-
-                                Slider(value: $settings.dragThreshold, in: 10...100, step: 5) {
-                                    Text("Drag Distance")
-                                }
-                                .labelsHidden()
-
-                                Text("How far to drag before a gesture triggers. Shorter distances start gestures sooner. Applies to all mice.")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                        .padding(.vertical, 4)
-                    }
+            } header: {
+                Text("Drag Actions")
+            } footer: {
+                if profile.continuousGestures {
+                    Text("Not used while Continuous Gestures is on.")
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .disabled(profile.continuousGestures || profileControlsDisabled)
+
+            Section {
+                LabeledContent {
+                    HStack(spacing: 10) {
+                        Slider(value: $settings.dragThreshold, in: 10...100, step: 5) {
+                            Text("Drag Distance")
+                        }
+                        .labelsHidden()
+                        .accessibilityValue("\(Int(settings.dragThreshold)) pixels")
+
+                        Text("\(Int(settings.dragThreshold)) px")
+                            .monospacedDigit()
+                            .foregroundStyle(.secondary)
+                            .frame(width: 44, alignment: .trailing)
+                            .accessibilityHidden(true)
+                    }
+                    .frame(maxWidth: 260)
+                } label: {
+                    Text("Drag Distance")
+                }
+            } footer: {
+                Text("How far to drag before a gesture starts. Applies to all mice.")
+            }
         }
+        .formStyle(.grouped)
         .sheet(item: $showingCustomShortcut) { direction in
-            KeyRecorderSheet(title: "Record Shortcut for Drag \(direction.rawValue)") { combo in
+            KeyRecorderSheet(title: "Record Shortcut for \(direction.rawValue)") { combo in
                 if let combo = combo {
                     profile.middleDragMappings[direction] = .customShortcut(combo)
                 }
                 showingCustomShortcut = nil
             }
-        }
-    }
-    
-    private func directionRow(for direction: DragDirection) -> some View {
-        HStack {
-            Image(systemName: direction.icon)
-                .font(.body)
-                .foregroundStyle(Color.accentColor)
-                .frame(width: 24)
-            
-            Text(direction.rawValue)
-                .font(.subheadline)
-                .frame(minWidth: 100, alignment: .leading)
-            
-            Spacer()
-            
-            actionPicker(for: direction)
         }
     }
     
@@ -135,6 +88,7 @@ struct MiddleDragGesturesView: View {
                 }
             }
         )
+        let currentAction = binding.wrappedValue
         
         return Menu {
             ForEach(MouseAction.allCases) { action in
@@ -153,19 +107,16 @@ struct MiddleDragGesturesView: View {
                 Label("Custom Shortcut…", systemImage: "keyboard")
             }
         } label: {
-            HStack {
-                let action = profile.middleDragMappings[direction] ?? .none
-                Image(systemName: action.icon)
-                Text(action.displayName)
-                    .lineLimit(1)
-            }
+            Label(currentAction.displayName, systemImage: currentAction.icon)
+                .lineLimit(1)
         }
         .fixedSize()
+        .accessibilityLabel("Action for \(direction.rawValue)")
+        .accessibilityValue(currentAction.displayName)
     }
 }
 
 #Preview {
     MiddleDragGesturesView(profile: Settings.shared.defaultProfile, settings: Settings.shared)
-        .padding()
-        .frame(width: 460, height: 400)
+        .frame(width: 560, height: 520)
 }

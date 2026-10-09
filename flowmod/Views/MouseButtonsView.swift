@@ -8,69 +8,52 @@ private struct CustomShortcutSheetItem: Identifiable {
 /// Settings for mouse button remapping
 struct MouseButtonsView: View {
     @Bindable var profile: ProfileSettings
+    var preview: CustomizeProfileBanner? = nil
     @State private var customShortcutSheetItem: CustomShortcutSheetItem?
     @State private var showingButtonRecorder = false
     
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                HStack(alignment: .center) {
-                    SettingsSectionHeader(title: "Mouse Buttons")
-                    Spacer()
+        Form {
+            if let preview {
+                preview
+            }
 
-                    if !profile.customMouseButtonMappings.isEmpty {
+            Section {
+                if profile.customMouseButtonMappings.isEmpty {
+                    ContentUnavailableView {
+                        Label("No Button Mappings", systemImage: "computermouse")
+                    } description: {
+                        Text("Assign actions or shortcuts to your mouse's extra buttons.")
+                    } actions: {
+                        Button("Add Button…") {
+                            showingButtonRecorder = true
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
+                } else {
+                    ForEach(profile.customMouseButtonMappings) { mapping in
+                        buttonRow(for: mapping)
+                    }
+                }
+            } header: {
+                Text("Mouse Buttons")
+            } footer: {
+                if !profile.customMouseButtonMappings.isEmpty {
+                    HStack {
+                        Spacer()
                         Button {
                             showingButtonRecorder = true
                         } label: {
                             Label("Add Button…", systemImage: "plus")
                         }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                    }
-                }
-
-                GroupBox {
-                    if profile.customMouseButtonMappings.isEmpty {
-                        VStack(spacing: 12) {
-                            Image(systemName: "computermouse")
-                                .font(.largeTitle)
-                                .foregroundStyle(.secondary)
-                            
-                            Text("No mouse button mappings")
-                                .font(.headline)
-                                .foregroundStyle(.secondary)
-                            
-                            Text("Configure extra mouse buttons with custom actions or shortcuts.")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .multilineTextAlignment(.center)
-
-                            Button {
-                                showingButtonRecorder = true
-                            } label: {
-                                Label("Add Button…", systemImage: "plus")
-                            }
-                            .buttonStyle(.borderedProminent)
-                            .controlSize(.small)
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 20)
-                    } else {
-                        VStack(spacing: 0) {
-                            ForEach(profile.customMouseButtonMappings) { mapping in
-                                buttonRow(for: mapping)
-                            
-                                if mapping.id != profile.customMouseButtonMappings.last?.id {
-                                    SettingsRowDivider()
-                                }
-                            }
-                        }
-                        .padding(.vertical, 4)
                     }
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .disabled(preview != nil)
         }
+        .formStyle(.grouped)
         .sheet(item: $customShortcutSheetItem) { item in
             KeyRecorderSheet(title: "Record Shortcut") { combo in
                 if let combo = combo,
@@ -100,30 +83,22 @@ struct MouseButtonsView: View {
     }
     
     private func buttonRow(for mapping: CustomMouseButtonMapping) -> some View {
-        HStack {
-            Image(systemName: mapping.icon)
-                .font(.body)
-                .foregroundStyle(Color.accentColor)
-                .frame(width: 24)
-            
-            Text(mapping.displayName)
-                .font(.subheadline)
-                .frame(minWidth: 150, alignment: .leading)
-            
-            Spacer()
-            
-            actionPicker(for: mapping)
-            
-            Button {
-                deleteMapping(mapping)
-            } label: {
-                Image(systemName: "xmark.circle.fill")
-                    .foregroundStyle(.secondary)
+        LabeledContent {
+            HStack(spacing: 8) {
+                actionPicker(for: mapping)
+
+                Button {
+                    deleteMapping(mapping)
+                } label: {
+                    Image(systemName: "minus.circle.fill")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.borderless)
+                .help("Remove \(mapping.displayName) mapping")
+                .accessibilityLabel("Remove \(mapping.displayName) mapping")
             }
-            .buttonStyle(.plain)
-            .help("Remove \(mapping.displayName) mapping")
-            .accessibilityLabel("Remove \(mapping.displayName) mapping")
-            .accessibilityHint("Deletes this mouse button mapping")
+        } label: {
+            Label(mapping.displayName, systemImage: mapping.icon)
         }
     }
     
@@ -145,13 +120,12 @@ struct MouseButtonsView: View {
                 Label("Custom Shortcut…", systemImage: "keyboard")
             }
         } label: {
-            HStack {
-                Image(systemName: mapping.action.icon)
-                Text(mapping.action.displayName)
-                    .lineLimit(1)
-            }
+            Label(mapping.action.displayName, systemImage: mapping.action.icon)
+                .lineLimit(1)
         }
         .fixedSize()
+        .accessibilityLabel("Action for \(mapping.displayName)")
+        .accessibilityValue(mapping.action.displayName)
     }
     
     private func updateAction(for mapping: CustomMouseButtonMapping, to action: MouseAction) {
@@ -167,6 +141,5 @@ struct MouseButtonsView: View {
 
 #Preview {
     MouseButtonsView(profile: Settings.shared.defaultProfile)
-        .padding()
-        .frame(width: 460, height: 400)
+        .frame(width: 560, height: 520)
 }

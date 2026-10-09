@@ -199,10 +199,14 @@ class KeyboardManager {
     private func reapplyStoredMapping(for keyboard: ExternalKeyboard) {
         let stored = KeyboardModifierStore.read(vendorID: keyboard.vendorID, productID: keyboard.productID)
         guard stored.exists else { return }
-        KeyboardModifierStore.applyLive(
+        let applied = KeyboardModifierStore.applyLive(
             pairs: stored.pairs,
             vendorID: keyboard.vendorID,
             productID: keyboard.productID
+        )
+        LogManager.shared.log(
+            "\(keyboard.displayName): restored Option/Command mapping (\(applied ? "applied" : "saved, reconnect may be required"))",
+            category: "Keyboard"
         )
     }
 

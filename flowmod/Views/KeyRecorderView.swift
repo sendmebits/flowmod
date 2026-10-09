@@ -1,8 +1,77 @@
 import SwiftUI
 
-private enum RecorderSheetMetrics {
-    static let sheetWidth: CGFloat = 350
-    static let recordingAreaSize = CGSize(width: 280, height: 120)
+/// Shared layout for the recorder sheets: title, recording area, trailing buttons.
+private struct RecorderSheetChrome<Area: View, Buttons: View>: View {
+    let title: String
+    @ViewBuilder let area: Area
+    @ViewBuilder let buttons: Buttons
+
+    var body: some View {
+        VStack(spacing: 20) {
+            Text(title)
+                .font(.headline)
+
+            area
+                .frame(maxWidth: .infinity)
+                .frame(height: 130)
+                .background(.quaternary, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+
+            HStack(spacing: 8) {
+                Spacer()
+                buttons
+            }
+        }
+        .padding(20)
+        .frame(width: 360)
+    }
+}
+
+/// Large symbol plus caption used in the recording area.
+private struct RecorderStatus: View {
+    let systemImage: String
+    var tint: Color = .accentColor
+    var pulses = false
+    let title: String
+    var detail: String? = nil
+
+    var body: some View {
+        VStack(spacing: 8) {
+            Image(systemName: systemImage)
+                .font(.system(size: 36))
+                .foregroundStyle(tint)
+                .symbolEffect(.pulse, isActive: pulses)
+
+            Text(title)
+                .font(detail == nil ? .callout : .headline)
+                .foregroundStyle(detail == nil ? .secondary : .primary)
+
+            if let detail {
+                Text(detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+}
+
+/// Recorded value shown large in the recording area.
+private struct RecorderResult: View {
+    let value: String
+    let caption: String
+
+    var body: some View {
+        VStack(spacing: 8) {
+            Text(value)
+                .font(.system(size: 30, weight: .medium, design: .rounded))
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+
+            Label(caption, systemImage: "checkmark.circle.fill")
+                .font(.caption)
+                .foregroundStyle(.green)
+        }
+        .padding(.horizontal, 16)
+    }
 }
 
 /// A sheet for recording a keyboard shortcut
@@ -18,71 +87,35 @@ struct KeyRecorderSheet: View {
     @State private var peakModifierFlags: NSEvent.ModifierFlags = []
     
     var body: some View {
-        VStack(spacing: 20) {
-            // Header
-            Text(title)
-                .font(.headline)
-            
-            // Recording area
-            VStack(spacing: 12) {
-                if isRecording {
-                    VStack(spacing: 8) {
-                        Image(systemName: "keyboard")
-                            .font(.system(size: 40))
-                            .foregroundStyle(Color.accentColor)
-                            .symbolEffect(.pulse)
-                        
-                        Text("Press a key combination...")
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                    }
-                } else if let combo = recordedCombo {
-                    VStack(spacing: 8) {
-                        Text(combo.displayName)
-                            .font(.system(size: 32, weight: .medium, design: .rounded))
-                            .foregroundStyle(.primary)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.7)
-                        
-                        Text("Key recorded")
-                            .font(.caption)
-                            .foregroundStyle(.green)
-                    }
+        RecorderSheetChrome(title: title) {
+            if isRecording {
+                RecorderStatus(systemImage: "keyboard", pulses: true, title: "Press a key combination…")
+            } else if let combo = recordedCombo {
+                RecorderResult(value: combo.displayName, caption: "Shortcut recorded")
+            }
+        } buttons: {
+            if !isRecording {
+                Button("Try Again") {
+                    recordedCombo = nil
+                    isRecording = true
+                    startRecording()
                 }
             }
-            .frame(width: RecorderSheetMetrics.recordingAreaSize.width, height: RecorderSheetMetrics.recordingAreaSize.height)
-            .background(.quaternary)
-            .cornerRadius(12)
-            
-            // Buttons
-            HStack(spacing: 12) {
-                Button("Cancel") {
-                    cleanup()
-                    onComplete(nil)
-                }
-                .buttonStyle(.bordered)
-                .keyboardShortcut(.cancelAction)
-                
-                if !isRecording {
-                    Button("Try Again") {
-                        recordedCombo = nil
-                        isRecording = true
-                        startRecording()
-                    }
-                    .buttonStyle(.bordered)
-                }
-                
-                Button("Save") {
-                    cleanup()
-                    onComplete(recordedCombo)
-                }
-                .buttonStyle(.borderedProminent)
-                .keyboardShortcut(.defaultAction)
-                .disabled(recordedCombo == nil)
+
+            Button("Cancel") {
+                cleanup()
+                onComplete(nil)
             }
+            .keyboardShortcut(.cancelAction)
+
+            Button("Save") {
+                cleanup()
+                onComplete(recordedCombo)
+            }
+            .buttonStyle(.borderedProminent)
+            .keyboardShortcut(.defaultAction)
+            .disabled(recordedCombo == nil)
         }
-        .padding(24)
-        .frame(width: RecorderSheetMetrics.sheetWidth)
         .onAppear {
             startRecording()
         }
@@ -241,103 +274,59 @@ struct MouseButtonRecorderSheet: View {
     @State private var mouseMonitor: Any?
     @State private var globalMouseMonitor: Any?
     @State private var interceptorBypassActive = false
+
+    private var canAdd: Bool {
+        if case .success = recordResult { return true }
+        return false
+    }
     
     var body: some View {
-        VStack(spacing: 20) {
-            // Header
-            Text(title)
-                .font(.headline)
-            
-            // Recording area
-            VStack(spacing: 12) {
-                if isRecording {
-                    VStack(spacing: 8) {
-                        Image(systemName: "computermouse")
-                            .font(.system(size: 40))
-                            .foregroundStyle(Color.accentColor)
-                            .symbolEffect(.pulse)
-                        
-                        Text("Click a mouse button...")
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                    }
-                } else if let result = recordResult {
-                    switch result {
-                    case .success(let buttonNum):
-                        VStack(spacing: 8) {
-                            Text("Mouse Button \(buttonNum + 1)")
-                                .font(.system(size: 32, weight: .medium, design: .rounded))
-                                .foregroundStyle(.primary)
-                                .lineLimit(1)
-                                .minimumScaleFactor(0.7)
-                            
-                            Text("Button recorded")
-                                .font(.caption)
-                                .foregroundStyle(.green)
-                        }
-                    case .alreadyMapped(let name):
-                        VStack(spacing: 8) {
-                            Image(systemName: "exclamationmark.triangle.fill")
-                                .font(.system(size: 40))
-                                .foregroundStyle(.yellow)
-                            
-                            Text("Already Mapped")
-                                .font(.headline)
-                            
-                            Text("\(name) is already configured")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    case .primaryButton:
-                        VStack(spacing: 8) {
-                            Image(systemName: "xmark.circle.fill")
-                                .font(.system(size: 40))
-                                .foregroundStyle(.red)
-                            
-                            Text("Cannot Map")
-                                .font(.headline)
-                            
-                            Text("Primary mouse buttons cannot be remapped")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
+        RecorderSheetChrome(title: title) {
+            if isRecording {
+                RecorderStatus(systemImage: "computermouse", pulses: true, title: "Click a mouse button…")
+            } else if let result = recordResult {
+                switch result {
+                case .success(let buttonNum):
+                    RecorderResult(value: "Mouse Button \(buttonNum + 1)", caption: "Button recorded")
+                case .alreadyMapped(let name):
+                    RecorderStatus(
+                        systemImage: "exclamationmark.triangle.fill",
+                        tint: .yellow,
+                        title: "Already Mapped",
+                        detail: "\(name) is already configured."
+                    )
+                case .primaryButton:
+                    RecorderStatus(
+                        systemImage: "xmark.circle.fill",
+                        tint: .red,
+                        title: "Can't Remap This Button",
+                        detail: "Left and right click can't be remapped."
+                    )
                 }
             }
-            .frame(width: RecorderSheetMetrics.recordingAreaSize.width, height: RecorderSheetMetrics.recordingAreaSize.height)
-            .background(.quaternary)
-            .cornerRadius(12)
-            
-            // Buttons
-            HStack(spacing: 12) {
-                Button("Cancel") {
-                    cleanup()
-                    onComplete(nil)
+        } buttons: {
+            if !isRecording {
+                Button("Try Again") {
+                    recordResult = nil
+                    isRecording = true
+                    startRecording()
                 }
-                .buttonStyle(.bordered)
-                .keyboardShortcut(.cancelAction)
+            }
 
-                if !isRecording {
-                    Button("Try Again") {
-                        recordResult = nil
-                        isRecording = true
-                        startRecording()
-                    }
-                    .buttonStyle(.bordered)
-                }
-                
-                if case .success = recordResult {
-                    Button("Add") {
-                        cleanup()
-                        onComplete(recordResult)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .keyboardShortcut(.defaultAction)
-                }
+            Button("Cancel") {
+                cleanup()
+                onComplete(nil)
             }
+            .keyboardShortcut(.cancelAction)
+
+            Button("Add") {
+                cleanup()
+                onComplete(recordResult)
+            }
+            .buttonStyle(.borderedProminent)
+            .keyboardShortcut(.defaultAction)
+            .disabled(!canAdd)
         }
-        .padding(24)
-        .frame(width: RecorderSheetMetrics.sheetWidth)
         .onAppear {
             startRecording()
         }

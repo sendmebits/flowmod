@@ -270,6 +270,7 @@ struct MenuBarContent: View {
             openSettings()
             FlowModApp.foregroundSettingsWindow(afterDelays: [0.1, 0.3])
         }
+        .keyboardShortcut(",")
 
         if InstallLocation.needsRelocation {
             Button("Move to Applications…") {
