@@ -33,6 +33,22 @@ class DockSwipeSimulator {
         case vertical = 2    // Mission Control (up) / App Exposé (down)
     }
     
+    /// How gesture events reach the Dock.
+    enum Backend: String {
+        /// Pre-macOS 27: gesture data written into undocumented CGEvent fields.
+        case legacyFields
+        /// macOS 27+: a real DockSwipe IOHIDEvent attached via SkyLight.
+        case hidEvent
+        /// macOS 27+ without the private symbols: discrete symbolic hotkeys.
+        case hotkeyFallback
+
+        static func detect() -> Backend {
+            let macOS27 = OperatingSystemVersion(majorVersion: 27, minorVersion: 0, patchVersion: 0)
+            guard ProcessInfo.processInfo.isOperatingSystemAtLeast(macOS27) else { return .legacyFields }
+            return DockSwipeHIDBridge.isAvailable ? .hidEvent : .hotkeyFallback
+        }
+    }
+
     /// IOHIDEvent phase values
     private enum Phase: Int64 {
         case began = 1
@@ -43,6 +59,9 @@ class DockSwipeSimulator {
     
     // MARK: - State
     
+    let backend: Backend
+    private var hotkeyFallback: DockSwipeHotkeyFallback
+    private var backendLogged = false
     private var isActive = false
     private var currentType: SwipeType = .horizontal
     private var originOffset: Double = 0
@@ -70,6 +89,11 @@ class DockSwipeSimulator {
         .vertical:   2.802596928649634e-45,
     ]
     
+    init(backend: Backend = .detect(), hotkeyFallback: DockSwipeHotkeyFallback = DockSwipeHotkeyFallback()) {
+        self.backend = backend
+        self.hotkeyFallback = hotkeyFallback
+    }
+
     // MARK: - Pixel-to-DockSwipe Scaling
     
     /// Convert a pixel delta to DockSwipe units for the given swipe type.
@@ -159,7 +183,23 @@ class DockSwipeSimulator {
         self.cachedSpaceCount = DockSwipeSimulator.numberOfSpaces()
         self.cachedScreenSize = DockSwipeSimulator.mainDisplaySize()
         self.recentDeltas = [delta]
-        
+
+        if !backendLogged {
+            backendLogged = true
+            LogManager.shared.log("DockSwipe backend: \(backend.rawValue)", category: "Gesture")
+        }
+
+        if backend == .hotkeyFallback {
+            hotkeyFallback.begin(
+                type: type,
+                delta: delta,
+                stepSize: pixelToDockSwipeScaled(
+                    type == .horizontal ? DockSwipeHotkeyFallback.horizontalStepPixels : DockSwipeHotkeyFallback.verticalTriggerPixels,
+                    type: type
+                )
+            )
+            return
+        }
         postDockSwipeEvent(phase: .began)
     }
     
@@ -175,7 +215,11 @@ class DockSwipeSimulator {
         if recentDeltas.count > maxRecentDeltas {
             recentDeltas.removeFirst()
         }
-        
+
+        if backend == .hotkeyFallback {
+            hotkeyFallback.update(delta: delta)
+            return
+        }
         postDockSwipeEvent(phase: .changed)
     }
     
@@ -186,6 +230,16 @@ class DockSwipeSimulator {
     func end(cancel: Bool = false) {
         guard isActive else { return }
         isActive = false
+
+        // Discrete hotkeys already fired during the drag; there is no animation to finish.
+        if backend == .hotkeyFallback {
+            hotkeyFallback.end()
+            LogManager.shared.log(
+                "DockSwipe ended (\(backend.rawValue)): type=\(currentType) offset=\(originOffset)",
+                category: "Gesture"
+            )
+            return
+        }
         
         // Calculate smoothed exit velocity from recent deltas
         let smoothedVelocity: Double
@@ -246,6 +300,10 @@ class DockSwipeSimulator {
             }
         }
         postDockSwipeEvent(phase: phase, exitVelocity: exitVelocity)
+        LogManager.shared.log(
+            "DockSwipe \(shouldCancel ? "cancelled" : "ended") (\(backend.rawValue)): type=\(currentType) offset=\(originOffset) exitVelocity=\(exitVelocity)",
+            category: "Gesture"
+        )
         
         // Schedule retry sends to prevent the "stuck" animation bug.
         // macOS occasionally drops the end event, leaving the UI frozen.
@@ -296,8 +354,38 @@ class DockSwipeSimulator {
         )
     }
     
-    /// Post a pair of DockSwipe CGEvents (type 29 + type 30).
     private func postDockSwipeEventDirect(
+        type: SwipeType,
+        offset: Double,
+        phase: Phase,
+        invertedFromDevice: Bool,
+        exitVelocity: Double
+    ) {
+        switch backend {
+        case .legacyFields:
+            postLegacyDockSwipeEvent(type: type, offset: offset, phase: phase,
+                                     invertedFromDevice: invertedFromDevice, exitVelocity: exitVelocity)
+        case .hidEvent:
+            let isFinal = phase == .ended || phase == .cancelled
+            // The HID payload applies natural-scrolling direction itself, so
+            // progress and exit velocity must be un-flipped together. Its
+            // horizontal axis is also opposite to the legacy fields.
+            var sign = invertedFromDevice ? -1.0 : 1.0
+            if type == .horizontal { sign = -sign }
+            guard let event = DockSwipeHIDBridge.makeDockSwipeEvent(
+                motion: type.rawValue,
+                progress: offset * sign,
+                phase: UInt16(phase.rawValue),
+                exitVelocity: isFinal ? exitVelocity * 100 * sign : nil
+            ) else { return }
+            event.post(tap: .cgSessionEventTap)
+        case .hotkeyFallback:
+            break
+        }
+    }
+
+    /// Post a pair of DockSwipe CGEvents (type 29 + type 30).
+    private func postLegacyDockSwipeEvent(
         type: SwipeType,
         offset: Double,
         phase: Phase,

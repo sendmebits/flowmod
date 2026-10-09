@@ -14,6 +14,7 @@ struct CGSModifierFlags: OptionSet {
     static let control = CGSModifierFlags(rawValue: 1 << 18)
     static let alternate = CGSModifierFlags(rawValue: 1 << 19)  // Option
     static let command = CGSModifierFlags(rawValue: 1 << 20)
+    static let numericPad = CGSModifierFlags(rawValue: 1 << 21)
     static let function = CGSModifierFlags(rawValue: 1 << 23)
 }
 
@@ -42,6 +43,7 @@ func CGSGetSymbolicHotKeyValue(
 /// Enum representing macOS system-level symbolic hotkeys
 /// Values correspond to the symbolic hotkey IDs used by the CGS API
 enum SymbolicHotKey: UInt32 {
+    case missionControl = 32             // Mission Control
     case applicationWindows = 33         // App Exposé
     case moveLeftASpace = 79            // Move left a space
     case moveRightASpace = 81           // Move right a space
@@ -145,6 +147,11 @@ struct SymbolicHotkeys {
         if modifiers.contains(.function) {
             flags.insert(.maskSecondaryFn)
         }
+        // Arrow-key hotkeys (Spaces, Mission Control) are stored with the
+        // numeric-pad bit; WindowServer drops them without it.
+        if modifiers.contains(.numericPad) {
+            flags.insert(.maskNumericPad)
+        }
         
         return flags
     }
@@ -152,6 +159,10 @@ struct SymbolicHotkeys {
     /// Fallback method using dedicated key codes
     private static func fallbackPost(_ hotkey: SymbolicHotKey) {
         switch hotkey {
+        case .missionControl:
+            // Mission Control - dedicated key 0xA0
+            postDedicatedKey(0xA0)
+
         case .applicationWindows:
             // App Exposé - dedicated key 0xA1
             postDedicatedKey(0xA1)

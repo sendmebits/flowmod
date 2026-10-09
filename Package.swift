@@ -14,6 +14,7 @@ let package = Package(
                       "flowmod.entitlements", "Managers/PermissionManager.swift", "Managers/UpdateManager.swift"],
             sources: ["Models", "Managers/InputInterceptor.swift", "Managers/MiddleClick.swift",
                       "Managers/DeviceManager.swift", "Managers/DockSwipeSimulator.swift",
+                      "Managers/DockSwipeHIDBridge.swift", "Managers/DockSwipeHotkeyFallback.swift",
                       "Managers/LogManager.swift", "Managers/SymbolicHotkeys.swift"]
         ),
         .testTarget(name: "FlowModInputTests", dependencies: ["FlowModInput"], path: "Tests")
