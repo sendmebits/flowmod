@@ -26,23 +26,21 @@ struct GeneralSettingsView: View {
             }
 
             Section {
-                Toggle("Launch at Login", isOn: $launchAtLoginEnabled)
-                    .onChange(of: launchAtLoginEnabled) { _, newValue in
-                        guard newValue != launchAtLoginServiceEnabled else { return }
-                        setLaunchAtLogin(newValue)
+                Toggle(isOn: $launchAtLoginEnabled) {
+                    Text("Launch at Login")
+                    if let error = launchAtLoginError {
+                        Text(error)
+                            .foregroundStyle(.red)
                     }
-            } header: {
-                Text("Startup")
-            } footer: {
-                if let error = launchAtLoginError {
-                    Label(error, systemImage: "exclamationmark.triangle.fill")
                 }
-            }
+                .onChange(of: launchAtLoginEnabled) { _, newValue in
+                    guard newValue != launchAtLoginServiceEnabled else { return }
+                    setLaunchAtLogin(newValue)
+                }
 
-            Section {
                 Toggle("Separate Settings for Each Mouse", isOn: $settings.perMouseSettingsEnabled)
             } header: {
-                Text("Mouse Profiles")
+                Text("Behavior")
             } footer: {
                 Text(settings.perMouseSettingsEnabled
                      ? "Pick a mouse at the top of the Scroll, Buttons, and Gestures tabs."
