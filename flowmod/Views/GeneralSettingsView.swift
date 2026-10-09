@@ -115,31 +115,30 @@ struct GeneralSettingsView: View {
     private static let repositoryURL = URL(string: "https://github.com/sendmebits/flowmod")!
 
     private var appHeader: some View {
-        Button {
-            NSWorkspace.shared.open(Self.repositoryURL)
-        } label: {
-            VStack(spacing: 4) {
+        VStack(spacing: 4) {
+            Button {
+                NSWorkspace.shared.open(Self.repositoryURL)
+            } label: {
                 Image(nsImage: NSApp.applicationIconImage)
                     .resizable()
                     .frame(width: 64, height: 64)
-
-                Text("FlowMod")
-                    .font(.title2)
-                    .fontWeight(.semibold)
-
-                Text(appVersionString)
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
             }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 6)
-            .contentShape(Rectangle())
+            .buttonStyle(.plain)
+            .fixedSize()
+            .help("Open the FlowMod GitHub page")
+            .accessibilityLabel("FlowMod on GitHub")
+            .accessibilityHint("Opens the FlowMod GitHub page")
+
+            Text("FlowMod")
+                .font(.title2)
+                .fontWeight(.semibold)
+
+            Text(appVersionString)
+                .font(.callout)
+                .foregroundStyle(.secondary)
         }
-        .buttonStyle(.plain)
-        .help("Open the FlowMod GitHub page")
-        .accessibilityLabel("FlowMod, \(appVersionString)")
-        .accessibilityHint("Opens the FlowMod GitHub page")
-        .accessibilityAddTraits(.isLink)
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 6)
     }
 
     private var externalMice: [DeviceManager.HIDDevice] {
