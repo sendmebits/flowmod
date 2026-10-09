@@ -7,7 +7,7 @@ import Foundation
 /// type-30 CGEvent that carries a real IOHIDEvent of type DockSwipe. Every function
 /// involved is private, so all of them are resolved at runtime and the bridge
 /// reports itself unavailable if any symbol is missing.
-enum DockSwipeHIDBridge {
+nonisolated enum DockSwipeHIDBridge {
     private typealias HIDEventRef = UnsafeMutableRawPointer
 
     private static let dockSwipeEventType: UInt32 = 23   // kIOHIDEventTypeDockSwipe
@@ -16,7 +16,7 @@ enum DockSwipeHIDBridge {
     private static let flavorField: UInt32 = (23 << 16) | 5     // kIOHIDEventFieldDockSwipeFlavor
     private static let dockPrimaryFlavor: CFIndex = 3           // kIOHIDGestureFlavorDockPrimary
 
-    private struct Functions {
+    private nonisolated struct Functions {
         let create: @convention(c) (CFAllocator?, UInt32, UInt64, UInt32) -> HIDEventRef?
         let setIntegerValue: @convention(c) (HIDEventRef, UInt32, CFIndex) -> Void
         let setDoubleValue: @convention(c) (HIDEventRef, UInt32, Double) -> Void
@@ -26,7 +26,7 @@ enum DockSwipeHIDBridge {
         /// Copies the payload into the CGEvent; the caller keeps ownership of its IOHIDEvent.
         let attachToCGEvent: @convention(c) (CGEvent, HIDEventRef) -> Void
 
-        nonisolated static func resolve() -> Functions? {
+        static func resolve() -> Functions? {
             guard let iokit = dlopen("/System/Library/Frameworks/IOKit.framework/IOKit", RTLD_NOW),
                   let skylight = dlopen("/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight", RTLD_NOW),
                   let create = dlsym(iokit, "IOHIDEventCreate"),
@@ -48,16 +48,16 @@ enum DockSwipeHIDBridge {
         }
     }
 
-    nonisolated private static let functions = Functions.resolve()
+    private static let functions = Functions.resolve()
 
-    nonisolated static var isAvailable: Bool { functions != nil }
+    static var isAvailable: Bool { functions != nil }
 
     /// - Parameters:
     ///   - motion: DockSwipe motion (1 = horizontal, 2 = vertical), matching `DockSwipeSimulator.SwipeType`.
     ///   - progress: Cumulative origin offset in DockSwipe units.
     ///   - phase: IOHIDEvent phase bits (began 1, changed 2, ended 4, cancelled 8).
     ///   - exitVelocity: Attached as a velocity child event; only meaningful for ended/cancelled.
-    nonisolated static func makeDockSwipeEvent(motion: Int, progress: Double, phase: UInt16, exitVelocity: Double?) -> CGEvent? {
+    static func makeDockSwipeEvent(motion: Int, progress: Double, phase: UInt16, exitVelocity: Double?) -> CGEvent? {
         guard let functions,
               let event = CGEvent(source: nil),
               let type = CGEventType(rawValue: 30),
@@ -80,7 +80,7 @@ enum DockSwipeHIDBridge {
         return event
     }
 
-    nonisolated private static func release(_ hidEvent: HIDEventRef) {
+    private static func release(_ hidEvent: HIDEventRef) {
         Unmanaged<AnyObject>.fromOpaque(hidEvent).release()
     }
 }
