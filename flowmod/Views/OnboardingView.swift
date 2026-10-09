@@ -272,9 +272,13 @@ struct OnboardingView: View {
             Spacer()
 
             VStack(alignment: .leading, spacing: 8) {
-                Label("Allow Input Access", systemImage: "lock.shield.fill")
-                    .font(.title.bold())
-                    .foregroundStyle(Color.accentColor)
+                Label {
+                    Text("Allow Input Access")
+                } icon: {
+                    Image(systemName: "lock.shield.fill")
+                        .foregroundStyle(Color.accentColor)
+                }
+                .font(.title.bold())
 
                 Text("Enable FlowMod in \(PermissionManager.permissionSettingsPath) so it can customize external-mouse scrolling, buttons, and gestures.")
                     .font(.body)
@@ -405,7 +409,7 @@ struct OnboardingView: View {
 
             HStack {
                 if !isReady {
-                    Button("Open Settings") {
+                    Button("Open System Settings") {
                         permissionManager.openAccessibilitySettings()
                     }
                 }

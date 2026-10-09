@@ -312,9 +312,12 @@ struct MenuBarContent: View {
             }
         }
 
+        Divider()
+
         Button("Quit FlowMod") {
             NSApplication.shared.terminate(nil)
         }
+        .keyboardShortcut("q")
     }
 
     private func startInterceptor() {

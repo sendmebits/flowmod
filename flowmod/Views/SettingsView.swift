@@ -55,7 +55,7 @@ struct StatusBanner<Actions: View>: View {
 }
 
 /// First section of a behavior tab when the selected mouse is still following
-/// shared settings. The rest of the tab shows those settings read-only.
+/// All Mice settings. The rest of the tab shows those settings read-only.
 struct CustomizeProfileBanner: View {
     let deviceName: String
     let onCustomize: () -> Void
@@ -66,8 +66,8 @@ struct CustomizeProfileBanner: View {
                 Button("Customize", action: onCustomize)
                     .buttonStyle(.borderedProminent)
             } label: {
-                Text("\(deviceName) uses shared settings")
-                Text("Customize to give it its own, starting from these.")
+                Text("\(deviceName) follows All Mice")
+                Text("Customize to give it its own settings, starting from these.")
             }
         }
     }
@@ -105,12 +105,15 @@ struct SettingsView: View {
                 permissionWarning
             } else if let startupError = inputInterceptor.startupError {
                 interceptorWarning(startupError)
+            } else if !inputInterceptor.isRunning {
+                disabledNotice
             }
 
             // Mouse scope bar — Finder-style filter under the toolbar,
             // shown only on the tabs it applies to
             if showsScopeBar {
                 profileScopeBar
+                    .transition(.move(edge: .top).combined(with: .opacity))
             }
 
             TabView(selection: $selectedTab) {
@@ -153,6 +156,7 @@ struct SettingsView: View {
         }
         // Keep a stable System Settings-style window; each tab's form scrolls on overflow.
         .frame(width: Self.windowSize.width, height: Self.windowSize.height)
+        .animation(.default, value: showsScopeBar)
         .onChange(of: settings.perMouseSettingsEnabled) { _, enabled in
             if !enabled { selectedProfileKey = nil }
         }
@@ -164,17 +168,17 @@ struct SettingsView: View {
             }
         }
         .confirmationDialog(
-            "Reset \(selectedDeviceName) to shared settings?",
+            "Reset \(selectedDeviceName) to All Mice?",
             isPresented: $showRemoveConfirmation
         ) {
-            Button("Reset to Shared Settings", role: .destructive) {
+            Button("Reset to All Mice", role: .destructive) {
                 if let key = selectedProfileKey {
                     settings.removeProfile(forKey: key)
                 }
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This mouse will go back to following the settings it inherits for this model.")
+            Text("Scroll, button, and gesture settings for this mouse will follow All Mice again.")
         }
     }
 
@@ -269,7 +273,7 @@ struct SettingsView: View {
         .overlay(alignment: .trailing) {
             if selectedProfileKey != nil && selectedProfile != nil {
                 Menu {
-                    Button("Reset \(selectedDeviceName) to Shared Settings…", role: .destructive) {
+                    Button("Reset \(selectedDeviceName) to All Mice…", role: .destructive) {
                         showRemoveConfirmation = true
                     }
                 } label: {
@@ -282,7 +286,7 @@ struct SettingsView: View {
                 .padding(.trailing, 20)
                 .help("Profile options")
                 .accessibilityLabel("Profile options")
-                .accessibilityHint("Reset \(selectedDeviceName) to shared settings")
+                .accessibilityHint("Reset \(selectedDeviceName) to All Mice")
             }
         }
         .padding(.top, 12)
@@ -383,6 +387,20 @@ struct SettingsView: View {
             }
 
             Button("Try Again") {
+                inputInterceptor.start(settings: settings, deviceManager: deviceManager)
+            }
+            .buttonStyle(.borderedProminent)
+        }
+    }
+
+    private var disabledNotice: some View {
+        StatusBanner(
+            icon: "pause.circle.fill",
+            tint: .gray,
+            title: "FlowMod is turned off",
+            message: "Your mouse is using standard macOS behavior. Changes here apply when FlowMod is on."
+        ) {
+            Button("Turn On") {
                 inputInterceptor.start(settings: settings, deviceManager: deviceManager)
             }
             .buttonStyle(.borderedProminent)

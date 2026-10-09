@@ -60,9 +60,13 @@ struct InstallLocationView: View {
             Spacer(minLength: 0)
 
             VStack(alignment: .leading, spacing: 8) {
-                Label("Move FlowMod to Applications", systemImage: "folder")
-                    .font(.title.bold())
-                    .foregroundStyle(Color.accentColor)
+                Label {
+                    Text("Move FlowMod to Applications")
+                } icon: {
+                    Image(systemName: "folder")
+                        .foregroundStyle(Color.accentColor)
+                }
+                .font(.title.bold())
 
                 Text("FlowMod has to live in your Applications folder so input access and updates keep working.")
                     .font(.body)

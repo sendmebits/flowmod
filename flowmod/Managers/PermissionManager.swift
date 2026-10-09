@@ -32,7 +32,7 @@ class PermissionManager {
     }
 
     static var permissionSettingsPath: String {
-        "System Settings → Privacy & Security → \(permissionPaneName)"
+        "System Settings > Privacy & Security > \(permissionPaneName)"
     }
 
     /// Fresh TCC read. `AXIsProcessTrusted()` can cache false for the process

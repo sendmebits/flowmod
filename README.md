@@ -118,7 +118,7 @@ Swap Option and Command on a USB or Bluetooth keyboard so those keys sit where t
 
 ### A profile for every mouse
 
-Turn on **Separate Settings Per Mouse** in the General tab to give each mouse its own scrolling, button, and gesture settings—handy for work and home mice or devices with different button layouts.
+Turn on **Separate Settings for Each Mouse** in the General tab to give each mouse its own scrolling, button, and gesture settings—handy for work and home mice or devices with different button layouts.
 
 Each new profile starts with your defaults. Uncustomized mice continue to follow those defaults, and two connected mice can use different settings at the same time.
 

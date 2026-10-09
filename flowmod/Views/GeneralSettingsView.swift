@@ -50,6 +50,8 @@ struct GeneralSettingsView: View {
             }
 
             updatesSection
+
+            advancedSection
         }
         .formStyle(.grouped)
         .onAppear {
@@ -252,12 +254,18 @@ struct GeneralSettingsView: View {
             }
         } header: {
             Text("Updates")
-        } footer: {
-            HStack {
-                Spacer()
+        }
+    }
+
+    private var advancedSection: some View {
+        Section {
+            LabeledContent {
                 Button("Advanced…") {
                     showAdvanced = true
                 }
+            } label: {
+                Text("Troubleshooting")
+                Text("Debug logging, mouse detection, and setup assistant")
             }
         }
     }
