@@ -148,29 +148,41 @@ struct GeneralSettingsView: View {
         }
     }
 
-    private var externalMouseNames: [String] {
+    private struct MouseEntry: Identifiable {
+        let key: String
+        let name: String
+        var id: String { key }
+    }
+
+    private var externalMouseEntries: [MouseEntry] {
         let duplicateNames = Dictionary(grouping: externalMice, by: \.displayName)
         return externalMice.map { device in
             guard (duplicateNames[device.displayName]?.count ?? 0) > 1,
                   let qualifier = device.profileQualifier else {
-                return device.displayName
+                return MouseEntry(key: device.deviceKey, name: device.displayName)
             }
-            return "\(device.displayName) (\(qualifier))"
-        }.sorted()
+            return MouseEntry(key: device.deviceKey, name: "\(device.displayName) (\(qualifier))")
+        }.sorted { $0.name < $1.name }
     }
 
     @ViewBuilder
     private var connectedMiceRows: some View {
-        let names = externalMouseNames
-        if names.isEmpty {
+        let entries = externalMouseEntries
+        if entries.isEmpty {
             LabeledContent("Mouse") {
                 connectionStatus(connected: deviceManager.externalMouseConnected)
             }
         } else {
-            ForEach(names, id: \.self) { name in
-                LabeledContent(name) {
-                    connectionStatus(connected: true)
+            ForEach(entries) { entry in
+                let enabled = settings.isMouseEnabled(forKey: entry.key)
+                Toggle(isOn: Binding(
+                    get: { settings.isMouseEnabled(forKey: entry.key) },
+                    set: { settings.setMouseEnabled($0, forKey: entry.key) }
+                )) {
+                    Text(entry.name)
+                    Text(enabled ? "Customized by FlowMod" : "Not modified")
                 }
+                .accessibilityHint("Turn off to leave this mouse unmodified by FlowMod")
             }
         }
     }

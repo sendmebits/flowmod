@@ -253,6 +253,8 @@ class InputInterceptor {
     /// Per-mouse config snapshots keyed by `HIDDevice.deviceKey`.
     /// Only populated while per-mouse settings are enabled.
     private var runtimeProfileConfigs: [String: RuntimeConfig] = [:]
+    /// Device keys of mice the user turned off; their events pass through untouched.
+    private var runtimeDisabledMouseKeys: Set<String> = []
     
     struct RuntimeConfig {
         var mouseEnabled: Bool
@@ -319,6 +321,7 @@ class InputInterceptor {
     private enum EventSourceKind {
         case externalMouse  // resolved to a non-Apple pointing device
         case appleDevice    // resolved to an Apple device (trackpad / Magic Mouse)
+        case disabledMouse  // resolved to an external mouse the user turned off
         case unknown        // synthesized or unresolvable — fall back to heuristics
     }
 
@@ -341,6 +344,12 @@ class InputInterceptor {
         guard let device = manager?.device(forEventSenderID: senderID) else { return .unknown }
         if device.isAppleDevice {
             return EventSource(kind: .appleDevice, profileKey: nil)
+        }
+        runtimeConfigLock.lock()
+        let isDisabled = runtimeDisabledMouseKeys.contains(device.deviceKey)
+        runtimeConfigLock.unlock()
+        if isDisabled {
+            return EventSource(kind: .disabledMouse, profileKey: device.deviceKey)
         }
         return EventSource(kind: .externalMouse, profileKey: device.deviceKey)
     }
@@ -678,6 +687,7 @@ class InputInterceptor {
         runtimeConfigLock.lock()
         runtimeConfig = .default
         runtimeProfileConfigs = [:]
+        runtimeDisabledMouseKeys = []
         runtimeConfigLock.unlock()
 
         startupError = nil
@@ -738,6 +748,13 @@ class InputInterceptor {
         defer { interactionLock.unlock() }
         return continuousGestureActive
     }
+
+    /// True when a middle-button release must be swallowed because its press
+    /// was already intercepted. Callers must hold `interactionLock`.
+    private var ownsPendingMiddleRelease: Bool {
+        continuousGestureActive || middleDragTriggered ||
+            middleButtonDownWasSuppressed || pendingMiddleButtonAction != nil
+    }
     
     // MARK: - Scroll Handling
 
@@ -789,7 +806,7 @@ class InputInterceptor {
         // provably come from Apple devices (internal trackpad, Magic Mouse /
         // Trackpad) are never modified, regardless of the phase heuristics below.
         let source = self.source(of: event)
-        if source.kind == .appleDevice {
+        if source.kind == .appleDevice || source.kind == .disabledMouse {
             return event
         }
 
@@ -1356,6 +1373,22 @@ class InputInterceptor {
         interactionLock.lock()
         defer { interactionLock.unlock() }
 
+        if eventSource.kind == .disabledMouse {
+            // A fresh physical press means any earlier release FlowMod was
+            // waiting to swallow is gone; drop that obligation so this
+            // passthrough press doesn't lose its own release.
+            if buttonNumber == 2 {
+                let middleInteractionLive = middleButtonDown || middleButtonDownWasSuppressed ||
+                    pendingMiddleButtonAction != nil || continuousGestureActive
+                if !middleInteractionLive {
+                    middleDragTriggered = false
+                }
+            } else {
+                consumedSideButtons.remove(buttonNumber)
+            }
+            return event
+        }
+
         // Middle button (button 2) - start tracking for drag gesture
         if buttonNumber == 2 {
             if pendingMiddleClick != nil {
@@ -1417,6 +1450,15 @@ class InputInterceptor {
 
         interactionLock.lock()
         defer { interactionLock.unlock() }
+
+        // A disabled mouse passes through unless FlowMod already swallowed the
+        // matching press (e.g. the mouse was turned off while the button was held).
+        if eventSource.kind == .disabledMouse {
+            let ownsRelease = buttonNumber == 2
+                ? ownsPendingMiddleRelease
+                : consumedSideButtons.contains(buttonNumber)
+            guard ownsRelease else { return event }
+        }
 
         if buttonNumber == 2 {
             let pendingAction = pendingMiddleButtonAction
@@ -2122,13 +2164,17 @@ class InputInterceptor {
                 runtimeConfigLock.lock()
                 runtimeConfig = .default
                 runtimeProfileConfigs = [:]
+                runtimeDisabledMouseKeys = []
                 runtimeConfigLock.unlock()
                 return
             }
 
             let mouseEnabled = settings.mouseEnabled
             let assumeExternal = settings.assumeExternalMouse
-            let externalConnected = currentDeviceManager()?.externalMouseConnected ?? false
+            let disabledMouseKeys = settings.disabledMouseKeys
+            let externalConnected = currentDeviceManager()?.connectedDevices.contains {
+                !$0.isAppleDevice && !disabledMouseKeys.contains($0.deviceKey)
+            } ?? false
             let dragThreshold = settings.dragThreshold
 
             let snapshot = Self.makeRuntimeConfig(
@@ -2156,12 +2202,16 @@ class InputInterceptor {
             runtimeConfigLock.lock()
             runtimeConfig = snapshot
             runtimeProfileConfigs = profileSnapshots
+            let disabledMiceChanged = runtimeDisabledMouseKeys != disabledMouseKeys
+            runtimeDisabledMouseKeys = disabledMouseKeys
             runtimeConfigLock.unlock()
 
             // mouseEnabled can flip without going through stop(). Clear any
             // active continuous gesture so HID drag suppression cannot stay wedged.
             if !mouseEnabled {
                 abandonActiveMouseInteraction(reason: "mouseEnabled turned off")
+            } else if disabledMiceChanged {
+                abandonActiveMouseInteraction(reason: "mouse enable state changed")
             }
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in

@@ -96,6 +96,25 @@ class Settings {
         didSet { if !isLoading { UserDefaults.standard.set(mouseEnabled, forKey: "mouseEnabled") } }
     }
 
+    /// Mice FlowMod leaves untouched, keyed by `HIDDevice.deviceKey`.
+    private(set) var disabledMouseKeys: Set<String> = [] {
+        didSet { if !isLoading { UserDefaults.standard.set(Array(disabledMouseKeys).sorted(), forKey: "disabledMouseKeys") } }
+    }
+
+    func isMouseEnabled(forKey key: String) -> Bool {
+        !disabledMouseKeys.contains(key)
+    }
+
+    func setMouseEnabled(_ enabled: Bool, forKey key: String) {
+        guard enabled != isMouseEnabled(forKey: key) else { return }
+        if enabled {
+            disabledMouseKeys.remove(key)
+        } else {
+            disabledMouseKeys.insert(key)
+        }
+        LogManager.shared.log("Mouse \(enabled ? "enabled" : "disabled") [\(key)]", category: "Settings")
+    }
+
     // MARK: - General Settings
     /// Prefer launch-at-login by default, but do not silently register a login
     /// item on first launch — General settings applies the preference explicitly.
@@ -150,6 +169,7 @@ class Settings {
         assumeExternalMouse = UserDefaults.standard.bool(forKey: "assumeExternalMouse")
         debugLogging = UserDefaults.standard.bool(forKey: "debugLogging")
         perMouseSettingsEnabled = UserDefaults.standard.bool(forKey: "perMouseSettingsEnabled")
+        disabledMouseKeys = Set(UserDefaults.standard.stringArray(forKey: "disabledMouseKeys") ?? [])
 
         // Load the default profile from the legacy keys, then per-mouse profiles
         loadDefaultProfile()
