@@ -1728,12 +1728,6 @@ class InputInterceptor {
         }
     }
     
-    private func markMiddleClickEventForPassthrough(_ event: CGEvent, clickState: Int64 = 1) {
-        event.setIntegerValueField(.mouseEventButtonNumber, value: 2)
-        event.setIntegerValueField(.eventSourceUserData, value: InputInterceptor.syntheticEventMarker)
-        event.setIntegerValueField(.mouseEventClickState, value: clickState)
-    }
-
     private func middleDragAsMouseMoved(_ event: CGEvent) -> CGEvent {
         event.type = .mouseMoved
         return event
@@ -1746,7 +1740,6 @@ class InputInterceptor {
                                  mouseCursorPosition: location, mouseButton: .center),
               let up = CGEvent(mouseEventSource: nil, mouseType: .otherMouseUp,
                                mouseCursorPosition: location, mouseButton: .center) else { return }
-        markMiddleClickEventForPassthrough(down)
         MiddleClick(down: down).post(release: up, proxy: nil, sink: middleClickEventSink)
     }
 

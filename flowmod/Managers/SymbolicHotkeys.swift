@@ -48,7 +48,7 @@ enum SymbolicHotKey: UInt32 {
 }
 
 /// Marker for synthetic events to avoid re-processing by InputInterceptor
-private let syntheticEventMarker: Int64 = 0x464C4F574D4F44  // "FLOWMOD" in hex
+private let syntheticEventMarker = MiddleClick.eventMarker
 
 /// Utility struct for posting symbolic hotkey events
 struct SymbolicHotkeys {

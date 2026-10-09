@@ -107,7 +107,7 @@ struct OnboardingView: View {
     private var externalMice: [DeviceManager.HIDDevice] {
         var seen = Set<String>()
         return deviceManager.connectedDevices.filter { device in
-            guard device.isMouse && !device.isAppleDevice else { return false }
+            guard !device.isAppleDevice else { return false }
             return seen.insert(device.deviceKey).inserted
         }
     }

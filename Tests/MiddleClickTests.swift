@@ -242,11 +242,16 @@ final class MiddleClickTests: XCTestCase {
     func testSideButtonMappedToMiddleClickProducesOnePair() {
         var config = InputInterceptor.RuntimeConfig.default
         config.buttonMappings = [4: .middleClick]
-        var delivered: [CGEventType] = []
-        let interceptor = InputInterceptor.makeForTesting(runtimeConfig: config) { e, _ in delivered.append(e.type) }
+        var delivered: [CGEvent] = []
+        let interceptor = InputInterceptor.makeForTesting(runtimeConfig: config) { e, _ in delivered.append(e) }
         XCTAssertNil(send(event(.otherMouseDown, button: 4), to: interceptor))
         XCTAssertNil(send(event(.otherMouseUp, button: 4), to: interceptor))
-        XCTAssertEqual(delivered, [.otherMouseDown, .otherMouseUp])
+        XCTAssertEqual(delivered.map(\.type), [.otherMouseDown, .otherMouseUp])
+        for e in delivered {
+            XCTAssertEqual(e.getIntegerValueField(.mouseEventButtonNumber), 2)
+            XCTAssertEqual(e.getIntegerValueField(.mouseEventClickState), 1)
+            XCTAssertEqual(e.getIntegerValueField(.eventSourceUserData), MiddleClick.eventMarker)
+        }
     }
 
     func testTwentyThousandClicksWithoutServicingMainQueue() {

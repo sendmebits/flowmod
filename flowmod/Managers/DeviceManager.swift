@@ -43,7 +43,6 @@ class DeviceManager {
         let physicalDeviceUniqueID: String
         let serialNumber: String
         let locationID: Int
-        let isMouse: Bool
         let isAppleDevice: Bool
         /// IORegistryEntry ID for this device; used to match CGEvent source (undocumented field 87).
         let registryID: UInt64
@@ -359,7 +358,6 @@ class DeviceManager {
             physicalDeviceUniqueID: physicalDeviceUniqueID,
             serialNumber: serialNumber,
             locationID: locationID,
-            isMouse: isMouse,
             isAppleDevice: isAppleDevice,
             registryID: registryID
         )
@@ -368,7 +366,7 @@ class DeviceManager {
     private func updateConnectionState() {
         let prevMouse = externalMouseConnected
         
-        externalMouseConnected = connectedDevices.contains { $0.isMouse && !$0.isAppleDevice }
+        externalMouseConnected = connectedDevices.contains { !$0.isAppleDevice }
         
         if externalMouseConnected != prevMouse {
             LogManager.shared.log("External mouse: \(externalMouseConnected ? "connected" : "disconnected")", category: "Device")

@@ -144,7 +144,7 @@ struct GeneralSettingsView: View {
     private var externalMice: [DeviceManager.HIDDevice] {
         var seen = Set<String>()
         return deviceManager.connectedDevices.filter {
-            $0.isMouse && !$0.isAppleDevice && seen.insert($0.deviceKey).inserted
+            !$0.isAppleDevice && seen.insert($0.deviceKey).inserted
         }
     }
 
