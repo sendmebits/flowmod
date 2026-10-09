@@ -1,7 +1,10 @@
 #!/bin/bash
 # Package a signed FlowMod.app for release.
 #
-#   scripts/create-dmg.sh /path/to/flowmod.app [output-directory]
+#   scripts/create-dmg.sh [/path/to/flowmod.app] [output-directory]
+#
+# With no arguments, the app is taken from ~/Downloads and the release files
+# are written there too. With an app path, the output directory defaults to build.
 #
 # Writes two files:
 #   FlowMod.dmg   First-time download. Drag the app onto Applications.
@@ -19,13 +22,36 @@
 
 set -euo pipefail
 
-if [[ $# -lt 1 || $# -gt 2 ]]; then
-    echo "Usage: scripts/create-dmg.sh /path/to/flowmod.app [output-directory]" >&2
+USAGE="Usage: scripts/create-dmg.sh [/path/to/flowmod.app] [output-directory]"
+
+if [[ $# -gt 2 ]]; then
+    echo "$USAGE" >&2
     exit 1
 fi
 
-APP_PATH=$(cd "$(dirname "$1")" && pwd)/$(basename "$1")
-OUT_DIR=${2:-build}
+if [[ $# -eq 0 ]]; then
+    DOWNLOADS="$HOME/Downloads"
+    CANDIDATE=""
+    for name in FlowMod.app flowmod.app; do
+        path="$DOWNLOADS/$name"
+        [[ -d "$path" ]] || continue
+        # On a case-insensitive volume both names resolve to the same bundle.
+        if [[ -z "$CANDIDATE" ]] || { [[ ! "$path" -ef "$CANDIDATE" ]] && [[ "$path" -nt "$CANDIDATE" ]]; }; then
+            CANDIDATE="$path"
+        fi
+    done
+    if [[ -z "$CANDIDATE" ]]; then
+        echo "No FlowMod.app or flowmod.app found in $DOWNLOADS." >&2
+        echo "$USAGE" >&2
+        exit 1
+    fi
+    echo "Using $CANDIDATE"
+    APP_PATH="$CANDIDATE"
+    OUT_DIR="$DOWNLOADS"
+else
+    APP_PATH=$(cd "$(dirname "$1")" && pwd)/$(basename "$1")
+    OUT_DIR=${2:-build}
+fi
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 VOLUME_NAME="FlowMod"
 WINDOW_WIDTH=660
