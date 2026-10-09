@@ -71,6 +71,7 @@ WORK=$(cd "$WORK" && pwd -P)
 RW_DMG="$WORK/flowmod-rw.dmg"
 STAGING="$WORK/stage"
 BACKGROUND="$WORK/background.png"
+DMG_ICON="$WORK/FlowMod.icns"
 
 DEVICE=""
 cleanup() {
@@ -103,6 +104,7 @@ rm -f "$OUT_DIR/flowmod.zip"
 ditto -c -k --keepParent --norsrc "$STAGING/FlowMod.app" "$OUT_DIR/flowmod.zip"
 
 swift "$ROOT/scripts/render-dmg-background.swift" "$BACKGROUND" "$WINDOW_WIDTH" "$WINDOW_HEIGHT"
+swift "$ROOT/scripts/render-dmg-icon.swift" "$STAGING/FlowMod.app" "$DMG_ICON"
 
 APP_KB=$(du -sk "$STAGING/FlowMod.app" | awk '{print $1}')
 DMG_KB=$((APP_KB + 30000))
@@ -156,6 +158,11 @@ sleep 3
 sync
 # Don't follow the Applications symlink into the real Applications folder.
 chmod -R go-w "$MOUNT/FlowMod.app" "$MOUNT/.background" || true
+# Finder drops .VolumeIcon.icns while saving the window, so write it after that.
+cp "$DMG_ICON" "$MOUNT/.VolumeIcon.icns"
+SetFile -c icnC "$MOUNT/.VolumeIcon.icns"
+SetFile -a C "$MOUNT"
+sync
 diskutil eject "$MOUNT" >/dev/null
 DEVICE=""
 
@@ -186,6 +193,13 @@ else
     echo "FlowMod.dmg is not notarized."
     echo "Set FLOWMOD_SIGN_IDENTITY and FLOWMOD_NOTARY_PROFILE, then run this script again to sign, notarize, and staple it."
 fi
+
+echo "Setting the FlowMod.dmg icon"
+# The file icon lives in the resource fork, outside the signed and stapled data.
+# Rez fails to open absolute paths in read statements, so run it from $WORK.
+printf "read 'icns' (-16455) \"FlowMod.icns\";\n" > "$WORK/icon.r"
+(cd "$WORK" && xcrun Rez -append icon.r -o "$OUT_DIR/FlowMod.dmg")
+SetFile -a C "$OUT_DIR/FlowMod.dmg"
 
 echo "Release files:"
 echo "  $OUT_DIR/FlowMod.dmg"
